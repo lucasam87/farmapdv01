@@ -47,3 +47,16 @@ begin
   returning id into v_id;
   return v_id;
 end $$;
+
+-- O plano da Task 6 listava quatro fixtures; os casos de crediario da Task 7
+-- precisam de cliente com limite, sem limite e bloqueado.
+create or replace function criar_cliente(p_nome text, p_limite integer, p_bloqueado boolean)
+returns uuid language plpgsql as $$
+declare
+  v_id uuid;
+begin
+  insert into clientes (nome, limite_credito, bloqueado)
+  values (p_nome, p_limite, p_bloqueado)
+  returning id into v_id;
+  return v_id;
+end $$;

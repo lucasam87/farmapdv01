@@ -19,3 +19,21 @@ begin
   end if;
   insert into teste_log (nome) values (p_nome);
 end $$;
+
+-- Espera que o SQL levante excecao e que a mensagem contenha o trecho dado
+-- (comparacao sem diferenciar maiuscula de minuscula). Uma excecao que nao
+-- vem — ou que vem com outra mensagem — e falha nomeada.
+create or replace function teste_erro(p_sql text, p_trecho text, p_nome text)
+returns void language plpgsql as $$
+begin
+  begin
+    execute p_sql;
+  exception when others then
+    if position(lower(p_trecho) in lower(sqlerrm)) = 0 then
+      raise exception 'FALHOU: % — esperava mensagem com "%", veio "%"', p_nome, p_trecho, sqlerrm;
+    end if;
+    insert into teste_log (nome) values (p_nome);
+    return;
+  end;
+  raise exception 'FALHOU: % — nenhuma excecao foi levantada', p_nome;
+end $$;
