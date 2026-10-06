@@ -38,7 +38,7 @@ Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 | 2 | `lib/format.ts` (moeda e data) com testes | ✅ 7/7 |
 | 3 | Clients Supabase, `proxy.ts`, `perfilAtual` | ✅ 12/12 |
 | 4 | Login, logout e menu de 9 entradas | 🟡 código pronto; verificação manual pendente |
-| 5 | Migration 001: 11 tabelas, constraints e RLS | ⬜ bloqueada (precisa do Supabase) |
+| 5 | Migration 001: 10 tabelas, constraints e RLS | 🟡 aplicada e verificada; falta o primeiro perfil | 06/10/2026 |
 | 6 | Runner de testes SQL (transação + rollback) | ⬜ bloqueada |
 | 7 | `registrar_venda` | ⬜ bloqueada |
 | 8 | Teste de concorrência | ⬜ bloqueada |

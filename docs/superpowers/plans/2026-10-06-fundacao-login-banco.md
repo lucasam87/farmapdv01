@@ -316,7 +316,7 @@ Status ✅, com a evidência do Step 4 e a data. Commit `etapa-1: fechamento com
 
 **Interfaces:**
 - Consumes: `SUPABASE_DB_URL` do `.env.local`.
-- Produces: as 11 tabelas, índices, constraints e RLS na forma final descrita na spec §7.1–§7.4, na ordem de criação `perfis → produtos → clientes → caixa_sessoes → vendas → venda_itens → venda_pagamentos → caixa_movimentos → estoque_movimentos → crediario_lancamentos`.
+- Produces: as 10 tabelas, índices, constraints e RLS na forma final descrita na spec §7.1–§7.4, na ordem de criação `perfis → produtos → clientes → caixa_sessoes → vendas → venda_itens → venda_pagamentos → caixa_movimentos → estoque_movimentos → crediario_lancamentos`.
 
 - [ ] **Step 1: Escrever `supabase/migrations/001_base.sql`**
 
@@ -343,7 +343,7 @@ Run:
 node -e "const {Client}=require('pg');const d=require('dotenv').config({path:'.env.local'}).parsed;const c=new Client({connectionString:d.SUPABASE_DB_URL,ssl:{rejectUnauthorized:false}});c.connect().then(()=>c.query(\"select tablename, rowsecurity from pg_tables where schemaname='public' order by tablename\")).then(r=>{console.table(r.rows);return c.end()}).catch(e=>{console.error(e.message);process.exit(1)})"
 ```
 
-Expected: 11 linhas, **todas** com `rowsecurity = true`. Se alguma vier `false`, a migration está errada — corrigir e reaplicar.
+Expected: 10 linhas, **todas** com `rowsecurity = true`. Se alguma vier `false`, a migration está errada — corrigir e reaplicar.
 
 - [ ] **Step 4: Criar o primeiro dono em `perfis`**
 
@@ -381,11 +381,11 @@ git commit -m "etapa-2: migration base com tabelas, constraints e RLS"
 do $$
 begin
   perform teste_ok(
-    (select count(*) = 11 from pg_tables where schemaname = 'public'),
-    'existem 11 tabelas no schema public');
+    (select count(*) = 10 from pg_tables where schemaname = 'public'),
+    'existem 10 tabelas no schema public');
   perform teste_ok(
-    (select count(*) = 11 from pg_tables where schemaname = 'public' and rowsecurity = true),
-    'todas as 11 tabelas tem RLS ativado');
+    (select count(*) = 10 from pg_tables where schemaname = 'public' and rowsecurity = true),
+    'todas as 10 tabelas tem RLS ativado');
   perform teste_ok(
     (select codigo_barras = '0012345' from (
        insert into produtos (codigo_barras, nome, preco_venda, estoque_atual)
