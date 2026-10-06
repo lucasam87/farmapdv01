@@ -26,39 +26,32 @@ login, banco com RLS, funções de venda, cancelamento, caixa e as 10 views.
 **ainda não começou**. A **tarefa zero dele foi comprovada** (ver abaixo): o `supabase
 link` e o `migration repair` funcionam sem a senha do banco.
 
-**Onde a sessão parou, exatamente:** publicar o projeto no **GitHub**. Está tudo pronto
-menos a autorização da conta, que só o Lucas pode fazer (é o passo que travou a sessão).
-Estado verificado: `gh` 2.102.0 instalado, `credential.helper = manager` com o Git
-Credential Manager presente, e **nenhum segredo em nenhum dos 181 objetos do histórico**
-(o `SUPABASE_ACCESS_TOKEN` e a chave anon não aparecem; o único `.env*` versionado é o
-`.env.example`, vazio de valores). Dois códigos de dispositivo expiraram sem autorização.
+**O projeto está no GitHub:** https://github.com/lucasam87/farmapdv01 (**privado**), com as
+duas branches (`main` em `a9f55cd` e `etapa-0-2-fundacao` em `58553e0`) — conferidas hash a
+hash contra o local, e auditadas: nenhum segredo subiu. Detalhes na seção
+"Publicado no GitHub" mais abaixo. Daqui para frente, `git push` sobe sozinho.
+
+**Onde a sessão parou, exatamente:** a próxima tarefa é **executar o plano 2**, começando
+pela tarefa zero (ligar o Supabase CLI). Nada do plano 2 foi executado ainda.
 
 # ▶ COMO RETOMAR EM OUTRA JANELA
 
 Diga ao agente, nesta ordem:
 
-1. **Se quiser continuar a publicação no GitHub:** "vamos terminar o GitHub". O agente
-   gera um código de dispositivo e você abre https://github.com/login/device, cola e
-   autoriza (o código vale ~10 minutos). O agente então roda `gh auth setup-git`,
-   `gh repo create farmacia --private` e sobe as **duas branches** (`main` e
-   `etapa-0-2-fundacao`). **Falta o seu usuário do GitHub** para o e-mail
-   `...@users.noreply.github.com` dos próximos commits. Alternativa: um Personal Access
-   Token (classic) com escopos `repo` e `read:org` + `gh auth login --with-token`.
-
-2. **"Leia o `PROGRESSO.md` e o ledger em
+1. **"Leia o `PROGRESSO.md` e o ledger em
    `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`, e vamos executar o
    plano 2 (Etapas 3–4)."** O ledger é o registro detalhado de **todas** as decisões
    (rulings) e do que já foi verificado. Ele é ignorado pelo git de propósito (é
    rascunho do processo), mas está no disco. O ledger do plano 1, com toda a história da
    fundação, está em `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`.
 
-3. Antes de escrever qualquer coisa, rodar e conferir:
+2. Antes de escrever qualquer coisa, rodar e conferir:
    - `npm test` → **12/12**
    - `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**
    - `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**
    - `git log --oneline` → os commits da etapa-2 e o commit do plano 2
 
-4. A execução do plano 2 começa pela **tarefa zero** (ligar o Supabase CLI):
+3. A execução do plano 2 começa pela **tarefa zero** (ligar o Supabase CLI):
 
    ```powershell
    $env:SUPABASE_ACCESS_TOKEN = (Select-String -Path ".env.local" -Pattern '^SUPABASE_ACCESS_TOKEN=(.+)$').Matches.Groups[1].Value.Trim()
@@ -208,39 +201,46 @@ Para ver a senha do usuário de teste:
 Select-String -Path "C:\DEEPSEEK WORKSPACE\PROJETO 1\.env.local" -Pattern '^USUARIO_SENHA'
 ```
 
-## Publicar no GitHub — em andamento, bloqueado na autorização
+## Publicado no GitHub — FEITO em 06/10/2026
 
-Trabalho começado em 06/10/2026 e **parado no único passo que depende do Lucas**.
-Decidido: repositório **privado**, nome **`farmacia`**, subindo **as duas branches**
-(`main` e `etapa-0-2-fundacao`), e e-mail dos próximos commits em
-`...@users.noreply.github.com` (os commits já feitos usam `lucas@farmacia.local` e ficam
-como estão — mudá-los exigiria reescrever histórico).
+**Repositório:** https://github.com/lucasam87/farmapdv01 — **privado** (o nome do
+repositório é `farmapdv01`; o projeto local continua sendo a pasta `PROJETO 1`).
 
-**Pronto e verificado:**
+**As duas branches estão no remoto e conferidas hash a hash:**
 
-- `gh` (GitHub CLI) **2.102.0** instalado em `C:\Program Files\GitHub CLI\gh.exe`
-  (via winget). Não estava instalado antes.
-- `credential.helper = manager`, com o Git Credential Manager em
-  `C:\Program Files\Git\ucrt64\bin\git-credential-manager.exe` — o `git push` consegue
-  autenticar sozinho depois do login.
-- **Auditoria do histórico (reconferida ao fim da sessão): nenhum segredo em nenhum dos
-  181 objetos.** Nem o valor do `SUPABASE_ACCESS_TOKEN` nem o da chave anon aparecem.
-  O único `.env*` já commitado é o `.env.example`, que está vazio de valores.
-- `.gitignore` cobre `.env`, `.env*.local`, `supabase/.temp/` e `.superpowers/`.
+| Branch | Commit | Confere com o local |
+|---|---|---|
+| `main` | `a9f55cd` | ✅ |
+| `etapa-0-2-fundacao` | `58553e0` | ✅ |
 
-**Onde travou:** a autorização da conta. O login do `gh` usa código de dispositivo e exige
-abrir https://github.com/login/device — o agente não consegue fazer isso sozinho. Três
-verificações seguidas deram `gh auth status` → `not logged into any GitHub hosts` e
-`%APPDATA%\GitHub CLI\hosts.yml` inexistente. **Dois códigos foram gerados e expiraram sem
-autorização** (`203C-8F4C` e `436A-4518`; cada um vale ~10 minutos). Nenhum processo `gh`
-ficou rodando.
+Ambas com `-u`, então `git push` sozinho já sobe o trabalho daqui para frente. **53
+arquivos** no remoto, igual ao local.
 
-**Para continuar:** dizer ao agente "vamos terminar o GitHub". Ele gera um código novo,
-você autoriza em https://github.com/login/device, e o agente roda `gh auth setup-git`,
-`gh repo create farmacia --private` e o push das duas branches. **Falta também o usuário do
-GitHub** para fechar o e-mail `@users.noreply.github.com`. Alternativa, se o navegador
-falhar: Personal Access Token (classic) com escopos `repo` e `read:org`, passado para
-`gh auth login --with-token`.
+**Autenticação:** `gh` (GitHub CLI **2.102.0**, instalado via winget) autenticado na conta
+`lucasam87` pelo cofre de credenciais do Windows (`gh auth status` → `✓ Logged in to
+github.com account lucasam87 (keyring)`), escopos `repo`, `read:org`, `gist`.
+`gh auth setup-git` rodado, então o `git push` usa a mesma credencial.
+
+**Auditoria do que subiu — nenhum segredo:**
+
+- Nenhum valor de `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL` (senha do banco),
+  `USUARIO_SENHA` ou `NEXT_PUBLIC_SUPABASE_ANON_KEY` aparece em nenhum dos 53 arquivos.
+- O único `.env*` versionado é o `.env.example`, e ele está **vazio de valores** (as quatro
+  variáveis existem sem valor). O `.env.local` **não** subiu.
+- `.superpowers/` (ledgers e rascunhos) não subiu.
+- **O que aparece e não é segredo:** o e-mail do usuário de teste
+  (`lucas@farmacia.local`, documentado de propósito neste arquivo) e o *ref* do projeto
+  Supabase (`geywpaegovurwtfoacwt`) em duas linhas deste `PROGRESSO.md`. É identificador,
+  não credencial.
+
+**E-mail dos próximos commits:** `lucasam87@users.noreply.github.com` (configurado local
+neste repositório). Os commits anteriores usam `lucas@farmacia.local` e ficaram como
+estavam.
+
+**Histórico do que deu errado, para não repetir:** o login do `gh` é por código de
+dispositivo (~10 minutos de validade) e exige o Lucas abrir
+https://github.com/login/device; **quatro códigos** precisaram ser gerados ao longo da
+sessão antes de um ser autorizado a tempo.
 
 ## Decisões de projeto que não estão na spec
 
