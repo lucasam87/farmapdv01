@@ -238,7 +238,12 @@ begin
     if p_cliente_id is null then
       raise exception 'Crediário exige cliente.';
     end if;
-    select * into v_cliente from clientes where id = p_cliente_id;
+    -- `for update` no cliente: sem ele, duas vendas simultaneas para o MESMO
+    -- cliente (em produtos diferentes, que e o caso real) leem a divida antes
+    -- do commit uma da outra, as duas passam pelo limite e o cliente termina
+    -- devendo mais do que o limite. A ordem de lock e sempre produtos (por
+    -- produto_id) e depois o cliente, entao nao ha ciclo de deadlock.
+    select * into v_cliente from clientes where id = p_cliente_id for update;
     if not found then
       raise exception 'Cliente não encontrado no cadastro.';
     end if;
@@ -336,6 +341,11 @@ end $$;
 -- A spec 5 diz que estas sao as unicas escritas que o front provoca: quem chama
 -- e o usuario logado (authenticated). O service_role continua podendo chamar
 -- para scripts administrativos.
-revoke all on function registrar_venda(uuid, uuid, jsonb, jsonb, integer) from public;
+--
+-- `from anon` e obrigatorio e nao decoracao: no Supabase o EXECUTE chega a anon
+-- por DEFAULT PRIVILEGES, direto no papel — revogar so de PUBLIC nao tira nada.
+-- (Achado da revisao final, provado por has_function_privilege em
+-- tests/sql/casos/050_permissoes.sql.)
+revoke all on function registrar_venda(uuid, uuid, jsonb, jsonb, integer) from public, anon;
 grant execute on function registrar_venda(uuid, uuid, jsonb, jsonb, integer)
   to authenticated, service_role;

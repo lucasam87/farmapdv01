@@ -127,5 +127,7 @@ begin
   end loop;
 end $$;
 
-revoke all on function cancelar_venda(uuid, text) from public;
+-- `from anon` e obrigatorio: no Supabase o EXECUTE chega a anon por DEFAULT
+-- PRIVILEGES (grant direto no papel), e revogar so de PUBLIC nao tira nada.
+revoke all on function cancelar_venda(uuid, text) from public, anon;
 grant execute on function cancelar_venda(uuid, text) to authenticated, service_role;

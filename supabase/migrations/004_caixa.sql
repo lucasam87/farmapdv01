@@ -170,9 +170,11 @@ begin
   return jsonb_build_object('esperado_dinheiro', v_esperado, 'diferenca', v_diferenca);
 end $$;
 
-revoke all on function abrir_caixa(integer) from public;
-revoke all on function caixa_movimento(text, integer, text) from public;
-revoke all on function fechar_caixa(integer, text) from public;
+-- `from anon` e obrigatorio: no Supabase o EXECUTE chega a anon por DEFAULT
+-- PRIVILEGES (grant direto no papel), e revogar so de PUBLIC nao tira nada.
+revoke all on function abrir_caixa(integer) from public, anon;
+revoke all on function caixa_movimento(text, integer, text) from public, anon;
+revoke all on function fechar_caixa(integer, text) from public, anon;
 grant execute on function abrir_caixa(integer) to authenticated, service_role;
 grant execute on function caixa_movimento(text, integer, text) to authenticated, service_role;
 grant execute on function fechar_caixa(integer, text) to authenticated, service_role;

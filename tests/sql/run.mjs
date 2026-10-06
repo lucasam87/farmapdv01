@@ -87,8 +87,10 @@ if (!token || !urlProjeto) {
   ].join('\n')
 
   // O select do log precisa vir depois do caso e antes do ROLLBACK: e a ultima
-  // instrucao com linhas, entao e ela que o endpoint devolve.
+  // instrucao com linhas, entao e ela que o endpoint devolve. O `reset role` e
+  // para o caso que troca de role (050_permissoes.sql): o log e lido como dono.
   const rodape = [
+    'reset role;',
     "select coalesce(json_agg(nome order by ordem), '[]'::json) as oks from teste_log;",
     'rollback;',
   ].join('\n')

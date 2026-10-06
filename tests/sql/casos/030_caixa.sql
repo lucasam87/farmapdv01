@@ -13,9 +13,11 @@ declare
   v_dono      uuid;
   v_caixa_a   uuid;
   v_caixa_b   uuid;
+  v_caixa_c   uuid;
   v_produto   uuid;
   v_chave     uuid;
   v_resultado jsonb;
+  v_venda_cancelada uuid;
 begin
   -- ================= cenario =================
   v_dono := criar_usuario_teste(gen_random_uuid(), 'caixa@farmacia.local');
@@ -151,4 +153,35 @@ begin
   perform teste_erro('select abrir_caixa(-1)',
     'não pode ser negativo',
     'abrir caixa com valor inicial negativo e recusado');
+
+  -- ================= venda em dinheiro CANCELADA =================
+  -- Achado da revisao final: a formula da spec 8.3 tem o termo
+  -- "- cancelamentos em dinheiro" e nada na suite testava esse termo. Aqui a
+  -- venda de 900 entra e o cancelamento tira os mesmos 900: o esperado tem que
+  -- voltar exatamente ao valor inicial.
+  v_caixa_c := abrir_caixa(4000);
+  v_chave := gen_random_uuid();
+  v_venda_cancelada := (registrar_venda(v_chave, null,
+    jsonb_build_array(jsonb_build_object('produto_id', v_produto, 'quantidade', 2)),
+    jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 2000)),
+    0)->>'id')::uuid;
+
+  perform teste_ok((select esperado_dinheiro = 4900 from v_caixa_atual where sessao_id = v_caixa_c),
+    'a venda em dinheiro de 900 sobe o esperado de 4000 para 4900');
+
+  perform cancelar_venda(v_venda_cancelada, 'cancelada para testar o caixa');
+
+  perform teste_ok((select esperado_dinheiro = 4000 from v_caixa_atual where sessao_id = v_caixa_c),
+    'venda em dinheiro cancelada devolve o esperado ao valor inicial (4000)');
+  perform teste_ok((select count(*) = 1 from caixa_movimentos
+                    where sessao_id = v_caixa_c and tipo = 'cancelamento' and valor = -900),
+    'o cancelamento deixou um movimento de -900 no caixa');
+
+  -- As duas implementacoes da formula (fechar_caixa e v_caixa_atual) sao
+  -- escritas a mao uma da outra: elas tem que concordar.
+  v_resultado := fechar_caixa(4000, null);
+  perform teste_ok((v_resultado->>'esperado_dinheiro')::integer = 4000,
+    'fechar_caixa concorda com v_caixa_atual: esperado 4000 depois do cancelamento');
+  perform teste_ok((v_resultado->>'diferenca')::integer = 0,
+    'contado 4000 igual ao esperado: diferenca zero');
 end $$;

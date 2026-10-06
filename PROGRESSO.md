@@ -18,8 +18,8 @@ login, banco com RLS, funções de venda, cancelamento, caixa e as 10 views.
 
 | Comando | Resultado |
 |---|---|
-| `npm run test:sql` | **100 OK, 0 FALHOU de 5 arquivos**, exit 0 (3 rodadas seguidas, iguais) |
-| `npm run test:sql:concorrencia` | **10 OK, 0 FALHOU**, exit 0 — B ficou 1096 ms bloqueada no lock e recebeu `Estoque insuficiente` |
+| `npm run test:sql` | **119 OK, 0 FALHOU de 6 arquivos**, exit 0 (3 rodadas seguidas, iguais) |
+| `npm run test:sql:concorrencia` | **17 OK, 0 FALHOU**, exit 0 — último item: B bloqueada ~1 s e recusada com `Estoque insuficiente`; limite de crediário: B bloqueada e recusada com `Limite excedido` |
 | `npm test` | **12/12** |
 
 **Próximo passo, exatamente:** escrever o **plano 2** (Etapas 3–4: produtos, estoque,
@@ -38,8 +38,8 @@ Diga ao agente, nesta ordem:
 
 2. Antes de escrever qualquer coisa, rodar e conferir:
    - `npm test` → **12/12**
-   - `npm run test:sql` → **100 OK, 0 FALHOU de 5 arquivos**
-   - `npm run test:sql:concorrencia` → **10 OK, 0 FALHOU**
+   - `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**
+   - `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**
    - `git log --oneline` → os commits da etapa-2
 
 3. Para testar a interface: `npm run dev` e abrir http://localhost:3000.
@@ -48,23 +48,32 @@ Diga ao agente, nesta ordem:
 Não apague a branch nem o `.superpowers/`.
 
 **Como as migrations são aplicadas (importante):** o banco **não** aceita conexão `pg`
-(a senha nunca autenticou). Todo SQL de migration vai pelo endpoint de gerenciamento:
+(a senha nunca autenticou), então `supabase db push` e `psql` não servem. O caminho é o
+endpoint de gerenciamento, e ele já está versionado no repositório:
 
-```
-POST https://api.supabase.com/v1/projects/geywpaegovurwtfoacwt/database/query
-Authorization: Bearer $SUPABASE_ACCESS_TOKEN
-Content-Type: application/json
-{ "query": "<conteúdo do arquivo .sql>" }
+```powershell
+npm run migrar                  # aplica supabase/migrations/*.sql em ordem
+npm run migrar -- 006_produtos.sql   # aplica só uma
 ```
 
-O script que faz isso (`aplicar-sql.mjs`) vive no `.superpowers` (scratch, fora do git).
-Se ele sumir, são ~30 linhas de `fetch`. Migrations já aplicadas no projeto: `001_base`,
-`002_registrar_venda`, `003_cancelar_venda`, `004_caixa`, `005_views` — todas as cinco
-com HTTP 201.
+O script (`scripts/aplicar-migration.mjs`) usa `SUPABASE_ACCESS_TOKEN` +
+`NEXT_PUBLIC_SUPABASE_URL` do `.env.local` e sai com código 1 se falhar.
+Migrations já aplicadas no projeto: `001_base`, `002_registrar_venda`,
+`003_cancelar_venda`, `004_caixa`, `005_views`.
+
+⚠️ **Quando o Supabase CLI entrar no projeto** (o `supabase link` precisa da senha do
+banco, que ainda não existe), rodar antes de qualquer `db push`:
+
+```powershell
+npx supabase migration repair --status applied 001 002 003 004 005
+```
+
+Sem isso o CLI tentaria reaplicar as cinco e o histórico dele ficaria mentindo.
 
 **Os testes SQL também usam esse endpoint** (não o `pg`): `tests/sql/run.mjs` roda cada
 arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
-`tests/sql/concorrencia.mjs` dispara duas requisições simultâneas para provar o lock.
+`tests/sql/concorrencia.mjs` dispara requisições simultâneas para provar os locks
+(último item do estoque e limite de crediário do mesmo cliente).
 
 ---
 
@@ -74,7 +83,7 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 |---|---|---|---|---|
 | 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
-| 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas (HTTP 201) e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **100 OK, 0 FALHOU de 5 arquivos** (3 rodadas iguais); `npm run test:sql:concorrencia` → **10 OK, 0 FALHOU** (B bloqueada 1096 ms, recebeu `Estoque insuficiente`; sem o `for update` o teste reprova — provado por mutação); `npm test` → 12/12. Commits `3f91530`, `f0e73b6`, `35d91ef`, `286bf5b`, `0b24a6a` + o fechamento | 06/10/2026 |
+| 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**; `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**; `npm test` → 12/12. Revisão final em contexto limpo apontou 1 Critical + 4 Important, todos corrigidos com teste que nasceu vermelho: `anon` perdeu o EXECUTE das RPCs de escrita (`050_permissoes.sql`), o limite de crediário ganhou `for update` no cliente (cenário 2 da concorrência), o termo "cancelamentos em dinheiro" da §8.3 ganhou teste, RLS passou a ser exercitada de verdade, e `npm run migrar` passou a ser o caminho versionado de aplicar migration | 06/10/2026 |
 | 3 | Produtos e estoque | ⬜ | — | — |
 | 4 | PDV | ⬜ | — | — |
 | 5 | Histórico de vendas | ⬜ | — | — |

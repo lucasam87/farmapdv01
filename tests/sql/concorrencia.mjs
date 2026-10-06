@@ -1,18 +1,21 @@
-// Teste de concorrencia: prova que duas vendas simultaneas do ULTIMO item nao
-// vendem duas vezes.
+// Testes de concorrencia: dois clientes do banco disputando o mesmo recurso.
 //
-// Este e o unico teste que grava FORA de transacao — duas conexoes concorrentes
-// nao cabem num rollback comum. Ele cria usuario, caixa e produto proprios,
-// limpa tudo no fim (antes e depois, para poder rodar de novo) e FALHA se a
-// limpeza nao funcionar.
+//   1. ultimo item do estoque  — a segunda venda tem que falhar por estoque
+//   2. limite de crediario     — duas vendas simultaneas para o MESMO cliente
+//                                nao podem passar as duas do limite
+//
+// Sao os unicos testes que gravam FORA de transacao (duas conexoes concorrentes
+// nao cabem num rollback comum). Eles criam usuario, caixa, produtos e cliente
+// proprios, limpam tudo no fim (antes e depois, para poder rodar de novo) e
+// FALHAM se a limpeza nao funcionar.
 //
 // Transporte: duas requisicoes HTTP simultaneas ao endpoint /database/query.
 // Sonda comprovou que ele atende em conexoes diferentes (uma tomou lock timeout
 // enquanto a outra segurava o lock). A senha do banco (SUPABASE_DB_URL) nunca
 // autenticou, entao nao da para abrir dois `pg`.
 //
-// O criterio de tempo do plano ("B bloqueada por pelo menos 200 ms") e medido
-// DENTRO do banco, com clock_timestamp(): o endpoint leva ~1,5 s de overhead por
+// O criterio de tempo ("B bloqueada por pelo menos 200 ms") e medido DENTRO do
+// banco, com clock_timestamp(): o endpoint leva ~1,5 s de overhead por
 // requisicao, o que tornaria qualquer medicao no Node uma prova falsa.
 
 import fs from 'node:fs'
@@ -27,6 +30,14 @@ const EMAIL = 'concorrencia@farmacia.local'
 const TERMINAL = 'teste-concorrencia'
 const PRODUTO = 'PRODUTO CONCORRENCIA'
 const PRECO = 1000
+// Cenario 2: produtos DIFERENTES de proposito — se as duas vendas disputassem o
+// mesmo produto, o lock da linha de produtos serializaria as duas e o teste do
+// limite de crediario passaria sem testar nada.
+const PRODUTO_A = 'PRODUTO CREDITO A'
+const PRODUTO_B = 'PRODUTO CREDITO B'
+const CLIENTE = 'CLIENTE CONCORRENCIA'
+const PRECO_CREDITO = 4500
+const LIMITE_CREDITO = 5000
 
 const token = process.env.SUPABASE_ACCESS_TOKEN
 const urlProjeto = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -67,16 +78,18 @@ if (!token || !urlProjeto) {
   // execucao anterior falhou no meio.
   const limpeza = `
 delete from caixa_movimentos where sessao_id in (select id from caixa_sessoes where terminal = '${TERMINAL}');
-delete from estoque_movimentos where produto_id in (select id from produtos where nome = '${PRODUTO}');
-delete from crediario_lancamentos where venda_id in (
-  select v.id from vendas v join perfis p on p.id = v.usuario_id where p.nome = '${EMAIL}');
+delete from estoque_movimentos where produto_id in (
+  select id from produtos where nome in ('${PRODUTO}', '${PRODUTO_A}', '${PRODUTO_B}'));
+delete from crediario_lancamentos where cliente_id in (select id from clientes where nome = '${CLIENTE}')
+   or venda_id in (select v.id from vendas v join perfis p on p.id = v.usuario_id where p.nome = '${EMAIL}');
 delete from venda_pagamentos where venda_id in (
   select v.id from vendas v join perfis p on p.id = v.usuario_id where p.nome = '${EMAIL}');
 delete from venda_itens where venda_id in (
   select v.id from vendas v join perfis p on p.id = v.usuario_id where p.nome = '${EMAIL}');
 delete from vendas where usuario_id in (select id from perfis where nome = '${EMAIL}');
 delete from caixa_sessoes where terminal = '${TERMINAL}';
-delete from produtos where nome = '${PRODUTO}';
+delete from produtos where nome in ('${PRODUTO}', '${PRODUTO_A}', '${PRODUTO_B}');
+delete from clientes where nome = '${CLIENTE}';
 delete from perfis where nome = '${EMAIL}';
 delete from auth.users where email = '${EMAIL}';
 `
@@ -85,71 +98,25 @@ delete from auth.users where email = '${EMAIL}';
 select jsonb_build_object(
   'usuarios',   (select count(*) from auth.users where email = '${EMAIL}'),
   'perfis',     (select count(*) from perfis where nome = '${EMAIL}'),
-  'produtos',   (select count(*) from produtos where nome = '${PRODUTO}'),
+  'produtos',   (select count(*) from produtos where nome in ('${PRODUTO}', '${PRODUTO_A}', '${PRODUTO_B}')),
+  'clientes',   (select count(*) from clientes where nome = '${CLIENTE}'),
   'caixas',     (select count(*) from caixa_sessoes where terminal = '${TERMINAL}'),
   'vendas',     (select count(*) from vendas v join perfis p on p.id = v.usuario_id where p.nome = '${EMAIL}'),
   'itens',      (select count(*) from venda_itens i join vendas v on v.id = i.venda_id
                   join perfis p on p.id = v.usuario_id where p.nome = '${EMAIL}'),
   'mov_estoque',(select count(*) from estoque_movimentos m join produtos pr on pr.id = m.produto_id
-                  where pr.nome = '${PRODUTO}'),
+                  where pr.nome in ('${PRODUTO}', '${PRODUTO_A}', '${PRODUTO_B}')),
   'mov_caixa',  (select count(*) from caixa_movimentos m join caixa_sessoes c on c.id = m.sessao_id
                   where c.terminal = '${TERMINAL}')
 ) as restou;
 `
 
-  let ids = null
-  let respostaA = null
-  let respostaB = null
-  let esperouMs = -1
-  let mensagemB = ''
-  let vendeuB = true
-  let waitersA = -1
-  let estoqueFinal = -1
-  let vendasDoProduto = -1
-  let limpezaOk = true
+  // Dispara A e B em paralelo e devolve o que cada lado viu. A segura a
+  // transacao ate ver, no banco, alguem esperando lock; entao espera 1 s e
+  // commita. B e cronometrado dentro do banco em volta da chamada.
+  async function disputar({ rotulo, claims, cliente, chaveA, chaveB, itensA, itensB, pagamentos }) {
+    const clienteSql = cliente ? `'${cliente}'` : 'null'
 
-  try {
-    await sql(limpeza)
-
-    // ------------------------------ cenario ------------------------------
-    // Uma unica instrucao com CTEs modificadoras: as tres linhas nascem juntas
-    // ou nao nasce nenhuma.
-    const cenario = await linhas(`
-with novo_usuario as (
-  insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
-                          email_confirmed_at, created_at, updated_at)
-  values (gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'authenticated',
-          'authenticated', '${EMAIL}', '', now(), now(), now())
-  returning id
-), novo_perfil as (
-  insert into perfis (id, nome, papel)
-  select id, '${EMAIL}', 'dono' from novo_usuario
-  returning id
-), novo_produto as (
-  insert into produtos (nome, preco_venda, estoque_atual)
-  values ('${PRODUTO}', ${PRECO}, 1)
-  returning id
-), novo_caixa as (
-  insert into caixa_sessoes (aberto_por, status, terminal, valor_inicial)
-  select id, 'aberto', '${TERMINAL}', 0 from novo_usuario
-  returning id
-)
-select jsonb_build_object(
-  'usuario', (select id from novo_usuario),
-  'produto', (select id from novo_produto),
-  'caixa',   (select id from novo_caixa)) as ids;
-`)
-    ids = cenario[0].ids
-    console.log('cenario: usuario ' + ids.usuario.slice(0, 8) + '..., produto com estoque 1, caixa aberto no terminal ' + TERMINAL)
-    console.log('')
-
-    const claims = JSON.stringify({ sub: ids.usuario, role: 'authenticated' })
-    const itens = JSON.stringify([{ produto_id: ids.produto, quantidade: 1 }])
-    const pagamentos = JSON.stringify([{ forma: 'dinheiro', valor: PRECO }])
-    const chaveA = crypto.randomUUID()
-    const chaveB = crypto.randomUUID()
-
-    // A: vende, segura o lock ate ver B bloqueada, espera 1 s e so entao commit.
     const sqlA = `
 begin;
 drop table if exists _conc_a;
@@ -163,7 +130,7 @@ declare
   v_inicio timestamptz;
 begin
   perform set_config('request.jwt.claims', '${claims}', true);
-  v_venda := registrar_venda('${chaveA}', null, '${itens}'::jsonb, '${pagamentos}'::jsonb, 0);
+  v_venda := registrar_venda('${chaveA}', ${clienteSql}, '${itensA}'::jsonb, '${pagamentos}'::jsonb, 0);
   v_inicio := clock_timestamp();
   loop
     -- pg_locks e a fonte confiavel: qualquer sessao enxerga os locks nao
@@ -188,8 +155,6 @@ from _conc_a;
 commit;
 `
 
-    // B: tenta vender o mesmo ultimo item. Tem que ficar bloqueada e, quando A
-    // commitar, falhar por estoque. Nada e gravado: o rollback fecha a conta.
     const sqlB = `
 begin;
 drop table if exists _conc_b;
@@ -201,7 +166,7 @@ begin
   perform set_config('request.jwt.claims', '${claims}', true);
   v_inicio := clock_timestamp();
   begin
-    perform registrar_venda('${chaveB}', null, '${itens}'::jsonb, '${pagamentos}'::jsonb, 0);
+    perform registrar_venda('${chaveB}', ${clienteSql}, '${itensB}'::jsonb, '${pagamentos}'::jsonb, 0);
     insert into _conc_b
     values (true, round(extract(epoch from (clock_timestamp() - v_inicio)) * 1000)::integer, null);
   exception when others then
@@ -211,58 +176,180 @@ begin
 end $$;
 select jsonb_build_object('vendeu', vendeu, 'esperou_ms', esperou_ms, 'mensagem', mensagem) as resultado
 from _conc_b;
-rollback;
+-- B COMMITA de proposito quando consegue vender: e isso que deixa o dano
+-- visivel no estado final (estoque negativo / divida acima do limite), que e o
+-- que o teste verifica depois. Quando B falha — o caso correto — nada e gravado.
+-- A limpeza no fim remove o que B tiver gravado.
+commit;
 `
 
+    console.log('')
+    console.log('--- ' + rotulo + ' ---')
     // A sai primeiro; B entra depois que A com certeza ja pegou o lock (o
     // endpoint leva ~1,5 s de overhead por requisicao).
     const promessaA = sql(sqlA)
     await dormir(2000)
-    respostaB = await sql(sqlB)
-    respostaA = await promessaA
+    const respostaB = await sql(sqlB)
+    const respostaA = await promessaA
 
-    checar(respostaA.ok, 'A conseguiu vender o ultimo item',
-      'HTTP ' + respostaA.status + ': ' + respostaA.texto.slice(0, 200))
-
+    const saida = { a: respostaA, b: respostaB, locks: -1, vendas: -1 }
     if (respostaA.ok) {
-      const resultadoA = JSON.parse(respostaA.texto)[0].resultado
-      waitersA = resultadoA.locks
-      checar(waitersA > 0,
-        'A viu uma sessao esperando lock enquanto segurava a linha (prova de que B ficou presa)',
-        'pg_locks = ' + resultadoA.locks + ', pg_stat_activity = ' + resultadoA.esperando +
-          ' (A esperou ' + resultadoA.esperou_ms + ' ms)')
+      saida.locks = JSON.parse(respostaA.texto)[0].resultado.locks
+      saida.vendas = JSON.parse(respostaA.texto)[0].resultado.venda_id
     }
-
     if (respostaB.ok) {
-      const resultadoB = JSON.parse(respostaB.texto)[0].resultado
-      vendeuB = resultadoB.vendeu
-      esperouMs = resultadoB.esperou_ms
-      mensagemB = resultadoB.mensagem ?? ''
+      const b = JSON.parse(respostaB.texto)[0].resultado
+      saida.vendeu = b.vendeu
+      saida.esperouMs = b.esperou_ms
+      saida.mensagem = b.mensagem ?? ''
     }
+    return saida
+  }
 
-    checar(respostaB.ok, 'B respondeu (mesmo recusando)', 'HTTP ' + respostaB.status + ': ' + respostaB.texto.slice(0, 200))
-    checar(!vendeuB, 'B NAO vendeu o ultimo item (o bug que este teste existe para pegar)',
+  let ids = null
+  let limpezaOk = true
+
+  try {
+    await sql(limpeza)
+
+    // ------------------------------ cenario ------------------------------
+    // Uma unica instrucao com CTEs modificadoras: as linhas nascem juntas ou
+    // nao nasce nenhuma.
+    const cenario = await linhas(`
+with novo_usuario as (
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
+                          email_confirmed_at, created_at, updated_at)
+  values (gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'authenticated',
+          'authenticated', '${EMAIL}', '', now(), now(), now())
+  returning id
+), novo_perfil as (
+  insert into perfis (id, nome, papel)
+  select id, '${EMAIL}', 'dono' from novo_usuario
+  returning id
+), novo_produto as (
+  insert into produtos (nome, preco_venda, estoque_atual)
+  values ('${PRODUTO}', ${PRECO}, 1)
+  returning id
+), novo_produto_a as (
+  insert into produtos (nome, preco_venda, estoque_atual)
+  values ('${PRODUTO_A}', ${PRECO_CREDITO}, 100)
+  returning id
+), novo_produto_b as (
+  insert into produtos (nome, preco_venda, estoque_atual)
+  values ('${PRODUTO_B}', ${PRECO_CREDITO}, 100)
+  returning id
+), novo_cliente as (
+  insert into clientes (nome, limite_credito, bloqueado)
+  values ('${CLIENTE}', ${LIMITE_CREDITO}, false)
+  returning id
+), novo_caixa as (
+  insert into caixa_sessoes (aberto_por, status, terminal, valor_inicial)
+  select id, 'aberto', '${TERMINAL}', 0 from novo_usuario
+  returning id
+)
+select jsonb_build_object(
+  'usuario',  (select id from novo_usuario),
+  'produto',  (select id from novo_produto),
+  'produtoA', (select id from novo_produto_a),
+  'produtoB', (select id from novo_produto_b),
+  'cliente',  (select id from novo_cliente),
+  'caixa',    (select id from novo_caixa)) as ids;
+`)
+    ids = cenario[0].ids
+    console.log('cenario: usuario ' + ids.usuario.slice(0, 8) + '..., produto com estoque 1,')
+    console.log('         produtos de crediario de R$ 45,00 e cliente com limite de R$ 50,00,')
+    console.log('         caixa aberto no terminal ' + TERMINAL)
+
+    const claims = JSON.stringify({ sub: ids.usuario, role: 'authenticated' })
+    const itens = (produto) => JSON.stringify([{ produto_id: produto, quantidade: 1 }])
+    const pagamentosDinheiro = JSON.stringify([{ forma: 'dinheiro', valor: PRECO }])
+    const pagamentosCrediario = JSON.stringify([{ forma: 'crediario', valor: PRECO_CREDITO }])
+
+    // ============ cenario 1: duas vendas do ultimo item ============
+    const ultimo = await disputar({
+      rotulo: 'cenario 1: duas vendas simultaneas do ultimo item',
+      claims,
+      cliente: null,
+      chaveA: crypto.randomUUID(),
+      chaveB: crypto.randomUUID(),
+      itensA: itens(ids.produto),
+      itensB: itens(ids.produto),
+      pagamentos: pagamentosDinheiro,
+    })
+
+    checar(ultimo.a.ok, 'ultimo item: A conseguiu vender',
+      'HTTP ' + ultimo.a.status + ': ' + ultimo.a.texto.slice(0, 200))
+    checar(ultimo.locks > 0,
+      'ultimo item: A viu uma sessao esperando lock enquanto segurava a linha',
+      'pg_locks = ' + ultimo.locks + ' (prova de que B ficou presa)')
+    checar(ultimo.b.ok, 'ultimo item: B respondeu (mesmo recusando)',
+      'HTTP ' + ultimo.b.status + ': ' + ultimo.b.texto.slice(0, 200))
+    checar(!ultimo.vendeu, 'ultimo item: B NAO vendeu (o bug que este teste existe para pegar)',
       'B vendeu — o estoque de 1 item foi vendido duas vezes')
-    checar(/Estoque insuficiente/i.test(mensagemB),
-      'B falhou com "Estoque insuficiente"', 'mensagem: ' + mensagemB)
-    checar(esperouMs >= 200,
-      'B ficou bloqueada por pelo menos 200 ms, medido dentro do banco',
-      'esperou_ms = ' + esperouMs)
+    checar(/Estoque insuficiente/i.test(ultimo.mensagem),
+      'ultimo item: B falhou com "Estoque insuficiente"', 'mensagem: ' + ultimo.mensagem)
+    checar(ultimo.esperouMs >= 200,
+      'ultimo item: B ficou bloqueada por pelo menos 200 ms, medido dentro do banco',
+      'esperou_ms = ' + ultimo.esperouMs)
 
-    const estado = await linhas(`
+    const estado1 = await linhas(`
 select jsonb_build_object(
   'estoque', (select estoque_atual from produtos where id = '${ids.produto}'),
-  'vendas',  (select count(*) from vendas where usuario_id = '${ids.usuario}'),
+  'vendas',  (select count(*) from vendas where usuario_id = '${ids.usuario}'
+                and id in (select venda_id from venda_itens where produto_id = '${ids.produto}')),
   'itens',   (select count(*) from venda_itens where produto_id = '${ids.produto}')
 ) as estado;
 `)
-    estoqueFinal = estado[0].estado.estoque
-    vendasDoProduto = estado[0].estado.vendas
-    checar(estoqueFinal === 0, 'o estoque final do produto e 0', 'estoque = ' + estoqueFinal)
-    checar(vendasDoProduto === 1, 'existe exatamente uma venda', 'vendas = ' + vendasDoProduto)
-    checar(estado[0].estado.itens === 1, 'existe exatamente um item vendido', 'itens = ' + estado[0].estado.itens)
+    checar(estado1[0].estado.estoque === 0, 'ultimo item: o estoque final do produto e 0',
+      'estoque = ' + estado1[0].estado.estoque)
+    checar(estado1[0].estado.itens === 1, 'ultimo item: existe exatamente um item vendido',
+      'itens = ' + estado1[0].estado.itens)
+
+    // ============ cenario 2: limite de crediario ============
+    const credito = await disputar({
+      rotulo: 'cenario 2: duas vendas simultaneas para o mesmo cliente no crediario',
+      claims,
+      cliente: ids.cliente,
+      chaveA: crypto.randomUUID(),
+      chaveB: crypto.randomUUID(),
+      itensA: itens(ids.produtoA),
+      itensB: itens(ids.produtoB),
+      pagamentos: pagamentosCrediario,
+    })
+
+    checar(credito.a.ok, 'crediario: A conseguiu vender',
+      'HTTP ' + credito.a.status + ': ' + credito.a.texto.slice(0, 200))
+    checar(credito.locks > 0,
+      'crediario: A viu uma sessao esperando lock enquanto segurava o cliente',
+      'pg_locks = ' + credito.locks + ' (prova de que B ficou presa)')
+    checar(credito.b.ok, 'crediario: B respondeu (mesmo recusando)',
+      'HTTP ' + credito.b.status + ': ' + credito.b.texto.slice(0, 200))
+    checar(!credito.vendeu,
+      'crediario: B NAO vendeu — as duas vendas juntas passariam do limite',
+      'B vendeu: o cliente ficou devendo R$ 90,00 com limite de R$ 50,00')
+    checar(/Limite excedido/i.test(credito.mensagem),
+      'crediario: B falhou com "Limite excedido"', 'mensagem: ' + credito.mensagem)
+    checar(credito.esperouMs >= 200,
+      'crediario: B ficou bloqueada por pelo menos 200 ms, medido dentro do banco',
+      'esperou_ms = ' + credito.esperouMs)
+
+    const estado2 = await linhas(`
+select jsonb_build_object(
+  'vendas',  (select count(*) from vendas where usuario_id = '${ids.usuario}'
+                and id in (select venda_id from venda_itens
+                            where produto_id in ('${ids.produtoA}', '${ids.produtoB}'))),
+  'divida',  (select coalesce(sum(case when tipo = 'compra' then valor else -valor end), 0)
+                from crediario_lancamentos where cliente_id = '${ids.cliente}'),
+  'limite',  (select limite_credito from clientes where id = '${ids.cliente}')
+) as estado;
+`)
+    checar(estado2[0].estado.vendas === 1, 'crediario: existe exatamente uma venda no crediario',
+      'vendas = ' + estado2[0].estado.vendas)
+    checar(estado2[0].estado.divida <= estado2[0].estado.limite,
+      'crediario: a divida do cliente nao passa do limite',
+      'divida = ' + estado2[0].estado.divida + ', limite = ' + estado2[0].estado.limite)
   } catch (erro) {
-    checar(false, 'o teste rodou ate o fim', erro.message)
+    checar(false, 'os testes rodaram ate o fim', erro.message)
   } finally {
     // ------------------------------ limpeza ------------------------------
     try {
@@ -276,11 +363,6 @@ select jsonb_build_object(
       limpezaOk = false
       checar(false, 'a limpeza removeu todas as linhas criadas', erro.message)
     }
-  }
-
-  if (respostaA) {
-    console.log('')
-    console.log('evidencia: A vendeu; B esperou ' + esperouMs + ' ms no lock e recebeu "' + mensagemB + '"')
   }
 
   const falhas = resultados.filter((r) => !r.ok).length

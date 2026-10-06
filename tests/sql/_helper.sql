@@ -11,8 +11,13 @@
 create temp table if not exists teste_log (ordem serial, nome text);
 truncate teste_log;
 
+-- Os helpers sao `security definer` porque 050_permissoes.sql troca de role
+-- (authenticated/anon) para as policies de RLS serem avaliadas de verdade: a
+-- tabela temporaria do log pertence ao dono, e sem isso o proprio registro da
+-- assercao falharia por permissao. `search_path` fixo e obrigatorio em definer.
+
 create or replace function teste_ok(p_condicao boolean, p_nome text)
-returns void language plpgsql as $$
+returns void language plpgsql security definer set search_path = pg_temp, public as $$
 begin
   if p_condicao is null or not p_condicao then
     raise exception 'FALHOU: %', p_nome;
@@ -24,7 +29,7 @@ end $$;
 -- (comparacao sem diferenciar maiuscula de minuscula). Uma excecao que nao
 -- vem — ou que vem com outra mensagem — e falha nomeada.
 create or replace function teste_erro(p_sql text, p_trecho text, p_nome text)
-returns void language plpgsql as $$
+returns void language plpgsql security definer set search_path = pg_temp, public as $$
 begin
   begin
     execute p_sql;
