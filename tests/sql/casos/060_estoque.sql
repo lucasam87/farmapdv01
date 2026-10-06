@@ -18,6 +18,9 @@ declare
   v_produto     uuid;
   v_id          uuid;
   v_id2         uuid;
+  v_estoque     uuid;
+  v_rastro      uuid;
+  v_saldo       integer;
 begin
   -- ================= cenario =================
   v_dono := criar_usuario_teste(gen_random_uuid(), 'produtos@farmacia.local');
@@ -177,7 +180,165 @@ begin
                      'produto_salvar(uuid,text,text,text,text,integer,integer,integer,boolean)', 'execute'),
     'caso 12: authenticated pode executar produto_salvar');
 
-  -- ================= caso 13: sessao e perfil =================
+  -- ============ casos 13 a 24: produto_entrada e produto_ajuste ============
+  -- O livro-razao estoque_movimentos e a verdade: toda mudanca de saldo tem que
+  -- deixar um movimento com o saldo_apos certo, senao o saldo deixa de ser
+  -- explicavel. O caso 22 e o que prova isso (tres entradas, o rastro fecha).
+
+  -- ================= caso 13: entrada de 10 num produto com estoque 0 =================
+  v_estoque := criar_produto_completo('PRODUTO ENTRADA', 500, 200, '0033333', 0, 0);
+  v_saldo := produto_entrada(v_estoque, 10, null, 'compra do fornecedor');
+  perform teste_ok(v_saldo = 10,
+    'caso 13: a entrada devolve o novo saldo (10)');
+  perform teste_ok((select estoque_atual = 10 from produtos where id = v_estoque),
+    'caso 13: o estoque do produto virou 10');
+  perform teste_ok((select count(*) = 1 from estoque_movimentos
+                     where produto_id = v_estoque and tipo = 'entrada'
+                       and quantidade = 10 and saldo_apos = 10),
+    'caso 13: um movimento entrada de 10 com saldo_apos 10');
+  perform teste_ok((select motivo = 'compra do fornecedor' from estoque_movimentos
+                     where produto_id = v_estoque),
+    'caso 13: o motivo ficou gravado no movimento');
+
+  -- ================= caso 14: entrada com custo =================
+  perform produto_entrada(v_estoque, 5, 300, 'compra com custo novo');
+  perform teste_ok((select preco_custo = 300 from produtos where id = v_estoque),
+    'caso 14: o preco de custo foi atualizado para 300');
+
+  -- ================= caso 15: entrada sem custo nao mexe no custo =================
+  perform produto_entrada(v_estoque, 1, null, 'compra sem custo informado');
+  perform teste_ok((select preco_custo = 300 from produtos where id = v_estoque),
+    'caso 15: entrada com custo nulo NAO muda o preco de custo');
+
+  -- ================= caso 16: quantidade invalida =================
+  perform teste_erro(
+    format('select produto_entrada(%L, 0, null, %L)', v_estoque, 'teste'),
+    'A quantidade precisa ser maior que zero.',
+    'caso 16a: entrada com quantidade 0 e recusada');
+  perform teste_erro(
+    format('select produto_entrada(%L, -1, null, %L)', v_estoque, 'teste'),
+    'A quantidade precisa ser maior que zero.',
+    'caso 16b: entrada com quantidade negativa e recusada');
+  perform teste_erro(
+    format('select produto_entrada(%L, null, null, %L)', v_estoque, 'teste'),
+    'A quantidade precisa ser maior que zero.',
+    'caso 16c: entrada com quantidade nula e recusada');
+  perform teste_ok((select count(*) = 3 from estoque_movimentos where produto_id = v_estoque),
+    'caso 16: nenhum movimento novo foi gravado nas recusas');
+
+  -- ================= caso 17: motivo obrigatorio =================
+  perform teste_erro(
+    format('select produto_entrada(%L, 1, null, null)', v_estoque),
+    'Informe o motivo da entrada.',
+    'caso 17a: entrada sem motivo e recusada');
+  perform teste_erro(
+    format('select produto_entrada(%L, 1, null, %L)', v_estoque, '   '),
+    'Informe o motivo da entrada.',
+    'caso 17b: entrada com motivo so de espacos e recusada');
+
+  -- ================= caso 18: ajuste grava o DELTA, nao o saldo =================
+  -- O produto esta com 16 (0 + 10 + 5 + 1).
+  v_saldo := produto_ajuste(v_estoque, 7, 'inventario: faltavam 9');
+  perform teste_ok(v_saldo = 7,
+    'caso 18: o ajuste devolve o novo saldo (7)');
+  perform teste_ok((select estoque_atual = 7 from produtos where id = v_estoque),
+    'caso 18: o estoque do produto virou 7');
+  perform teste_ok((select quantidade = -9 and saldo_apos = 7
+                    from estoque_movimentos
+                    where produto_id = v_estoque and tipo = 'ajuste'),
+    'caso 18: o movimento de ajuste gravou o delta (-9) e o saldo_apos 7');
+
+  -- ================= caso 19: ajuste para o mesmo saldo =================
+  perform teste_erro(
+    format('select produto_ajuste(%L, 7, %L)', v_estoque, 'inventario'),
+    'Este produto já está em 7 unidade(s).',
+    'caso 19: ajuste para o saldo que ja esta e recusado (o livro-razao proibe movimento zero)');
+  perform teste_ok((select count(*) = 1 from estoque_movimentos
+                     where produto_id = v_estoque and tipo = 'ajuste'),
+    'caso 19: nenhum movimento de ajuste a mais foi gravado');
+
+  -- ================= caso 20: ajuste para valor negativo =================
+  perform teste_erro(
+    format('select produto_ajuste(%L, -1, %L)', v_estoque, 'inventario'),
+    'O saldo não pode ser negativo.',
+    'caso 20a: ajuste para saldo negativo e recusado');
+  perform teste_erro(
+    format('select produto_ajuste(%L, null, %L)', v_estoque, 'inventario'),
+    'O saldo não pode ser negativo.',
+    'caso 20b: ajuste com saldo nulo e recusado');
+
+  -- ================= caso 21: ajuste sem motivo =================
+  perform teste_erro(
+    format('select produto_ajuste(%L, 5, null)', v_estoque),
+    'Informe o motivo do ajuste.',
+    'caso 21a: ajuste sem motivo e recusado');
+  perform teste_erro(
+    format('select produto_ajuste(%L, 5, %L)', v_estoque, '  '),
+    'Informe o motivo do ajuste.',
+    'caso 21b: ajuste com motivo so de espacos e recusado');
+  perform teste_ok((select estoque_atual = 7 from produtos where id = v_estoque),
+    'caso 21: o estoque nao mudou nas recusas');
+
+  -- ================= caso 22: tres entradas — o rastro fecha a conta =================
+  v_rastro := criar_produto_completo('PRODUTO RASTRO', 1000, 0, '0044444', 0, 0);
+  perform produto_entrada(v_rastro, 5, null, 'primeira');
+  perform produto_entrada(v_rastro, 3, null, 'segunda');
+  perform produto_entrada(v_rastro, 2, null, 'terceira');
+  perform teste_ok((select estoque_atual = 10 from produtos where id = v_rastro),
+    'caso 22: o saldo final e 10 (5 + 3 + 2)');
+  perform teste_ok((select count(*) = 3 from estoque_movimentos where produto_id = v_rastro),
+    'caso 22: existem exatamente tres movimentos');
+  -- Ordenar por criado_em NAO serve: dentro de uma transacao now() e o inicio
+  -- dela, entao as tres linhas tem o mesmo criado_em e o desempate cairia em
+  -- quantidade, que ordenaria [2,3,5] por quantidade e nao pelo rastro. O que
+  -- este caso prova e a progressao do saldo, entao ordena por saldo_apos.
+  perform teste_ok((select array_agg(saldo_apos order by saldo_apos) = array[5, 8, 10]
+                    from estoque_movimentos where produto_id = v_rastro),
+    'caso 22: os saldo_apos foram 5, 8 e 10 — o livro-razao explica o saldo');
+  perform teste_ok((select max(saldo_apos) = sum(quantidade)
+                    from estoque_movimentos where produto_id = v_rastro),
+    'caso 22: a aritmetica do livro-razao fecha (max saldo_apos = soma das quantidades)');
+
+  -- ================= caso 23: produto inexistente =================
+  perform teste_erro(
+    format('select produto_entrada(%L, 1, null, %L)', gen_random_uuid(), 'teste'),
+    'Produto não encontrado.',
+    'caso 23a: entrada em produto inexistente e recusada');
+  perform teste_erro(
+    format('select produto_ajuste(%L, 1, %L)', gen_random_uuid(), 'teste'),
+    'Produto não encontrado.',
+    'caso 23b: ajuste em produto inexistente e recusado');
+
+  -- ================= caso 24: permissoes =================
+  perform teste_ok(not has_function_privilege('anon',
+                     'produto_entrada(uuid,integer,integer,text)', 'execute'),
+    'caso 24: anon NAO pode executar produto_entrada');
+  perform teste_ok(not has_function_privilege('anon',
+                     'produto_ajuste(uuid,integer,text)', 'execute'),
+    'caso 24: anon NAO pode executar produto_ajuste');
+  perform teste_ok(has_function_privilege('authenticated',
+                     'produto_entrada(uuid,integer,integer,text)', 'execute'),
+    'caso 24: authenticated pode executar produto_entrada');
+  perform teste_ok(has_function_privilege('authenticated',
+                     'produto_ajuste(uuid,integer,text)', 'execute'),
+    'caso 24: authenticated pode executar produto_ajuste');
+
+  -- ================= caso 25: sessao e perfil nas duas funcoes =================
+  -- Extra ao brief: o bloco de verificacao de usuario e copiado nas duas
+  -- funcoes e nao tinha nenhuma assercao.
+  perform set_config('request.jwt.claims', '', true);
+  perform teste_erro(
+    format('select produto_entrada(%L, 1, null, %L)', v_estoque, 'teste'),
+    'Sessão expirada. Entre novamente.',
+    'caso 25: entrada sem sessao e recusada');
+  perform teste_erro(
+    format('select produto_ajuste(%L, 1, %L)', v_estoque, 'teste'),
+    'Sessão expirada. Entre novamente.',
+    'caso 25: ajuste sem sessao e recusado');
+  perform set_config('request.jwt.claims',
+    jsonb_build_object('sub', v_dono, 'role', 'authenticated')::text, true);
+
+  -- ================= caso 13 (produto_salvar): sessao e perfil =================
   -- Extra ao brief: o bloco de verificacao de usuario e copiado de
   -- 004_caixa.sql e nao tinha nenhuma assercao na suite ate aqui.
   perform set_config('request.jwt.claims', '', true);
