@@ -51,6 +51,36 @@ if (!token || !urlProjeto) {
   const ref = new URL(urlProjeto).hostname.split('.')[0]
   const endpoint = 'https://api.supabase.com/v1/projects/' + ref + '/database/query'
 
+  // O endpoint e remoto e a rede falha de vez em quando. Cada arquivo de caso
+  // roda numa transacao que termina em ROLLBACK, entao repetir a requisicao e
+  // seguro: ou ela passou inteira, ou nao gravou nada. Sem isso, um tropeco de
+  // rede apareceria como "o caso falhou", que e mentira.
+  // HTTP 400 e resposta de verdade (o caso quebrou) e nunca e repetido.
+  async function enviar(query, tentativas = 3) {
+    let ultimoErro = 'motivo desconhecido'
+    for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
+      try {
+        const resposta = await fetch(endpoint, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        })
+        const texto = await resposta.text()
+        if (resposta.status < 500 && resposta.status !== 429) {
+          return { ok: resposta.ok, status: resposta.status, texto }
+        }
+        ultimoErro = 'HTTP ' + resposta.status + ' ' + texto.slice(0, 120)
+      } catch (erro) {
+        ultimoErro = 'falha de rede: ' + erro.message
+      }
+      if (tentativa < tentativas) {
+        console.log('... ' + ultimoErro + ' — tentando de novo (' + tentativa + '/' + (tentativas - 1) + ')')
+        await new Promise((seguir) => setTimeout(seguir, 1000 * tentativa))
+      }
+    }
+    return { ok: false, status: 0, texto: 'desisti depois de ' + tentativas + ' tentativas — ' + ultimoErro }
+  }
+
   const preludio = [
     fs.readFileSync(path.join(sqlDir, '_helper.sql'), 'utf8'),
     fs.readFileSync(path.join(sqlDir, '_fixtures.sql'), 'utf8'),
@@ -79,28 +109,15 @@ if (!token || !urlProjeto) {
       const caso = fs.readFileSync(path.join(casosDir, arquivo), 'utf8')
       const query = ['begin;', preludio, caso, rodape].join('\n')
 
-      let resposta
-      let texto
-      try {
-        resposta = await fetch(endpoint, {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query }),
-        })
-        texto = await resposta.text()
-      } catch (erro) {
-        console.log('FALHOU ' + arquivo + ': falha de rede — ' + erro.message)
-        falhas++
-        continue
-      }
+      const resposta = await enviar(query)
 
       if (!resposta.ok) {
-        console.log('FALHOU ' + arquivo + ': ' + resumirErro(texto))
+        console.log('FALHOU ' + arquivo + ': ' + resumirErro(resposta.texto))
         falhas++
         continue
       }
 
-      const nomes = extrairOks(texto)
+      const nomes = extrairOks(resposta.texto)
       for (const nome of nomes) console.log('OK  ' + nome)
       oks += nomes.length
     }

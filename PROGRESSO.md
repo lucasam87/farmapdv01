@@ -11,41 +11,60 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 # ⏸ ONDE PARAMOS — 06/10/2026
 
 **Branch:** `etapa-0-2-fundacao` (o `main` está intacto, só com spec e plano).
-**Etapas 0 e 1 fechadas. Etapa 2 pela metade: banco pronto, funções faltando.**
+**Etapas 0, 1 e 2 fechadas. O plano 1 está 100% executado** — 11 tarefas: ambiente,
+login, banco com RLS, funções de venda, cancelamento, caixa e as 10 views.
 
-**Próximo passo, exatamente:** executar a **Tarefa 6** do plano (runner de testes
-SQL) e depois 7 → 11, que são as funções de dinheiro e estoque:
+**Evidência da Etapa 2 (nível 1 da spec §12):**
 
-| Ordem | Tarefa | O que entrega |
-|---|---|---|
-| 6 | Runner de testes SQL | roda cada caso em transação com rollback |
-| 7 | `registrar_venda` | a função mais crítica: 18 casos de teste |
-| 8 | Teste de concorrência | prova que o último item não vende duas vezes |
-| 9 | `cancelar_venda` | matriz de decisão da spec §8.2 |
-| 10 | Funções de caixa | abrir, sangria/suprimento, fechar |
-| 11 | Views + fuso de São Paulo | 10 views, fecha a Etapa 2 |
+| Comando | Resultado |
+|---|---|
+| `npm run test:sql` | **100 OK, 0 FALHOU de 5 arquivos**, exit 0 (3 rodadas seguidas, iguais) |
+| `npm run test:sql:concorrencia` | **10 OK, 0 FALHOU**, exit 0 — B ficou 1096 ms bloqueada no lock e recebeu `Estoque insuficiente` |
+| `npm test` | **12/12** |
 
-Depois disso vêm os planos das Etapas 3–11 (ver `## Depois deste plano` no
-arquivo do plano).
+**Próximo passo, exatamente:** escrever o **plano 2** (Etapas 3–4: produtos, estoque,
+importação CSV e o PDV completo) com a skill `writing-plans`, a partir da spec
+`docs/superpowers/specs/2026-10-06-sistema-farmacia-design.md`.
 
 # ▶ COMO RETOMAR EM OUTRA JANELA
 
 Diga ao agente, nesta ordem:
 
 1. **"Leia o `PROGRESSO.md` e o ledger em
-   `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`, e continue a
-   Tarefa 6 do plano `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`."**
-   O ledger é o registro detalhado de **todas** as decisões tomadas (rulings) e do
-   que já foi verificado. Ele é ignorado pelo git de propósito (é rascunho do
-   processo), mas está no disco.
+   `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`, e vamos escrever o
+   plano 2 (Etapas 3–4)."** O ledger é o registro detalhado de **todas** as decisões
+   (rulings) e do que já foi verificado. Ele é ignorado pelo git de propósito (é
+   rascunho do processo), mas está no disco.
 
-2. O agente deve rodar `npm test` (deve dar **12/12**) e conferir
-   `git log --oneline` antes de escrever qualquer coisa.
+2. Antes de escrever qualquer coisa, rodar e conferir:
+   - `npm test` → **12/12**
+   - `npm run test:sql` → **100 OK, 0 FALHOU de 5 arquivos**
+   - `npm run test:sql:concorrencia` → **10 OK, 0 FALHOU**
+   - `git log --oneline` → os commits da etapa-2
 
 3. Para testar a interface: `npm run dev` e abrir http://localhost:3000.
 
-**Não é preciso refazer nada das Etapas 0 e 1.** Elas estão commitadas e
-verificadas. Não apague a branch nem o `.superpowers/`.
+**Não é preciso refazer nada das Etapas 0, 1 e 2.** Estão commitadas e verificadas.
+Não apague a branch nem o `.superpowers/`.
+
+**Como as migrations são aplicadas (importante):** o banco **não** aceita conexão `pg`
+(a senha nunca autenticou). Todo SQL de migration vai pelo endpoint de gerenciamento:
+
+```
+POST https://api.supabase.com/v1/projects/geywpaegovurwtfoacwt/database/query
+Authorization: Bearer $SUPABASE_ACCESS_TOKEN
+Content-Type: application/json
+{ "query": "<conteúdo do arquivo .sql>" }
+```
+
+O script que faz isso (`aplicar-sql.mjs`) vive no `.superpowers` (scratch, fora do git).
+Se ele sumir, são ~30 linhas de `fetch`. Migrations já aplicadas no projeto: `001_base`,
+`002_registrar_venda`, `003_cancelar_venda`, `004_caixa`, `005_views` — todas as cinco
+com HTTP 201.
+
+**Os testes SQL também usam esse endpoint** (não o `pg`): `tests/sql/run.mjs` roda cada
+arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
+`tests/sql/concorrencia.mjs` dispara duas requisições simultâneas para provar o lock.
 
 ---
 
@@ -55,7 +74,7 @@ verificadas. Não apague a branch nem o `.superpowers/`.
 |---|---|---|---|---|
 | 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
-| 2 | Banco + funções | 🟡 | Migration 001 aplicada (HTTP 201) e verificada: **10 tabelas, 10 com RLS ativo, 10 políticas, `pg_trgm` instalado**, índice único parcial e constraints presentes. Usuário `lucas@farmacia.local` criado confirmado, linha em `perfis` com `papel='dono'`, login comprovado pela API. **Faltam as funções** (Tarefas 6 a 11) | 06/10/2026 |
+| 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas (HTTP 201) e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **100 OK, 0 FALHOU de 5 arquivos** (3 rodadas iguais); `npm run test:sql:concorrencia` → **10 OK, 0 FALHOU** (B bloqueada 1096 ms, recebeu `Estoque insuficiente`; sem o `for update` o teste reprova — provado por mutação); `npm test` → 12/12. Commits `3f91530`, `f0e73b6`, `35d91ef`, `286bf5b`, `0b24a6a` + o fechamento | 06/10/2026 |
 | 3 | Produtos e estoque | ⬜ | — | — |
 | 4 | PDV | ⬜ | — | — |
 | 5 | Histórico de vendas | ⬜ | — | — |
@@ -77,12 +96,12 @@ Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 | 3 | Clients Supabase, `proxy.ts`, `perfilAtual` | ✅ 12/12 |
 | 4 | Login, logout e menu de 9 entradas | ✅ |
 | 5 | Migration 001: 10 tabelas, constraints e RLS | ✅ |
-| 6 | Runner de testes SQL (transação + rollback) | ⬜ **próximo** |
-| 7 | `registrar_venda` | ⬜ |
-| 8 | Teste de concorrência | ⬜ |
-| 9 | `cancelar_venda` | ⬜ |
-| 10 | Funções de caixa | ⬜ |
-| 11 | Views de leitura + fuso de São Paulo | ⬜ |
+| 6 | Runner de testes SQL (transação + rollback) | ✅ `3f91530` |
+| 7 | `registrar_venda` | ✅ `f0e73b6` |
+| 8 | Teste de concorrência | ✅ `35d91ef` |
+| 9 | `cancelar_venda` | ✅ `286bf5b` |
+| 10 | Funções de caixa | ✅ `0b24a6a` |
+| 11 | Views de leitura + fuso de São Paulo | ✅ |
 
 ## Credenciais e segredos
 
