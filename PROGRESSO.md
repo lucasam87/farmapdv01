@@ -8,8 +8,8 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 
 | # | Etapa | Status | Evidência | Data |
 |---|---|---|---|---|
-| 0 | Decisões e ambiente | 🟡 | scaffold Next 16.3.8, versões travadas, `PROGRESSO.md` criado | 06/10/2026 |
-| 1 | Base + login | ⬜ | — | — |
+| 0 | Decisões e ambiente | ✅ | Next 16.3.8 instalado, versões travadas no `package.json`, `PROGRESSO.md` criado; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
+| 1 | Base + login | 🟡 | Código pronto (commits `1e52cf3`, `a6ab961`, `5f03fda`); `npm test` 12/12, `npm run build` exit 0 com `ƒ /` e `ƒ /login`, `npm run lint` exit 0. **Falta a verificação manual do login** (bloqueada no projeto Supabase) | 06/10/2026 |
 | 2 | Banco + funções | ⬜ | — | — |
 | 3 | Produtos e estoque | ⬜ | — | — |
 | 4 | PDV | ⬜ | — | — |
@@ -21,6 +21,13 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 | 10 | Migração de dados | ⬜ | — | — |
 | 11 | Uso paralelo e corte | ⬜ | — | — |
 
+## Bloqueio atual
+
+**O que falta para a Etapa 1 fechar:** o projeto Supabase criado (região
+`sa-east-1`) e o `.env.local` preenchido. Depois disso a ordem é: migration 001
+(Tarefa 5) → criar o usuário e a linha em `perfis` → verificação manual do login
+(Tarefa 4, Step 4) → Etapa 1 vira ✅.
+
 ## Etapas 0–2 em detalhe (Plano 1)
 
 Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
@@ -28,16 +35,16 @@ Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 | Tarefa | Entrega | Status |
 |---|---|---|
 | 1 | Scaffold Next 16 com versões travadas + `PROGRESSO.md` | ✅ |
-| 2 | `lib/format.ts` (moeda e data) com testes | ⬜ |
-| 3 | Clients Supabase, middleware de sessão, `perfilAtual` | ⬜ |
-| 4 | Login, logout e menu de 9 entradas | ⬜ |
-| 5 | Migration 001: 11 tabelas, constraints e RLS | ⬜ |
-| 6 | Runner de testes SQL (transação + rollback) | ⬜ |
-| 7 | `registrar_venda` | ⬜ |
-| 8 | Teste de concorrência | ⬜ |
-| 9 | `cancelar_venda` | ⬜ |
-| 10 | Funções de caixa | ⬜ |
-| 11 | Views de leitura + fuso de São Paulo | ⬜ |
+| 2 | `lib/format.ts` (moeda e data) com testes | ✅ 7/7 |
+| 3 | Clients Supabase, `proxy.ts`, `perfilAtual` | ✅ 12/12 |
+| 4 | Login, logout e menu de 9 entradas | 🟡 código pronto; verificação manual pendente |
+| 5 | Migration 001: 11 tabelas, constraints e RLS | ⬜ bloqueada (precisa do Supabase) |
+| 6 | Runner de testes SQL (transação + rollback) | ⬜ bloqueada |
+| 7 | `registrar_venda` | ⬜ bloqueada |
+| 8 | Teste de concorrência | ⬜ bloqueada |
+| 9 | `cancelar_venda` | ⬜ bloqueada |
+| 10 | Funções de caixa | ⬜ bloqueada |
+| 11 | Views de leitura + fuso de São Paulo | ⬜ bloqueada |
 
 ## Versões travadas
 
