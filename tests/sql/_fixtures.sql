@@ -61,3 +61,25 @@ begin
   returning id into v_id;
   return v_id;
 end $$;
+
+-- Os casos de produto (Task 1 do plano 2) precisam de codigo de barras e estoque
+-- minimo no cenario. Insere DIRETO na tabela, sem passar pela RPC, de proposito:
+-- quem testa a RPC nao pode montar o cenario com ela.
+create or replace function criar_produto_completo(
+  p_nome text,
+  p_preco_venda integer default 0,
+  p_preco_custo integer default 0,
+  p_codigo_barras text default null,
+  p_estoque integer default 0,
+  p_estoque_minimo integer default 0
+) returns uuid language plpgsql as $$
+declare
+  v_id uuid;
+begin
+  insert into produtos (nome, preco_venda, preco_custo, codigo_barras,
+                        estoque_atual, estoque_minimo)
+  values (p_nome, p_preco_venda, p_preco_custo, p_codigo_barras,
+          p_estoque, p_estoque_minimo)
+  returning id into v_id;
+  return v_id;
+end $$;
