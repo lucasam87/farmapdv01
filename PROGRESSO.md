@@ -205,6 +205,8 @@ Select-String -Path "C:\DEEPSEEK WORKSPACE\PROJETO 1\.env.local" -Pattern '^USUA
 
 **Repositório:** https://github.com/lucasam87/farmapdv01 — **privado** (o nome do
 repositório é `farmapdv01`; o projeto local continua sendo a pasta `PROJETO 1`).
+Descrição e tópicos preenchidos (`farmacia`, `pdv`, `nextjs`, `supabase`, `postgresql`,
+`typescript`, `rls`).
 
 **As duas branches estão no remoto e conferidas hash a hash:**
 
