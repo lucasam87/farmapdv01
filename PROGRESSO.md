@@ -22,49 +22,82 @@ login, banco com RLS, funções de venda, cancelamento, caixa e as 10 views.
 | `npm run test:sql:concorrencia` | **17 OK, 0 FALHOU**, exit 0 — último item: B bloqueada ~1 s e recusada com `Estoque insuficiente`; limite de crediário: B bloqueada e recusada com `Limite excedido` |
 | `npm test` | **12/12** |
 
-**O plano 2 foi escrito, revisado e commitado** (`6de378e`, 15 tarefas) e a execução
-**começou pela tarefa zero, que está ✅** (ver abaixo): o CLI está ligado ao projeto e o
-histórico `001`–`005` está reparado — o `supabase link` e o `migration repair` funcionam
-sem a senha do banco.
+**A execução do plano 2 está em 12 de 15 tarefas.** Tarefas 0 a 12 ✅; a 13 (Playwright)
+está **em andamento**; a 14 (PDF) não começou. Branch de trabalho:
+**`etapa-3-4-produtos-estoque-pdv`**, HEAD `e1125b8` (ainda **só local**, não foi enviada).
+
+**Estado verificado no fim da sessão:**
+
+| Comando | Resultado |
+|---|---|
+| `npm test` | **118/118** (eram 12 antes do plano 2) |
+| `npm run test:sql` | **224 OK, 0 FALHOU de 8 arquivos** (eram 119 de 6) |
+| `npm run test:sql:concorrencia` | 17 OK, 0 FALHOU (não foi mexido nesta etapa) |
+| `npm run build` | exit 0, com `/produtos`, `/produtos/[id]`, `/produtos/novo`, `/produtos/importar`, `/estoque`, `/vendas`, `/vendas/nova` e `/api/produtos/busca` |
+| `npm run test:e2e` | **inconclusivo** — ver o item 1 abaixo |
+
+**Banco:** migrations `006_produtos`, `007_estoque` e `008_importacao` aplicadas, com
+`produto_salvar`, `produto_entrada`, `produto_ajuste` e `importar_produtos`.
+
+**O que falta, exatamente:**
+
+1. **Tarefa 13 (Playwright)** — a rodada 1 deu **1 passou (F3) e 3 falharam**, e as três
+   falhas eram **defeito do teste, não do sistema** (uma sonda provou que a busca e o
+   carrinho funcionam). Os defeitos foram corrigidos, mas a rodada 2 foi interrompida
+   antes de ver o resultado. **Retomar rodando `npm run test:e2e`.** Se falhar de novo, a
+   sonda em `.superpowers/probe-pdv.spec.ts` (com `.superpowers/probe-pdv.config.ts`,
+   ambos git-ignored) imprime a resposta da rota de busca e o estado do carrinho na tela.
+2. **Tarefa 14 (PDF)** — não começou. O critério é objetivo: a soma dos preços extraídos
+   do PDF tem que bater **ao centavo** com o total impresso no próprio PDF. Se não bater,
+   a importação de PDF **não** entra na tela e a tarefa termina registrando o motivo.
+3. **Fechamento** — rodar a suíte inteira, marcar as Etapas 3 e 4 no `PROGRESSO.md` com a
+   evidência colada, e pedir a revisão final do branch em contexto limpo.
+
+**Lacuna registrada (importante):** as telas **não foram vistas por olho humano** — não há
+navegador neste ambiente além do Playwright, e as Server Actions não têm endpoint público
+para chamar por script. A verificação foi por build, por teste automatizado e por sonda.
+Foi exatamente essa lacuna que deixou passar o bug de contraste da Etapa 1, então vale
+abrir `npm run dev` e olhar as telas quando possível.
 
 **O projeto está no GitHub:** https://github.com/lucasam87/farmapdv01 (**privado**), com as
-duas branches (`main` em `a9f55cd` e `etapa-0-2-fundacao` em `58553e0`) — conferidas hash a
-hash contra o local, e auditadas: nenhum segredo subiu. Detalhes na seção
-"Publicado no GitHub" mais abaixo. Daqui para frente, `git push` sobe sozinho.
-
-**Onde a sessão parou, exatamente:** a tarefa zero do plano 2 está ✅ (CLI ligado e
-histórico reparado). A próxima tarefa é a **1** (`produto_salvar`).
+branches `main` (`a9f55cd`) e `etapa-0-2-fundacao` (`9f0c524`) — conferidas hash a hash, e
+auditadas: nenhum segredo subiu. Detalhes na seção "Publicado no GitHub". A branch do
+plano 2 sobe com `git push -u origin etapa-3-4-produtos-estoque-pdv`.
 
 # ▶ COMO RETOMAR EM OUTRA JANELA
 
 Diga ao agente, nesta ordem:
 
 1. **"Leia o `PROGRESSO.md` e o ledger em
-   `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`, e vamos executar o
-   plano 2 (Etapas 3–4)."** O ledger é o registro detalhado de **todas** as decisões
-   (rulings) e do que já foi verificado. Ele é ignorado pelo git de propósito (é
-   rascunho do processo), mas está no disco. O ledger do plano 1, com toda a história da
-   fundação, está em `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`.
+   `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`. Estamos na branch
+   `etapa-3-4-produtos-estoque-pdv`, com as tarefas 0 a 12 do plano 2 feitas. Vamos
+   terminar a 13 (Playwright) e fazer a 14 (PDF)."** O ledger é o registro detalhado de
+   **todas** as decisões (rulings) e do que já foi verificado. Ele é ignorado pelo git de
+   propósito (é rascunho do processo), mas está no disco. O ledger do plano 1 está em
+   `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`.
 
-2. Antes de escrever qualquer coisa, rodar e conferir:
-   - `npm test` → **12/12**
-   - `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**
+2. Confirmar a branch e rodar as suítes:
+   - `git branch --show-current` → `etapa-3-4-produtos-estoque-pdv`
+   - `npm test` → **118/118**
+   - `npm run test:sql` → **224 OK, 0 FALHOU de 8 arquivos**
    - `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**
-   - `git log --oneline` → os commits da etapa-2 e o commit do plano 2
+   - `npm run build` → exit 0
 
-3. A **tarefa zero já está feita** (CLI ligado, histórico reparado). Os comandos dela,
-   para referência:
+3. **Primeiro passo concreto: `npm run test:e2e`** — a rodada 1 deu 1 passou (F3) e 3
+   falharam por defeito do teste (corrigido); a rodada 2 foi interrompida antes do
+   resultado. A sonda em `.superpowers/probe-pdv.spec.ts` mostra a busca e o carrinho na
+   tela, se precisar. O Chromium do Playwright já está baixado (153.0.8010.12).
 
-   ```powershell
-   $env:SUPABASE_ACCESS_TOKEN = (Select-String -Path ".env.local" -Pattern '^SUPABASE_ACCESS_TOKEN=(.+)$').Matches.Groups[1].Value.Trim()
-   npx --yes supabase@2.120.0 link --project-ref geywpaegovurwtfoacwt --yes
-   npx --yes supabase@2.120.0 migration repair --status applied 001 002 003 004 005 --linked
-   npx --yes supabase@2.120.0 migration list --linked
-   ```
+4. Depois, a **Tarefa 14 (PDF)**: o critério é a soma dos preços extraídos bater ao
+   centavo com o total impresso no próprio PDF. Se não bater, o PDF não entra na tela e a
+   tarefa termina registrando o motivo.
 
-   **Não** rodar `supabase db push` em momento nenhum: ele exige conexão direta no banco.
+5. Para ver a interface: `npm run dev` e abrir http://localhost:3000. **As telas do plano
+   2 ainda não foram olhadas por olho humano** — vale conferir.
 
-5. Para testar a interface: `npm run dev` e abrir http://localhost:3000.
+**Sobre as migrations:** continuam por `npm run migrar` (o banco não aceita conexão `pg`).
+As `006_produtos`, `007_estoque` e `008_importacao` já estão aplicadas. **Não** rodar
+`supabase db push`.
 
 **Não é preciso refazer nada das Etapas 0, 1 e 2.** Estão commitadas e verificadas.
 Não apague a branch nem o `.superpowers/`.
@@ -117,8 +150,8 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
 | 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**; `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**; `npm test` → 12/12. Revisão final em contexto limpo apontou 1 Critical + 4 Important, todos corrigidos com teste que nasceu vermelho: `anon` perdeu o EXECUTE das RPCs de escrita (`050_permissoes.sql`), o limite de crediário ganhou `for update` no cliente (cenário 2 da concorrência), o termo "cancelamentos em dinheiro" da §8.3 ganhou teste, RLS passou a ser exercitada de verdade, e `npm run migrar` passou a ser o caminho versionado de aplicar migration | 06/10/2026 |
-| 3 | Produtos e estoque | 🟡 | tarefa 0 do plano 2 ✅ (CLI do Supabase ligado e histórico `001`–`005` reparado); Tarefas 1–3 = migrations 006–008, 8 = importação, 9 = telas — ainda não executadas, por isso sem evidência | 06/10/2026 |
-| 4 | PDV | ⬜ | plano 2 escrito: Tarefas 11–12 (PDV e lista do dia) e Tarefa 13 (Playwright como evidência). Nada executado ainda, por isso sem evidência | — |
+| 3 | Produtos e estoque | 🟡 | Tarefas 0–3, 5–10 do plano 2 ✅: CLI do Supabase ligado (histórico `001`–`005` reparado), `produto_salvar` (`d998d92`), `produto_entrada`/`produto_ajuste` (`f96db63`), `importar_produtos` (`6b76b94`), os leitores `dinheiro`/`csv`/`xlsx`/`tabela` e as telas de importação, produtos e estoque. `npm run test:sql` → **224 OK, 0 FALHOU de 8 arquivos**; `npm test` → **118/118**; `npm run build` exit 0. **Faltam a Tarefa 14 (PDF) e a conferência da soma planilha × gravada contra uma planilha real do sistema antigo** (as fixtures cobrem o formato) | 06/10/2026 |
+| 4 | PDV | 🟡 | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 18 testes das contas de pagamento, provados por mutação. **Falta a Tarefa 13 fechar**: a rodada 1 do Playwright deu 1 passou / 3 falharam por defeito do teste (corrigido) e a rodada 2 foi interrompida. Sem ela a Etapa 4 não tem a evidência que a spec §13 exige | 06/10/2026 |
 | 5 | Histórico de vendas | ⬜ | — | — |
 | 6 | Clientes e crediário | ⬜ | — | — |
 | 7 | Relatórios | ⬜ | — | — |
@@ -155,19 +188,19 @@ demais seguem pendentes. Ledger de execução:
 | Tarefa | Entrega | Status |
 |---|---|---|
 | 0 | Supabase CLI ligado + `migration repair` das 001–005 | ✅ `project-ref` = `geywpaegovurwtfoacwt`, `repair` exit 0, `supabase_migrations.schema_migrations` com as 5 versões |
-| 1 | `produto_salvar` — cadastro e edição sem tocar no estoque | ⬜ |
-| 2 | `produto_entrada` e `produto_ajuste` — livro-razão manda | ⬜ |
-| 3 | `importar_produtos` — tudo ou nada, casa por código de barras | ⬜ |
-| 4 | `lib/dinheiro.ts` (`parsearCentavos`, `parsearQuantidade`) | ⬜ |
-| 5 | `lib/csv.ts` — aspas, separador, Latin-1 | ⬜ |
-| 6 | `lib/xlsx.ts` + fixtures `.xlsx` geradas com Python/openpyxl | ⬜ |
-| 7 | `lib/tabela.ts` — cabeçalho tolerante, rodapé, duas somas | ⬜ |
-| 8 | Tela de importação com prévia e conferência de somas | ⬜ |
-| 9 | `/produtos`, `/produtos/novo`, `/produtos/[id]` — busca, entrada, ajuste | ⬜ |
-| 10 | `/estoque` — abas baixo / zerado / parado | ⬜ |
-| 11 | `/vendas/nova` — PDV com teclado, pagamento dividido, idempotência | ⬜ |
-| 12 | `/vendas` — lista do dia com valores ocultáveis | ⬜ |
-| 13 | Playwright — teclado, clique duplo, F3, limite de crediário | ⬜ |
+| 1 | `produto_salvar` — cadastro e edição sem tocar no estoque | ✅ `d998d92` |
+| 2 | `produto_entrada` e `produto_ajuste` — livro-razão manda | ✅ `f96db63` |
+| 3 | `importar_produtos` — tudo ou nada, casa por código de barras | ✅ `6b76b94` |
+| 4 | `lib/dinheiro.ts` (`parsearCentavos`, `parsearQuantidade`) | ✅ `8720020`, 19 testes |
+| 5 | `lib/csv.ts` — aspas, separador, Latin-1 | ✅ `19f337d`, 14 testes |
+| 6 | `lib/xlsx.ts` + fixtures `.xlsx` geradas com Python/openpyxl | ✅ `d31b8a4`, 11 testes, sem dependência nova |
+| 7 | `lib/tabela.ts` — cabeçalho tolerante, rodapé, duas somas | ✅ `1a359a0`, 22 testes |
+| 8 | Tela de importação com prévia e conferência de somas | ✅ `741ee68` |
+| 9 | `/produtos`, `/produtos/novo`, `/produtos/[id]` — busca, entrada, ajuste | ✅ `75a5adc`, 18 testes de validação |
+| 10 | `/estoque` — abas baixo / zerado / parado | ✅ `09950c7` |
+| 11 | `/vendas/nova` — PDV com teclado, pagamento dividido, idempotência | ✅ `751e3da`, 18 testes de pagamento |
+| 12 | `/vendas` — lista do dia com valores ocultáveis | ✅ `15198f6` |
+| 13 | Playwright — teclado, clique duplo, F3, limite de crediário | 🟡 `e1125b8`: rodada 1 deu 1 passou / 3 falharam por defeito de teste; defeitos corrigidos, rodada 2 não concluída |
 | 14 | PDF — medir contra o total impresso e decidir (pode terminar inviável) | ⬜ |
 
 ## Credenciais e segredos
