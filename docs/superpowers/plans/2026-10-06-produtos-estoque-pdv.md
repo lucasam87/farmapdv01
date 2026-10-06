@@ -588,7 +588,7 @@ git commit -m "etapa-3: leitor de CSV com aspas, separador e encoding"
 ## Task 6: `lib/xlsx.ts` — ler `.xlsx` com o `zlib` do Node
 
 **Files:**
-- Create: `lib/xlsx.ts`, `lib/xlsx.test.ts`, `tests/fixtures/produtos.xlsx`, `tests/fixtures/produtos_texto.xlsx`, `scripts/gerar-fixtures-xlsx.py`
+- Create: `lib/xlsx.ts`, `lib/xlsx.test.ts`, `tests/fixtures/produtos.xlsx`, `tests/fixtures/produtos_texto.xlsx`, `tests/fixtures/produtos.csv`, `scripts/gerar-fixtures-xlsx.py`
 
 **Interfaces:**
 - Consumes: `Tabela` de `lib/csv.ts`.
@@ -602,14 +602,15 @@ git commit -m "etapa-3: leitor de CSV com aspas, separador e encoding"
 
 - `tests/fixtures/produtos.xlsx`: cabeçalho `codigo_barras;nome;categoria;unidade;preco_custo;preco_venda;estoque_atual;estoque_minimo` (**colunas separadas de verdade**, não uma coluna com `;`), 3 linhas, **preços como número** (`4.5`), código de barras como **texto** (`'0012345'`), nome com acento (`DIPIRONA 500mg ção`), e **uma linha com preço como texto** (`'4,50'`) para o teste de mistura.
 - `tests/fixtures/produtos_texto.xlsx`: preços todos como **texto** com vírgula, uma coluna extra irrelevante no meio, as colunas em ordem **diferente**, e uma última linha **rodapé** `TOTAL` com a soma dos preços na coluna de preço e as outras células vazias.
+- `tests/fixtures/produtos.csv`: **o mesmo conteúdo de `produtos.xlsx`**, gravado como CSV de verdade (vírgula como separador e aspas onde precisar) — é o par de comparação do teste. Sem ele, o teste da Task 6 não tem com o que comparar.
 
-O script **não** é dependência do app nem roda no build; existe para as fixtures serem reproduzíveis. Rodar uma vez e commitar os dois `.xlsx`.
+O script **não** é dependência do app nem roda no build; existe para as fixtures serem reproduzíveis. Rodar uma vez e commitar os três arquivos.
 
-Expected: os dois arquivos existem em `tests/fixtures/`.
+Expected: `tests/fixtures/produtos.xlsx`, `tests/fixtures/produtos_texto.xlsx` e `tests/fixtures/produtos.csv` existem.
 
 - [ ] **Step 2: Escrever o teste que falha**
 
-`lib/xlsx.test.ts`, lendo as fixtures com `fs.readFileSync` e comparando com o CSV equivalente:
+`lib/xlsx.test.ts`, lendo as fixtures com `fs.readFileSync`. O último caso compara o `.xlsx` com `tests/fixtures/produtos.csv` passado por `lerCsv` (Task 5): os dois caminhos têm que produzir a **mesma** `Tabela`, senão um dos dois leitores está errado.
 
 ```ts
 // casos exatos
@@ -638,6 +639,12 @@ it('recusa xlsx truncado', () => {
   const inteiro = bytes('produtos.xlsx')
   expect(() => lerXlsx(inteiro.slice(0, 200))).toThrow()
 })
+it('o xlsx e o csv equivalentes produzem a mesma Tabela', () => {
+  const daPlanilha = lerXlsx(bytes('produtos.xlsx'))
+  const doCsv = lerCsv(fs.readFileSync('tests/fixtures/produtos.csv', 'utf8'))
+  expect(daPlanilha.colunas).toEqual(doCsv.colunas)
+  expect(daPlanilha.linhas).toEqual(doCsv.linhas)
+})
 ```
 
 - [ ] **Step 3: Rodar e ver falhar**
@@ -660,7 +667,7 @@ Erros: se o arquivo não começa com `PK`, lançar `Error('Este arquivo não é 
 - [ ] **Step 5: Rodar e ver passar**
 
 Run: `npx vitest run lib/xlsx.test.ts`
-Expected: PASS — 6 testes (mais os de `colunaParaIndice`).
+Expected: PASS — 7 testes (mais os de `colunaParaIndice`).
 
 - [ ] **Step 6: Commit**
 
@@ -773,7 +780,9 @@ Expected: FAIL — `Failed to resolve import "./tabela"`.
 
 `normalizarCabecalho`: `toLowerCase()`, `normalize('NFD').replace(/[\u0300-\u036f]/g, '')`, trocar `_` por espaço, colapsar espaços e cortar as pontas. **Sem isso**, `Descrição` e `descricao` seriam colunas diferentes.
 
-`analisarTabela`: para cada linha, se `ehRodape` → `descartadas++` e segue; senão monta `LinhaProduto` usando `parsearCentavos` (Task 4) e `parsearQuantidade` quando há quantidade; acumula erros em `erros`. `estoque_atual` é `null` quando a coluna não existe na planilha, e é isso que faz a RPC **não mexer** no estoque de produto existente (Task 3, caso 7) — a diferença entre "não veio" e "veio 0" é o coração da reimportação segura.
+`analisarTabela`: para cada linha, se `ehRodape` → `descartadas++` e segue; senão monta `LinhaProduto` usando `parsearCentavos` (Task 4) para os dois preços; acumula erros em `erros`. `estoque_atual` é `null` quando a coluna não existe na planilha, e é isso que faz a RPC **não mexer** no estoque de produto existente (Task 3, caso 7) — a diferença entre "não veio" e "veio 0" é o coração da reimportação segura.
+
+**Não usar `parsearQuantidade` (Task 4) para estoque.** Ela exige de 1 a 9999 porque foi feita para quantidade vendida; aqui **zero é valor legítimo** (`estoque_atual = 0` é produto esgotado, `estoque_minimo = 0` é o default da tabela). Escrever no próprio `lib/tabela.ts` um leitor de **inteiro não negativo** (`0` a `999999`) e usá-lo em `estoque_atual` e `estoque_minimo`. Vazio ou texto não numérico → `null` em `estoque_atual`, `0` em `estoque_minimo`.
 
 `ehRodape`: primeira célula não vazia normalizada contém `total` **e** nenhuma outra célula não vazia contém letra. Assim `['TOTAL', '', '', '', '1234.56']` é rodapé, mas um produto chamado `TOTAL DIPIRONA` com categoria não é.
 
@@ -1032,6 +1041,8 @@ O histórico completo, o detalhe da venda e o cancelamento são a **Etapa 5** (p
 - [ ] **Step 1: Implementar a tela**
 
 Server Component. Cabeçalho com o resumo de hoje vindo de `v_vendas_dia` (quantidade, total, ticket médio). Lista de `v_vendas_lista` do dia, limite 50, com número, hora, cliente e total. Um botão `Ocultar valores` (spec §10, como no Nex) que troca os totais por `••••` — o estado vem de `searchParams.ocultar`, sem JavaScript de cliente. Cada linha leva para `/vendas/<id>`, que **ainda não existe** nesta etapa: o link fica desabilitado com o texto `Detalhe na próxima etapa`, para não criar um 404.
+
+**Cada linha da lista precisa de `data-testid="linha-venda"`.** É o seletor que o teste do clique duplo (Task 13) usa para contar as vendas do dia — sem esse atributo, aquele teste não tem como provar que houve **uma** venda e não duas.
 
 - [ ] **Step 2: Verificar na tela**
 
