@@ -6,11 +6,56 @@ evidência, fica 🟡.
 
 Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · ⛔ bloqueada
 
+---
+
+# ⏸ ONDE PARAMOS — 06/10/2026
+
+**Branch:** `etapa-0-2-fundacao` (o `main` está intacto, só com spec e plano).
+**Etapas 0 e 1 fechadas. Etapa 2 pela metade: banco pronto, funções faltando.**
+
+**Próximo passo, exatamente:** executar a **Tarefa 6** do plano (runner de testes
+SQL) e depois 7 → 11, que são as funções de dinheiro e estoque:
+
+| Ordem | Tarefa | O que entrega |
+|---|---|---|
+| 6 | Runner de testes SQL | roda cada caso em transação com rollback |
+| 7 | `registrar_venda` | a função mais crítica: 18 casos de teste |
+| 8 | Teste de concorrência | prova que o último item não vende duas vezes |
+| 9 | `cancelar_venda` | matriz de decisão da spec §8.2 |
+| 10 | Funções de caixa | abrir, sangria/suprimento, fechar |
+| 11 | Views + fuso de São Paulo | 10 views, fecha a Etapa 2 |
+
+Depois disso vêm os planos das Etapas 3–11 (ver `## Depois deste plano` no
+arquivo do plano).
+
+# ▶ COMO RETOMAR EM OUTRA JANELA
+
+Diga ao agente, nesta ordem:
+
+1. **"Leia o `PROGRESSO.md` e o ledger em
+   `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`, e continue a
+   Tarefa 6 do plano `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`."**
+   O ledger é o registro detalhado de **todas** as decisões tomadas (rulings) e do
+   que já foi verificado. Ele é ignorado pelo git de propósito (é rascunho do
+   processo), mas está no disco.
+
+2. O agente deve rodar `npm test` (deve dar **12/12**) e conferir
+   `git log --oneline` antes de escrever qualquer coisa.
+
+3. Para testar a interface: `npm run dev` e abrir http://localhost:3000.
+
+**Não é preciso refazer nada das Etapas 0 e 1.** Elas estão commitadas e
+verificadas. Não apague a branch nem o `.superpowers/`.
+
+---
+
+## Etapas
+
 | # | Etapa | Status | Evidência | Data |
 |---|---|---|---|---|
-| 0 | Decisões e ambiente | ✅ | Next 16.3.8 instalado, versões travadas no `package.json`, `PROGRESSO.md` criado; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
-| 1 | Base + login | 🟡 | Código pronto (commits `1e52cf3`, `a6ab961`, `5f03fda`); `npm test` 12/12, `npm run build` exit 0 com `ƒ /` e `ƒ /login`, `npm run lint` exit 0. **Falta a verificação manual do login** (bloqueada no projeto Supabase) | 06/10/2026 |
-| 2 | Banco + funções | ⬜ | — | — |
+| 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
+| 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
+| 2 | Banco + funções | 🟡 | Migration 001 aplicada (HTTP 201) e verificada: **10 tabelas, 10 com RLS ativo, 10 políticas, `pg_trgm` instalado**, índice único parcial e constraints presentes. Usuário `lucas@farmacia.local` criado confirmado, linha em `perfis` com `papel='dono'`, login comprovado pela API. **Faltam as funções** (Tarefas 6 a 11) | 06/10/2026 |
 | 3 | Produtos e estoque | ⬜ | — | — |
 | 4 | PDV | ⬜ | — | — |
 | 5 | Histórico de vendas | ⬜ | — | — |
@@ -21,14 +66,7 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 | 10 | Migração de dados | ⬜ | — | — |
 | 11 | Uso paralelo e corte | ⬜ | — | — |
 
-## Bloqueio atual
-
-**O que falta para a Etapa 1 fechar:** o projeto Supabase criado (região
-`sa-east-1`) e o `.env.local` preenchido. Depois disso a ordem é: migration 001
-(Tarefa 5) → criar o usuário e a linha em `perfis` → verificação manual do login
-(Tarefa 4, Step 4) → Etapa 1 vira ✅.
-
-## Etapas 0–2 em detalhe (Plano 1)
+## Tarefas do Plano 1
 
 Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 
@@ -37,18 +75,65 @@ Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 | 1 | Scaffold Next 16 com versões travadas + `PROGRESSO.md` | ✅ |
 | 2 | `lib/format.ts` (moeda e data) com testes | ✅ 7/7 |
 | 3 | Clients Supabase, `proxy.ts`, `perfilAtual` | ✅ 12/12 |
-| 4 | Login, logout e menu de 9 entradas | 🟡 código pronto; verificação manual pendente |
-| 5 | Migration 001: 10 tabelas, constraints e RLS | 🟡 aplicada e verificada; falta o primeiro perfil | 06/10/2026 |
-| 6 | Runner de testes SQL (transação + rollback) | ⬜ bloqueada |
-| 7 | `registrar_venda` | ⬜ bloqueada |
-| 8 | Teste de concorrência | ⬜ bloqueada |
-| 9 | `cancelar_venda` | ⬜ bloqueada |
-| 10 | Funções de caixa | ⬜ bloqueada |
-| 11 | Views de leitura + fuso de São Paulo | ⬜ bloqueada |
+| 4 | Login, logout e menu de 9 entradas | ✅ |
+| 5 | Migration 001: 10 tabelas, constraints e RLS | ✅ |
+| 6 | Runner de testes SQL (transação + rollback) | ⬜ **próximo** |
+| 7 | `registrar_venda` | ⬜ |
+| 8 | Teste de concorrência | ⬜ |
+| 9 | `cancelar_venda` | ⬜ |
+| 10 | Funções de caixa | ⬜ |
+| 11 | Views de leitura + fuso de São Paulo | ⬜ |
+
+## Credenciais e segredos
+
+**Nada disso está no git.** O `.env.local` é ignorado desde o primeiro commit, e
+o `.env.example` é só o modelo vazio.
+
+| Variável no `.env.local` | Para que serve | Situação |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | URL do projeto | ✅ `geywpaegovurwtfoacwt.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | chave pública (publishable) | ✅ |
+| `DEEPSEEK_API_KEY` | agente de IA (Etapa 8) | vazio, ainda não é usada |
+| `SUPABASE_DB_URL` | conexão direta no banco | ⚠️ **a senha está errada/placeholder e NÃO é usada** — ver abaixo |
+| `SUPABASE_ACCESS_TOKEN` | Personal Access Token (`sbp_`) | ✅ é o que aplica migrations e roda SQL |
+| `USUARIO_EMAIL` / `USUARIO_SENHA` / `USUARIO_ID` | login de teste | ✅ `lucas@farmacia.local` |
+
+**Dois pontos importantes para a próxima sessão:**
+
+1. **Não perca tempo com a senha do banco.** Ela nunca autenticou (testamos
+   session pooler, transaction pooler e conexão direta, todos recusaram), e o
+   projeto **não precisa dela**: migrations, SQL e testes passam pelo endpoint
+   `POST /v1/projects/{ref}/database/query` usando o `SUPABASE_ACCESS_TOKEN`. Se
+   um dia quiser o caminho com `pg`, terá que resetar a senha no painel
+   (*Project Settings → Infrastructure*, ou o botão **Connect**).
+
+2. **O Personal Access Token precisa ser revogado no fim do projeto.**
+   Supabase → avatar (canto superior direito) → *Account* → *Access Tokens* →
+   lixeira. Enquanto ele existir, ele dá acesso à conta inteira. **Isto é
+   pendência aberta.**
+
+Para ver a senha do usuário de teste:
+
+```powershell
+Select-String -Path "C:\DEEPSEEK WORKSPACE\PROJETO 1\.env.local" -Pattern '^USUARIO_SENHA'
+```
+
+## Decisões de projeto que não estão na spec
+
+- **O app é sempre claro (v1).** O `apps/globals.css` fixa `color-scheme: light`
+  e não segue o tema do sistema. Motivo: com o Windows em modo escuro, o texto
+  herdado ficava claro sobre fundo claro e **o que o usuário digitava sumia**.
+  Foi bug real, encontrado pelo Lucas, invisível para os testes.
+- **Usuário da farmácia é criado pela API de administração** (com
+  `email_confirm: true`), não à mão no painel. A linha em `perfis` é obrigatória:
+  sem ela o app mostra "Usuário sem perfil cadastrado".
+- **O aviso de hidratação no console é de extensão do navegador**
+  (`data-bry-content-script-bryweb` no `<html>`), não do nosso código. Não
+  perseguir.
 
 ## Versões travadas
 
-Registrado em 06/10/2026, a partir de `package.json` e do que está instalado em
+Registrado em 06/10/2026, a partir do `package.json` e do que está em
 `node_modules`. Todas as dependências estão em **versão exata** (sem `^` e sem
 `latest`); o `package-lock.json` é commitado e é ele que fixa a árvore inteira.
 
@@ -78,12 +163,14 @@ Registrado em 06/10/2026, a partir de `package.json` e do que está instalado em
 - **5 vulnerabilidades de severidade alta** em `npm audit`, todas na toolchain de
   lint (`braces` → `micromatch` → `fast-glob` → `@next/eslint-plugin-next` →
   `eslint-config-next`). São **dependências de desenvolvimento**: não entram no
-  bundle nem rodam em produção. Sem correção não-destrutiva disponível
-  (`npm audit fix` não resolve; `--force` quebraria a árvore). Reavaliar quando o
-  Next publicar correção.
+  bundle nem rodam em produção. Sem correção não-destrutiva disponível. Reavaliar
+  quando o Next publicar correção.
 - **npm 11 bloqueia install scripts por padrão**: `unrs-resolver@1.12.2` teve o
-  `postinstall` bloqueado. O `npm run build` passa mesmo assim. Se o `npm run
-  lint` falhar por isso, rodar `npm approve-scripts unrs-resolver`.
+  `postinstall` bloqueado. Build e lint passam assim mesmo. Se o lint falhar,
+  rodar `npm approve-scripts unrs-resolver`.
 - O scaffolder recusou a pasta `PROJETO 1` como nome de pacote (espaço e
   maiúsculas). O projeto foi gerado em pasta temporária e movido para a raiz; o
   campo `name` do `package.json` é `farmacia`.
+- **Next 16 renomeou `middleware.ts` para `proxy.ts`** (função `proxy`, runtime
+  Node). Não recriar `middleware.ts`: ele seria ignorado em silêncio e o
+  redirecionamento de quem não está logado pararia de funcionar.
