@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:sql": "node tests/sql/run.mjs",
     "test:sql:concorrencia": "node tests/sql/concorrencia.mjs",
+    "test:e2e": "playwright test",
     "migrar": "node scripts/aplicar-migration.mjs"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "24.19.1",
     "@types/react": "19.3.0",

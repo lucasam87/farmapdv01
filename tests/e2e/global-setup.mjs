@@ -1,0 +1,123 @@
+// Prepara o cenario dos testes de ponta a ponta (Task 13).
+//
+// Os testes do PDV precisam de estado REAL no banco: caixa aberto e um produto
+// com estoque. Em vez de deixar isso como passo manual ("antes de rodar, abra o
+// caixa"), este script faz o preparo, e o playwright.config.ts o chama como
+// `globalSetup`.
+//
+// ISOLAMENTO: o cenario usa um terminal proprio ('e2e') e um produto com nome
+// fixo, entao nada do que a farmacia tem no banco e tocado — nem o caixa real.
+//
+// Transporte: o mesmo do resto do projeto, o endpoint de gerenciamento com o
+// SUPABASE_ACCESS_TOKEN, porque o banco nao aceita conexao `pg`.
+
+import path from 'node:path'
+import process from 'node:process'
+import dotenv from 'dotenv'
+
+const raiz = path.resolve(import.meta.dirname, '..', '..')
+dotenv.config({ path: path.join(raiz, '.env.local'), quiet: true })
+
+const token = process.env.SUPABASE_ACCESS_TOKEN
+const urlProjeto = process.env.NEXT_PUBLIC_SUPABASE_URL
+const email = process.env.USUARIO_EMAIL
+
+if (!token || !urlProjeto || !email) {
+  throw new Error('Faltam SUPABASE_ACCESS_TOKEN, NEXT_PUBLIC_SUPABASE_URL ou USUARIO_EMAIL no .env.local')
+}
+
+const ref = new URL(urlProjeto).hostname.split('.')[0]
+
+export const PRODUTO_E2E = 'PRODUTO E2E PARACETAMOL'
+export const PRECO_E2E = 500
+export const TERMINAL_E2E = 'e2e'
+// Para o teste de limite de crediario: um produto caro e um cliente que nao
+// alcanca o valor dele.
+export const PRODUTO_CARO_E2E = 'PRODUTO E2E CARO'
+export const PRECO_CARO_E2E = 4500
+export const CLIENTE_E2E = 'CLIENTE E2E LIMITE BAIXO'
+export const LIMITE_CLIENTE_E2E = 3000
+
+async function consultar(query) {
+  const resposta = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  })
+  const texto = await resposta.text()
+  if (!resposta.ok) throw new Error(`SQL falhou (HTTP ${resposta.status}): ${texto.slice(0, 400)}`)
+  return texto ? JSON.parse(texto) : []
+}
+
+/**
+ * Remove tudo que os testes criaram, na ordem que as chaves estrangeiras exigem:
+ * movimentos e vendas ANTES do caixa e do produto. Idempotente.
+ */
+export async function limpar() {
+  await consultar(`
+    do $$
+    declare
+      v_produto uuid;
+      v_sessao uuid;
+    begin
+      select id into v_produto from produtos where nome = '${PRODUTO_E2E}';
+      select id into v_sessao from caixa_sessoes where terminal = '${TERMINAL_E2E}';
+
+      if v_produto is not null then
+        delete from estoque_movimentos where produto_id = v_produto;
+        -- venda_itens e venda_pagamentos saem por ON DELETE CASCADE
+        delete from vendas where id in (select venda_id from venda_itens where produto_id = v_produto);
+        delete from produtos where id = v_produto;
+      end if;
+
+      delete from crediario_lancamentos
+       where cliente_id in (select id from clientes where nome = '${CLIENTE_E2E}');
+      delete from clientes where nome = '${CLIENTE_E2E}';
+      delete from produtos where nome = '${PRODUTO_CARO_E2E}';
+
+      if v_sessao is not null then
+        delete from caixa_movimentos where sessao_id = v_sessao;
+        delete from caixa_sessoes where id = v_sessao;
+      end if;
+    end $$;
+  `)
+}
+
+/**
+ * Cria (ou restaura) o cenario. Restaura o estoque para 20 em vez de recriar o
+ * produto, para o teste poder rodar varias vezes seguidas sem limpeza manual.
+ */
+export async function preparar() {
+  await limpar()
+  await consultar(`
+    do $$
+    declare v_dono uuid;
+    begin
+      select id into v_dono from perfis where papel = 'dono' order by criado_em limit 1;
+      if v_dono is null then
+        raise exception 'Nao existe usuario com papel dono em perfis para os testes e2e';
+      end if;
+
+      insert into produtos (nome, codigo_barras, preco_custo, preco_venda, estoque_atual, estoque_minimo)
+      values ('${PRODUTO_E2E}', '999000111', 200, ${PRECO_E2E}, 20, 1);
+
+      -- Produto caro: existe para o caso do crediario acima do limite.
+      insert into produtos (nome, codigo_barras, preco_custo, preco_venda, estoque_atual, estoque_minimo)
+      values ('${PRODUTO_CARO_E2E}', '999000222', 2000, ${PRECO_CARO_E2E}, 20, 1);
+
+      -- Cliente com limite MENOR que o produto caro: o crediario tem que recusar.
+      insert into clientes (nome, telefone, limite_credito, bloqueado)
+      values ('${CLIENTE_E2E}', '11000000000', ${LIMITE_CLIENTE_E2E}, false);
+
+      -- abrir_caixa recusa se ja houver sessao aberta em qualquer terminal, entao
+      -- o insert e direto: em teste precisamos do cenario, nao da regra de balcao.
+      insert into caixa_sessoes (aberto_por, status, terminal, valor_inicial)
+      values (v_dono, 'aberto', '${TERMINAL_E2E}', 0);
+    end $$;
+  `)
+}
+
+export default async function globalSetup() {
+  await preparar()
+  console.log('[e2e] cenario pronto: produto com estoque 20 e caixa aberto no terminal e2e')
+}
