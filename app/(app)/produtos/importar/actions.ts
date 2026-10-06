@@ -5,7 +5,8 @@ import { criarClienteServidor } from '@/lib/supabase/server'
 import { perfilAtual } from '@/lib/auth/perfil'
 import { lerCsv, pareceLatin1, type Tabela } from '@/lib/csv'
 import { lerXlsx } from '@/lib/xlsx'
-import { analisarTabela, detectarFormato, type LinhaProduto } from '@/lib/tabela'
+import { analisarTabela, detectarFormato } from '@/lib/tabela'
+import { paraOLinhasJson } from './preparacao'
 
 // Duas acoes, e nao uma, porque a importacao tem DUAS viagens de proposito:
 // a primeira le e confere (sem gravar nada), a segunda grava. O arquivo nao
@@ -36,27 +37,6 @@ export type ResultadoImportacao =
   | { ok: false; mensagem: string }
 
 const SO_O_DONO = 'Só o dono pode importar produtos.'
-
-/** Mantem so o que a RPC entende, e so as linhas sem erro. */
-export function paraOLinhasJson(linhas: LinhaProduto[]) {
-  return linhas
-    .filter((l) => l.erros.length === 0)
-    .map((l) => {
-      const base: Record<string, unknown> = {
-        codigo_barras: l.codigo_barras,
-        nome: l.nome,
-        categoria: l.categoria,
-        unidade: l.unidade,
-        preco_custo: l.preco_custo,
-        preco_venda: l.preco_venda,
-        estoque_minimo: l.estoque_minimo,
-      }
-      // A chave AUSENTE e diferente de valor nulo: e isso que faz a RPC nao
-      // mexer no estoque de quem ja existe. So inclui quando veio da planilha.
-      if (l.estoque_atual !== null) base.estoque_inicial = l.estoque_atual
-      return base
-    })
-}
 
 // Assinatura exigida pelo useActionState: o estado anterior vem primeiro (doc do
 // Next 16, app/guides/forms.md). O primeiro parametro nao e usado aqui.

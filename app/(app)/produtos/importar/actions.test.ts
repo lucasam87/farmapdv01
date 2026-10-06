@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { paraOLinhasJson } from './actions'
+import { paraOLinhasJson } from './preparacao'
 import { analisarTabela } from '@/lib/tabela'
 import type { LinhaProduto } from '@/lib/tabela'
 
