@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { perfilAtual } from '@/lib/auth/perfil'
 import { sair } from './actions'
+import { Atalhos } from './atalhos'
 
 // As 9 entradas do menu. As telas por trás delas chegam nas etapas seguintes.
 const MENU = [
@@ -46,6 +47,8 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-dvh bg-slate-50">
+      {/* F3 abre a nova venda de qualquer tela (spec 10). */}
+      <Atalhos />
       <aside className="w-56 shrink-0 border-r border-slate-200 bg-white p-4">
         <p className="px-2 text-lg font-semibold text-slate-800">Farmácia</p>
 
