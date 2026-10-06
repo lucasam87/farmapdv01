@@ -1,0 +1,174 @@
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { criarClienteServidor } from '@/lib/supabase/server'
+import { perfilAtual } from '@/lib/auth/perfil'
+import { lerCsv, pareceLatin1, type Tabela } from '@/lib/csv'
+import { lerXlsx } from '@/lib/xlsx'
+import { analisarTabela, detectarFormato, type LinhaProduto } from '@/lib/tabela'
+
+// Duas acoes, e nao uma, porque a importacao tem DUAS viagens de proposito:
+// a primeira le e confere (sem gravar nada), a segunda grava. O arquivo nao
+// volta ao cliente — o que viaja e o JSON ja validado, num campo oculto.
+
+export type Previa = {
+  colunas: Tabela['colunas']
+  primeiras: string[][]
+  validas: number
+  invalidas: number
+  descartadas: number
+  somaPlanilha: number
+  somaGravada: number
+  faltando: string[]
+  avisos: string[]
+  erros: { linha: number; erros: string[] }[]
+  json: string
+}
+
+export type Resumo = { criados: number; atualizados: number; ignorados: number }
+
+export type ResultadoAnalise =
+  | { ok: true; previa: Previa }
+  | { ok: false; mensagem: string }
+
+export type ResultadoImportacao =
+  | { ok: true; resumo: Resumo }
+  | { ok: false; mensagem: string }
+
+const SO_O_DONO = 'Só o dono pode importar produtos.'
+
+/** Mantem so o que a RPC entende, e so as linhas sem erro. */
+export function paraOLinhasJson(linhas: LinhaProduto[]) {
+  return linhas
+    .filter((l) => l.erros.length === 0)
+    .map((l) => {
+      const base: Record<string, unknown> = {
+        codigo_barras: l.codigo_barras,
+        nome: l.nome,
+        categoria: l.categoria,
+        unidade: l.unidade,
+        preco_custo: l.preco_custo,
+        preco_venda: l.preco_venda,
+        estoque_minimo: l.estoque_minimo,
+      }
+      // A chave AUSENTE e diferente de valor nulo: e isso que faz a RPC nao
+      // mexer no estoque de quem ja existe. So inclui quando veio da planilha.
+      if (l.estoque_atual !== null) base.estoque_inicial = l.estoque_atual
+      return base
+    })
+}
+
+// Assinatura exigida pelo useActionState: o estado anterior vem primeiro (doc do
+// Next 16, app/guides/forms.md). O primeiro parametro nao e usado aqui.
+export async function analisarArquivo(
+  _estadoAnterior: ResultadoAnalise | null,
+  formData: FormData,
+): Promise<ResultadoAnalise> {
+  const perfil = await perfilAtual()
+  if (!perfil) return { ok: false, mensagem: 'Usuário sem perfil cadastrado. Fale com o responsável.' }
+  if (perfil.papel !== 'dono') return { ok: false, mensagem: SO_O_DONO }
+
+  const arquivo = formData.get('arquivo')
+  if (!(arquivo instanceof File) || arquivo.size === 0) {
+    return { ok: false, mensagem: 'Escolha um arquivo .xlsx ou .csv.' }
+  }
+
+  const bytes = new Uint8Array(await arquivo.arrayBuffer())
+  const formato = detectarFormato(arquivo.name, bytes)
+  const avisos: string[] = []
+  let tabela: Tabela
+
+  try {
+    if (formato === 'xlsx') {
+      tabela = lerXlsx(bytes)
+    } else if (formato === 'csv') {
+      // O export antigo vem em Latin-1: sem isto os acentos chegam quebrados e
+      // o nome do produto entra errado no cadastro.
+      const latin1 = pareceLatin1(bytes)
+      if (latin1) {
+        avisos.push(
+          'O arquivo está em Latin-1 (padrão antigo do Windows). Os acentos foram convertidos — confira os nomes antes de confirmar.',
+        )
+      }
+      tabela = lerCsv(new TextDecoder(latin1 ? 'windows-1252' : 'utf-8').decode(bytes))
+    } else {
+      return { ok: false, mensagem: 'Formato não reconhecido. Envie uma planilha .xlsx ou um arquivo .csv.' }
+    }
+  } catch (erro) {
+    // As mensagens de lerXlsx ja vem em portugues e explicando o que fazer.
+    return { ok: false, mensagem: erro instanceof Error ? erro.message : 'Não foi possível ler o arquivo.' }
+  }
+
+  const analise = analisarTabela(tabela)
+
+  const erros = analise.linhas
+    .map((l, i) => ({ linha: i + 1, erros: l.erros }))
+    .filter((e) => e.erros.length > 0)
+
+  const previa: Previa = {
+    colunas: tabela.colunas,
+    primeiras: analise.linhas
+      .filter((l) => l.erros.length === 0)
+      .slice(0, 5)
+      .map((l) => [
+        l.codigo_barras ?? '',
+        l.nome,
+        l.categoria ?? '',
+        l.unidade,
+        String(l.preco_custo),
+        String(l.preco_venda),
+        l.estoque_atual === null ? '' : String(l.estoque_atual),
+        String(l.estoque_minimo),
+      ]),
+    validas: analise.validas,
+    invalidas: analise.invalidas,
+    descartadas: analise.descartadas,
+    somaPlanilha: analise.somaPlanilha,
+    somaGravada: analise.somaGravada,
+    faltando: analise.faltando,
+    avisos: [...avisos, ...analise.avisos],
+    erros,
+    json: JSON.stringify(paraOLinhasJson(analise.linhas)),
+  }
+
+  return { ok: true, previa }
+}
+
+export async function confirmarImportacao(
+  _estadoAnterior: ResultadoImportacao | null,
+  formData: FormData,
+): Promise<ResultadoImportacao> {
+  const perfil = await perfilAtual()
+  if (!perfil) return { ok: false, mensagem: 'Usuário sem perfil cadastrado. Fale com o responsável.' }
+  if (perfil.papel !== 'dono') return { ok: false, mensagem: SO_O_DONO }
+
+  const bruto = formData.get('linhas')
+  if (typeof bruto !== 'string' || bruto.trim() === '') {
+    return { ok: false, mensagem: 'Nenhuma linha para importar.' }
+  }
+
+  let linhas: unknown
+  try {
+    linhas = JSON.parse(bruto)
+  } catch {
+    return { ok: false, mensagem: 'Nenhuma linha para importar.' }
+  }
+  if (!Array.isArray(linhas) || linhas.length === 0) {
+    return { ok: false, mensagem: 'Nenhuma linha para importar.' }
+  }
+
+  const supabase = await criarClienteServidor()
+  const { data, error } = await supabase.rpc('importar_produtos', {
+    p_linhas: linhas,
+    p_atualizar_existentes: formData.get('atualizar') === 'sim',
+  })
+
+  if (error) {
+    // A mensagem da RPC ja vem em portugues e nomeando a linha.
+    return { ok: false, mensagem: error.message }
+  }
+
+  // A lista de produtos ja pode estar aberta em outra aba do balcao.
+  revalidatePath('/produtos')
+  return { ok: true, resumo: data as Resumo }
+}
