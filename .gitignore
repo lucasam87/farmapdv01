@@ -7,7 +7,12 @@ out/
 build/
 dist/
 
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
 # Ambiente — NUNCA commitar (regra 6 do plano)
+# Atenção: NÃO ignorar `.env*` inteiro, senão o .env.example não pode ser commitado
 .env
 .env.local
 .env*.local
@@ -27,10 +32,13 @@ test-results/
 # Sistema
 .DS_Store
 Thumbs.db
+*.pem
 
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Rascunho do processo de execucao (ledger, briefs, pacotes de revisao)
 .superpowers/
