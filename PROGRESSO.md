@@ -8,7 +8,7 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 
 ---
 
-# ⏸ ONDE PARAMOS — 06/10/2026
+# ⏸ ONDE PARAMOS — 06/10/2026 (segunda sessão do dia)
 
 **Branch:** `etapa-0-2-fundacao` (o `main` está intacto, só com spec e plano).
 **Etapas 0, 1 e 2 fechadas. O plano 1 está 100% executado** — 11 tarefas: ambiente,
@@ -22,27 +22,54 @@ login, banco com RLS, funções de venda, cancelamento, caixa e as 10 views.
 | `npm run test:sql:concorrencia` | **17 OK, 0 FALHOU**, exit 0 — último item: B bloqueada ~1 s e recusada com `Estoque insuficiente`; limite de crediário: B bloqueada e recusada com `Limite excedido` |
 | `npm test` | **12/12** |
 
-**Próximo passo, exatamente:** escrever o **plano 2** (Etapas 3–4: produtos, estoque,
-importação CSV e o PDV completo) com a skill `writing-plans`, a partir da spec
-`docs/superpowers/specs/2026-10-06-sistema-farmacia-design.md`.
+**O plano 2 foi escrito, revisado e commitado** (`6de378e`, 15 tarefas) e a execução
+**ainda não começou**. A **tarefa zero dele foi comprovada** (ver abaixo): o `supabase
+link` e o `migration repair` funcionam sem a senha do banco.
+
+**Onde a sessão parou, exatamente:** publicar o projeto no **GitHub**. Está tudo pronto
+menos a autorização da conta, que só o Lucas pode fazer (é o passo que travou a sessão).
+Estado verificado: `gh` 2.102.0 instalado, `credential.helper = manager` com o Git
+Credential Manager presente, e **nenhum segredo em nenhum dos 181 objetos do histórico**
+(o `SUPABASE_ACCESS_TOKEN` e a chave anon não aparecem; o único `.env*` versionado é o
+`.env.example`, vazio de valores). Dois códigos de dispositivo expiraram sem autorização.
 
 # ▶ COMO RETOMAR EM OUTRA JANELA
 
 Diga ao agente, nesta ordem:
 
-1. **"Leia o `PROGRESSO.md` e o ledger em
-   `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`, e vamos escrever o
+1. **Se quiser continuar a publicação no GitHub:** "vamos terminar o GitHub". O agente
+   gera um código de dispositivo e você abre https://github.com/login/device, cola e
+   autoriza (o código vale ~10 minutos). O agente então roda `gh auth setup-git`,
+   `gh repo create farmacia --private` e sobe as **duas branches** (`main` e
+   `etapa-0-2-fundacao`). **Falta o seu usuário do GitHub** para o e-mail
+   `...@users.noreply.github.com` dos próximos commits. Alternativa: um Personal Access
+   Token (classic) com escopos `repo` e `read:org` + `gh auth login --with-token`.
+
+2. **"Leia o `PROGRESSO.md` e o ledger em
+   `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`, e vamos executar o
    plano 2 (Etapas 3–4)."** O ledger é o registro detalhado de **todas** as decisões
    (rulings) e do que já foi verificado. Ele é ignorado pelo git de propósito (é
-   rascunho do processo), mas está no disco.
+   rascunho do processo), mas está no disco. O ledger do plano 1, com toda a história da
+   fundação, está em `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`.
 
-2. Antes de escrever qualquer coisa, rodar e conferir:
+3. Antes de escrever qualquer coisa, rodar e conferir:
    - `npm test` → **12/12**
    - `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**
    - `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**
-   - `git log --oneline` → os commits da etapa-2
+   - `git log --oneline` → os commits da etapa-2 e o commit do plano 2
 
-3. Para testar a interface: `npm run dev` e abrir http://localhost:3000.
+4. A execução do plano 2 começa pela **tarefa zero** (ligar o Supabase CLI):
+
+   ```powershell
+   $env:SUPABASE_ACCESS_TOKEN = (Select-String -Path ".env.local" -Pattern '^SUPABASE_ACCESS_TOKEN=(.+)$').Matches.Groups[1].Value.Trim()
+   npx --yes supabase@2.120.0 link --project-ref geywpaegovurwtfoacwt --yes
+   npx --yes supabase@2.120.0 migration repair --status applied 001 002 003 004 005 --linked
+   npx --yes supabase@2.120.0 migration list --linked
+   ```
+
+   **Não** rodar `supabase db push` em momento nenhum: ele exige conexão direta no banco.
+
+5. Para testar a interface: `npm run dev` e abrir http://localhost:3000.
 
 **Não é preciso refazer nada das Etapas 0, 1 e 2.** Estão commitadas e verificadas.
 Não apague a branch nem o `.superpowers/`.
@@ -61,14 +88,20 @@ O script (`scripts/aplicar-migration.mjs`) usa `SUPABASE_ACCESS_TOKEN` +
 Migrations já aplicadas no projeto: `001_base`, `002_registrar_venda`,
 `003_cancelar_venda`, `004_caixa`, `005_views`.
 
-⚠️ **Quando o Supabase CLI entrar no projeto** (o `supabase link` precisa da senha do
-banco, que ainda não existe), rodar antes de qualquer `db push`:
+⚠️ **O `supabase link` NÃO precisa da senha do banco** — isto foi medido em 06/10/2026 e
+substitui o que este arquivo dizia antes (dizia que precisava; estava errado). Com o
+`SUPABASE_ACCESS_TOKEN` no ambiente, `supabase link --project-ref <ref> --yes` sai com
+código 0 e o `migration repair --linked` também funciona sem senha. O que **não** funciona
+é `supabase db push`, porque ele exige conexão direta no banco — por isso as migrations
+continuam por `npm run migrar`.
+
+O CLI **não está ligado ainda** (a tarefa zero do plano 2 é justamente essa). Quando ligar,
+o histórico dele começa vazio e precisa receber as cinco migrations já aplicadas, senão o
+CLI tentaria reaplicá-las e o histórico ficaria mentindo:
 
 ```powershell
-npx supabase migration repair --status applied 001 002 003 004 005
+npx --yes supabase@2.120.0 migration repair --status applied 001 002 003 004 005 --linked
 ```
-
-Sem isso o CLI tentaria reaplicar as cinco e o histórico dele ficaria mentindo.
 
 **Os testes SQL também usam esse endpoint** (não o `pg`): `tests/sql/run.mjs` roda cada
 arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
@@ -84,8 +117,8 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
 | 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**; `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**; `npm test` → 12/12. Revisão final em contexto limpo apontou 1 Critical + 4 Important, todos corrigidos com teste que nasceu vermelho: `anon` perdeu o EXECUTE das RPCs de escrita (`050_permissoes.sql`), o limite de crediário ganhou `for update` no cliente (cenário 2 da concorrência), o termo "cancelamentos em dinheiro" da §8.3 ganhou teste, RLS passou a ser exercitada de verdade, e `npm run migrar` passou a ser o caminho versionado de aplicar migration | 06/10/2026 |
-| 3 | Produtos e estoque | ⬜ | — | — |
-| 4 | PDV | ⬜ | — | — |
+| 3 | Produtos e estoque | ⬜ | plano 2 escrito: `plano 2` Tarefa 0 = CLI do Supabase, Tarefas 1–3 = migrations 006–008, Tarefa 8 = importação, Tarefa 9 = telas. Nada executado ainda, por isso sem evidência | — |
+| 4 | PDV | ⬜ | plano 2 escrito: Tarefas 11–12 (PDV e lista do dia) e Tarefa 13 (Playwright como evidência). Nada executado ainda, por isso sem evidência | — |
 | 5 | Histórico de vendas | ⬜ | — | — |
 | 6 | Clientes e crediário | ⬜ | — | — |
 | 7 | Relatórios | ⬜ | — | — |
@@ -111,6 +144,31 @@ Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 | 9 | `cancelar_venda` | ✅ `286bf5b` |
 | 10 | Funções de caixa | ✅ `0b24a6a` |
 | 11 | Views de leitura + fuso de São Paulo | ✅ |
+
+## Tarefas do Plano 2
+
+Plano: `docs/superpowers/plans/2026-10-06-produtos-estoque-pdv.md` (commit `6de378e`).
+Escrito e revisado em 06/10/2026. **A execução ainda não começou** — nenhuma tarefa abaixo
+foi iniciada. Ledger de execução:
+`.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`.
+
+| Tarefa | Entrega | Status |
+|---|---|---|
+| 0 | Supabase CLI ligado + `migration repair` das 001–005 | ⬜ (comando já provado; falta rodar) |
+| 1 | `produto_salvar` — cadastro e edição sem tocar no estoque | ⬜ |
+| 2 | `produto_entrada` e `produto_ajuste` — livro-razão manda | ⬜ |
+| 3 | `importar_produtos` — tudo ou nada, casa por código de barras | ⬜ |
+| 4 | `lib/dinheiro.ts` (`parsearCentavos`, `parsearQuantidade`) | ⬜ |
+| 5 | `lib/csv.ts` — aspas, separador, Latin-1 | ⬜ |
+| 6 | `lib/xlsx.ts` + fixtures `.xlsx` geradas com Python/openpyxl | ⬜ |
+| 7 | `lib/tabela.ts` — cabeçalho tolerante, rodapé, duas somas | ⬜ |
+| 8 | Tela de importação com prévia e conferência de somas | ⬜ |
+| 9 | `/produtos`, `/produtos/novo`, `/produtos/[id]` — busca, entrada, ajuste | ⬜ |
+| 10 | `/estoque` — abas baixo / zerado / parado | ⬜ |
+| 11 | `/vendas/nova` — PDV com teclado, pagamento dividido, idempotência | ⬜ |
+| 12 | `/vendas` — lista do dia com valores ocultáveis | ⬜ |
+| 13 | Playwright — teclado, clique duplo, F3, limite de crediário | ⬜ |
+| 14 | PDF — medir contra o total impresso e decidir (pode terminar inviável) | ⬜ |
 
 ## Credenciais e segredos
 
@@ -140,11 +198,49 @@ o `.env.example` é só o modelo vazio.
    lixeira. Enquanto ele existir, ele dá acesso à conta inteira. **Isto é
    pendência aberta.**
 
+3. **O `supabase link` também não precisa da senha do banco** (medido em
+   06/10/2026): só o `SUPABASE_ACCESS_TOKEN`. O que não funciona é `supabase db
+   push`, porque exige conexão direta.
+
 Para ver a senha do usuário de teste:
 
 ```powershell
 Select-String -Path "C:\DEEPSEEK WORKSPACE\PROJETO 1\.env.local" -Pattern '^USUARIO_SENHA'
 ```
+
+## Publicar no GitHub — em andamento, bloqueado na autorização
+
+Trabalho começado em 06/10/2026 e **parado no único passo que depende do Lucas**.
+Decidido: repositório **privado**, nome **`farmacia`**, subindo **as duas branches**
+(`main` e `etapa-0-2-fundacao`), e e-mail dos próximos commits em
+`...@users.noreply.github.com` (os commits já feitos usam `lucas@farmacia.local` e ficam
+como estão — mudá-los exigiria reescrever histórico).
+
+**Pronto e verificado:**
+
+- `gh` (GitHub CLI) **2.102.0** instalado em `C:\Program Files\GitHub CLI\gh.exe`
+  (via winget). Não estava instalado antes.
+- `credential.helper = manager`, com o Git Credential Manager em
+  `C:\Program Files\Git\ucrt64\bin\git-credential-manager.exe` — o `git push` consegue
+  autenticar sozinho depois do login.
+- **Auditoria do histórico (reconferida ao fim da sessão): nenhum segredo em nenhum dos
+  181 objetos.** Nem o valor do `SUPABASE_ACCESS_TOKEN` nem o da chave anon aparecem.
+  O único `.env*` já commitado é o `.env.example`, que está vazio de valores.
+- `.gitignore` cobre `.env`, `.env*.local`, `supabase/.temp/` e `.superpowers/`.
+
+**Onde travou:** a autorização da conta. O login do `gh` usa código de dispositivo e exige
+abrir https://github.com/login/device — o agente não consegue fazer isso sozinho. Três
+verificações seguidas deram `gh auth status` → `not logged into any GitHub hosts` e
+`%APPDATA%\GitHub CLI\hosts.yml` inexistente. **Dois códigos foram gerados e expiraram sem
+autorização** (`203C-8F4C` e `436A-4518`; cada um vale ~10 minutos). Nenhum processo `gh`
+ficou rodando.
+
+**Para continuar:** dizer ao agente "vamos terminar o GitHub". Ele gera um código novo,
+você autoriza em https://github.com/login/device, e o agente roda `gh auth setup-git`,
+`gh repo create farmacia --private` e o push das duas branches. **Falta também o usuário do
+GitHub** para fechar o e-mail `@users.noreply.github.com`. Alternativa, se o navegador
+falhar: Personal Access Token (classic) com escopos `repo` e `read:org`, passado para
+`gh auth login --with-token`.
 
 ## Decisões de projeto que não estão na spec
 
