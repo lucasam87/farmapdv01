@@ -1,0 +1,33 @@
+# Dependências
+node_modules/
+
+# Build
+.next/
+out/
+build/
+dist/
+
+# Ambiente — NUNCA commitar (regra 6 do plano)
+.env
+.env.local
+.env*.local
+
+# Vercel
+.vercel
+
+# Supabase (local/temporário)
+supabase/.temp/
+supabase/.branches/
+
+# Testes
+coverage/
+playwright-report/
+test-results/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
