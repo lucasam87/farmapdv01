@@ -23,16 +23,17 @@ login, banco com RLS, funções de venda, cancelamento, caixa e as 10 views.
 | `npm test` | **12/12** |
 
 **O plano 2 foi escrito, revisado e commitado** (`6de378e`, 15 tarefas) e a execução
-**ainda não começou**. A **tarefa zero dele foi comprovada** (ver abaixo): o `supabase
-link` e o `migration repair` funcionam sem a senha do banco.
+**começou pela tarefa zero, que está ✅** (ver abaixo): o CLI está ligado ao projeto e o
+histórico `001`–`005` está reparado — o `supabase link` e o `migration repair` funcionam
+sem a senha do banco.
 
 **O projeto está no GitHub:** https://github.com/lucasam87/farmapdv01 (**privado**), com as
 duas branches (`main` em `a9f55cd` e `etapa-0-2-fundacao` em `58553e0`) — conferidas hash a
 hash contra o local, e auditadas: nenhum segredo subiu. Detalhes na seção
 "Publicado no GitHub" mais abaixo. Daqui para frente, `git push` sobe sozinho.
 
-**Onde a sessão parou, exatamente:** a próxima tarefa é **executar o plano 2**, começando
-pela tarefa zero (ligar o Supabase CLI). Nada do plano 2 foi executado ainda.
+**Onde a sessão parou, exatamente:** a tarefa zero do plano 2 está ✅ (CLI ligado e
+histórico reparado). A próxima tarefa é a **1** (`produto_salvar`).
 
 # ▶ COMO RETOMAR EM OUTRA JANELA
 
@@ -51,7 +52,8 @@ Diga ao agente, nesta ordem:
    - `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**
    - `git log --oneline` → os commits da etapa-2 e o commit do plano 2
 
-3. A execução do plano 2 começa pela **tarefa zero** (ligar o Supabase CLI):
+3. A **tarefa zero já está feita** (CLI ligado, histórico reparado). Os comandos dela,
+   para referência:
 
    ```powershell
    $env:SUPABASE_ACCESS_TOKEN = (Select-String -Path ".env.local" -Pattern '^SUPABASE_ACCESS_TOKEN=(.+)$').Matches.Groups[1].Value.Trim()
@@ -88,12 +90,17 @@ código 0 e o `migration repair --linked` também funciona sem senha. O que **n�
 é `supabase db push`, porque ele exige conexão direta no banco — por isso as migrations
 continuam por `npm run migrar`.
 
-O CLI **não está ligado ainda** (a tarefa zero do plano 2 é justamente essa). Quando ligar,
-o histórico dele começa vazio e precisa receber as cinco migrations já aplicadas, senão o
-CLI tentaria reaplicá-las e o histórico ficaria mentindo:
+✅ **O CLI está ligado e o histórico está reparado** (tarefa zero do plano 2, 06/10/2026):
+`supabase/.temp/project-ref` = `geywpaegovurwtfoacwt`, `linked-project.json` com
+`"name":"farmaciapdv"`, e as cinco migrations marcadas como aplicadas pela API —
+`migration repair --status applied 001 002 003 004 005 --linked` saiu com código 0 e
+`supabase_migrations.schema_migrations` ficou com as cinco linhas (`001` base, `002`
+registrar_venda, `003` cancelar_venda, `004` caixa, `005` views). `migration list --linked`
+mostra `Local` e `Remote` preenchidos nas cinco. `supabase/config.toml` é versionado;
+`supabase/.temp/` é estado de máquina e está no `.gitignore`.
 
 ```powershell
-npx --yes supabase@2.120.0 migration repair --status applied 001 002 003 004 005 --linked
+npx --yes supabase@2.120.0 migration list --linked
 ```
 
 **Os testes SQL também usam esse endpoint** (não o `pg`): `tests/sql/run.mjs` roda cada
@@ -110,7 +117,7 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
 | 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**; `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**; `npm test` → 12/12. Revisão final em contexto limpo apontou 1 Critical + 4 Important, todos corrigidos com teste que nasceu vermelho: `anon` perdeu o EXECUTE das RPCs de escrita (`050_permissoes.sql`), o limite de crediário ganhou `for update` no cliente (cenário 2 da concorrência), o termo "cancelamentos em dinheiro" da §8.3 ganhou teste, RLS passou a ser exercitada de verdade, e `npm run migrar` passou a ser o caminho versionado de aplicar migration | 06/10/2026 |
-| 3 | Produtos e estoque | ⬜ | plano 2 escrito: `plano 2` Tarefa 0 = CLI do Supabase, Tarefas 1–3 = migrations 006–008, Tarefa 8 = importação, Tarefa 9 = telas. Nada executado ainda, por isso sem evidência | — |
+| 3 | Produtos e estoque | 🟡 | tarefa 0 do plano 2 ✅ (CLI do Supabase ligado e histórico `001`–`005` reparado); Tarefas 1–3 = migrations 006–008, 8 = importação, 9 = telas — ainda não executadas, por isso sem evidência | 06/10/2026 |
 | 4 | PDV | ⬜ | plano 2 escrito: Tarefas 11–12 (PDV e lista do dia) e Tarefa 13 (Playwright como evidência). Nada executado ainda, por isso sem evidência | — |
 | 5 | Histórico de vendas | ⬜ | — | — |
 | 6 | Clientes e crediário | ⬜ | — | — |
@@ -141,13 +148,13 @@ Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 ## Tarefas do Plano 2
 
 Plano: `docs/superpowers/plans/2026-10-06-produtos-estoque-pdv.md` (commit `6de378e`).
-Escrito e revisado em 06/10/2026. **A execução ainda não começou** — nenhuma tarefa abaixo
-foi iniciada. Ledger de execução:
+Escrito e revisado em 06/10/2026. **A execução começou pela tarefa 0, que está ✅** — as
+demais seguem pendentes. Ledger de execução:
 `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`.
 
 | Tarefa | Entrega | Status |
 |---|---|---|
-| 0 | Supabase CLI ligado + `migration repair` das 001–005 | ⬜ (comando já provado; falta rodar) |
+| 0 | Supabase CLI ligado + `migration repair` das 001–005 | ✅ `project-ref` = `geywpaegovurwtfoacwt`, `repair` exit 0, `supabase_migrations.schema_migrations` com as 5 versões |
 | 1 | `produto_salvar` — cadastro e edição sem tocar no estoque | ⬜ |
 | 2 | `produto_entrada` e `produto_ajuste` — livro-razão manda | ⬜ |
 | 3 | `importar_produtos` — tudo ou nada, casa por código de barras | ⬜ |
