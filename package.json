@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:sql": "node tests/sql/run.mjs"
+    "test:sql": "node tests/sql/run.mjs",
+    "test:sql:concorrencia": "node tests/sql/concorrencia.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
