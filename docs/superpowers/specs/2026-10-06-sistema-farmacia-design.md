@@ -245,6 +245,7 @@ alter table vendas
   add column motivo_cancelamento text,
   add constraint vendas_desconto_ok check (desconto >= 0 and desconto <= subtotal),
   add constraint vendas_total_ok check (total = subtotal - desconto),
+  add constraint vendas_total_positivo check (total > 0),
   add constraint vendas_troco_ok check (troco >= 0);
 
 create index vendas_criado_em on vendas (criado_em desc);
@@ -289,12 +290,16 @@ alter table crediario_lancamentos
 2. **Caixa aberto?** Não → `Abra o caixa para começar a vender.` Nada gravado.
 3. `p_itens` não vazio.
 4. **Agregar itens por `produto_id`** (×3 + ×4 → ×7). ← corrige A1.
-5. Cada item: produto existe, `ativo`, quantidade inteira `> 0`. ← corrige A2.
+5. Cada item: produto existe, `ativo`, quantidade inteira entre `1` e `9999`. O
+   texto é validado **antes** do cast: sem isso `"1.5"` vira erro de sintaxe do
+   Postgres na cara do atendente. ← corrige A2
 6. Travar linhas com `for update` em **ordem fixa** (`order by produto_id`) —
    evita deadlock entre vendas simultâneas.
 7. Estoque suficiente para o total agregado.
 8. `subtotal` = Σ `preco_venda` (do banco) × quantidade.
-9. Desconto `>= 0` e `<= subtotal`.
+9. Desconto `>= 0`, `<= subtotal`, e o **total precisa ser `> 0`** — desconto que
+   zera a venda é recusado: dar o produto de graça é erro de digitação, não
+   intenção. ← corrige A10
 10. Pagamentos:
     - `pix`, `debito`, `credito`: **não podem exceder** o total.
     - `crediario`: exige cliente, cliente não bloqueado, `limite_credito > 0`,
@@ -389,6 +394,8 @@ Todas em português, sem termo técnico, dizendo o que fazer.
 | Cartão acima do total | O valor no cartão não pode ser maior que o total. |
 | Falta pagamento | Faltam R$ 12,00 para fechar a venda. |
 | Desconto inválido | O desconto não pode ser maior que o subtotal. |
+| Desconto que zera a venda | O desconto não pode zerar a venda. |
+| Quantidade inválida | Quantidade inválida no item DIPIRONA 500mg. Use um número inteiro de 1 a 9999. |
 | Pagamento acima da dívida | O valor é maior que a dívida (R$ 47,50). |
 | Cancelamento sem permissão | Só o dono pode cancelar vendas. |
 | Cancelamento tardio | Venda do dia 05/10 com caixa já fechado. Registre um estorno no caixa de hoje (sangria com motivo). |
@@ -427,6 +434,8 @@ Rastreabilidade: o que foi encontrado na revisão de `PLANO-SISTEMA-FARMACIA.md`
 | A7 | Venda cancelada entrava no faturamento | `cancelado_em`/`cancelado_por`/`motivo_cancelamento` + `status='concluida'` embutido nas views |
 | A8 | `registrar_venda` devolvia só o uuid | Devolve `jsonb {id, numero, total, troco}` |
 | A9 | `p_itens` vazio gerava venda de R$ 0; sem `security definer`/`search_path` | Guarda de carrinho vazio + `security definer` com `search_path` fixo |
+| A10 | Venda que fecha em R$ 0,00 (desconto igual ao subtotal) era aceita | `check (total > 0)` + recusa com mensagem própria. Encontrado ao escrever o plano |
+| A11 | Quantidade fracionária (`"1.5"`) ou absurda virava erro técnico do Postgres na tela | Validar o texto antes do cast, com limite de 1 a 9999 |
 
 ### 11.2 Lacunas de domínio
 
@@ -487,6 +496,8 @@ declarado acima — e digo qual foi usado.
 11. Cancelamento devolve estoque e estorna crediário; com caixa fechado recusa; por não-dono recusa.
 12. Fechamento de caixa: `esperado_dinheiro` bate com a soma manual.
 13. Importação com uma linha inválida → nada gravado.
+14. Desconto igual ao subtotal (venda de R$ 0,00) → recusada. (A10)
+15. Quantidade `"1.5"` ou acima de 9999 → recusada com mensagem em português, não erro de sintaxe. (A11)
 
 ---
 
@@ -500,7 +511,7 @@ colada.** Cada etapa fechada = 1 commit `etapa-N: <descrição>`.
 |---|---|---|---|
 | 0 | Decisões e ambiente | Versões fixadas, repositório iniciado, `PROGRESSO.md` criado | `git log`, arquivos |
 | 1 | Base + login | Logo, vejo o menu, sem login vou para `/login`, sessão sobrevive a refresh | print + teste de sessão |
-| 2 | Banco + funções | Tabelas com RLS ativo; `registrar_venda`, `cancelar_venda` e caixa funcionando | 13 testes do nível 1 passando |
+| 2 | Banco + funções | Tabelas com RLS ativo; `registrar_venda`, `cancelar_venda` e caixa funcionando | 15 testes do nível 1 passando |
 | 3 | Produtos e estoque | Importo a planilha real (soma confere), busco produto, dou entrada | soma planilha × soma gravada |
 | 4 | PDV | Venda completa só com teclado; estoque cai; clique duplo não duplica | Playwright |
 | 5 | Histórico de vendas | Vejo o dia, abro uma venda, cancelo, estoque volta | venda noturna no dia certo |
@@ -541,7 +552,9 @@ são trabalhos distintos, com riscos distintos.
 4. `user.name` / `user.email` no git — **hoje vazio, bloqueia o primeiro commit**.
 5. Decidir Supabase Free × Pro (backup) e Vercel Hobby × Pro (uso comercial).
 
-Etapas 0 a 2 rodam sem essas contas, exceto o Supabase, necessário na Etapa 2.
+O Supabase é necessário **já na Etapa 1**, não na 2: o login é Supabase Auth.
+Sem o projeto criado e as três variáveis no `.env.local`, a Etapa 1 não anda. As
+tarefas de scaffold e formatação (início da Etapa 1) rodam sem conta nenhuma.
 
 ---
 
