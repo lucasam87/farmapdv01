@@ -1,0 +1,44 @@
+-- 010_importacao_timeout.sql
+-- O papel `authenticated` precisa de mais que 8 s para importar o catalogo real.
+--
+-- O QUE FOI MEDIDO (07/10/2026), nesta ordem:
+--
+-- 1. O dono clicou "Confirmar importacao" e o catalogo NAO foi gravado. O Server
+--    Action levou 9,28 s e devolveu erro.
+-- 2. A causa nao era o dado: chamando `importar_produtos` pelo endpoint de
+--    gerenciamento (papel `postgres`), o mesmo arquivo de 5694 linhas passa e
+--    devolve `{criados: 5694, ignorados: 0, atualizados: 0}`.
+-- 3. A diferenca entre os dois caminhos e o `statement_timeout`: o Supabase pos
+--    `statement_timeout=8s` no papel `authenticated` (`pg_roles.rolconfig`), e o
+--    `postgres` nao tem limite. Reproduzido de proposito com
+--    `set local statement_timeout='8s'`:
+--
+--      ERROR: 57014: canceling statement due to statement timeout
+--
+--    E como a importacao e tudo ou nada (spec 8.7), o cancelamento desfazia o
+--    arquivo inteiro: o dono via a tela voltar sem nada gravado.
+-- 4. O trabalho completo (5694 linhas) leva ~26 s, quase todo dentro da funcao.
+--
+-- POR QUE A CORRECAO E NO PAPEL, E NAO NA FUNCAO: a tentativa obvia seria
+-- `alter function importar_produtos(jsonb, boolean) set statement_timeout = '120s'`,
+-- e ela NAO funciona. O `assign_statement_timeout` do PostgreSQL so arma o timer
+-- se ele ainda nao estiver ativo — e o timer ja foi armado com 8 s no inicio do
+-- statement, antes de a funcao ser chamada. Testado: com o proconfig de 120 s
+-- aplicado (conferido em `pg_proc.proconfig`), a chamada continuou morrendo aos
+-- 8 s. Por isso a configuracao por funcao foi REMOVIDA abaixo, para nao deixar no
+-- banco uma configuracao que parece resolver e nao resolve.
+--
+-- CUSTO ACEITO: 120 s de teto para as consultas do papel `authenticated`. E o
+-- preco de manter a importacao como um statement unico, que e o que garante o
+-- tudo ou nada. O valor medido (26 s) da folga de ~4x, e o teto continua
+-- existindo.
+--
+-- ATENCAO PARA A ETAPA 9 (publicar na Vercel): funcoes serverless tem limite de
+-- execucao (10 s no Hobby, 60 s no Pro), e 26 s NAO CABE no Hobby. A importacao
+-- do catalogo vai precisar de outro caminho no deploy (Pro, ou importacao em
+-- lotes) — nao e problema de hoje, mas e problema antes de publicar.
+
+-- Remove a tentativa por funcao, que nao funciona (ver o bloco acima).
+alter function importar_produtos(jsonb, boolean) reset statement_timeout;
+
+alter role authenticated set statement_timeout = '120s';
