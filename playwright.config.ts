@@ -18,6 +18,10 @@ export default defineConfig({
   // antes da suite: sem isso o PDV recusaria com "Abra o caixa para comecar a
   // vender." e o teste mediria a coisa errada.
   globalSetup: './tests/e2e/global-setup.mjs',
+  // E desmonta no fim. Obrigatorio: a suite abre um caixa e, sem o teardown, a
+  // sessao fica aberta no banco e quebra a suite SQL (os casos que provam que
+  // vender sem caixa aberto e recusado, e os que chamam abrir_caixa).
+  globalTeardown: './tests/e2e/global-teardown.mjs',
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:3000',
