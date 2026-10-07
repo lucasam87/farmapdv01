@@ -48,3 +48,6 @@ yarn-error.log*
 
 # Rascunho do processo de execucao (ledger, briefs, pacotes de revisao)
 .superpowers/
+
+# Lista de problemas do catalogo real (gerada a pedido, nao versionar)
+PROBLEMAS-NO-CATALOGO.csv
