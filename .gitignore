@@ -29,6 +29,12 @@ coverage/
 playwright-report/
 test-results/
 
+# Export REAL do sistema antigo, usado para medir a Task 14 (PDF).
+# NÃO commitar: e o catalogo da farmacia e traz o PREÇO DE CUSTO de cada produto.
+# A fixture versionada e a sintetica (tests/fixtures/produtos.pdf), gerada por
+# scripts/gerar-fixture-pdf.py.
+tests/fixtures/produtos-nex.pdf
+
 # Sistema
 .DS_Store
 Thumbs.db
