@@ -32,7 +32,10 @@ export function FormularioImportacao() {
   )
 
   const previa = analise?.ok ? analise.previa : null
-  const somasDivergem = previa !== null && previa.somaPlanilha !== previa.somaGravada
+  // Divergencia so existe quando ha o que comparar: sem linha de TOTAL no
+  // arquivo, nao se afirma que conferiu (nem se acusa).
+  const semTotalImpresso = previa !== null && previa.totalImpresso === null
+  const somasDivergem = previa !== null && previa.totalImpresso !== null && !previa.somaConferida
   const podeConfirmar =
     previa !== null && previa.faltando.length === 0 && previa.validas > 0 && importacao?.ok !== true
 
@@ -78,12 +81,15 @@ export function FormularioImportacao() {
 
       {previa ? (
         <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
-          {/* As duas somas lado a lado: e a conferencia contra decimal lido errado. */}
+          {/* Os dois lados da conferencia sao INDEPENDENTES: o total que o
+              sistema antigo imprimiu no arquivo contra a soma que o nosso leitor
+              vai gravar. E essa comparacao que pega coluna trocada e linha
+              perdida (spec 8.7). */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Soma na planilha</p>
+              <p className="text-sm text-slate-500">Total impresso na planilha</p>
               <p className="text-2xl font-semibold text-slate-800">
-                {formatarMoeda(previa.somaPlanilha)}
+                {previa.totalImpresso === null ? '—' : formatarMoeda(previa.totalImpresso)}
               </p>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
@@ -96,7 +102,23 @@ export function FormularioImportacao() {
 
           {somasDivergem ? (
             <p role="alert" className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-base text-red-700">
-              As somas não batem — confira o separador decimal antes de importar.
+              As somas não batem: o total impresso no arquivo é{' '}
+              {formatarMoeda(previa.totalImpresso ?? 0)} e a soma das linhas lidas é{' '}
+              {formatarMoeda(previa.somaGravada)}. Confira o separador decimal e as colunas antes
+              de importar.
+            </p>
+          ) : null}
+
+          {previa.somaConferida ? (
+            <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-base text-emerald-900">
+              A soma das linhas confere com o total impresso no arquivo.
+            </p>
+          ) : null}
+
+          {semTotalImpresso ? (
+            <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
+              O arquivo não tem linha de TOTAL, então não há contra o que conferir a soma. Confira
+              as primeiras linhas abaixo antes de confirmar.
             </p>
           ) : null}
 

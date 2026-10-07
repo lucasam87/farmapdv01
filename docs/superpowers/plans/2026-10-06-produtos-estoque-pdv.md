@@ -692,13 +692,17 @@ git commit -m "etapa-3: leitor de xlsx proprio, sem dependencia nova"
   - `indiceDasColunas(colunas: string[]): { mapa: Record<string, number>; faltando: string[] }` — mapeia os campos canônicos para o índice da coluna, por lista de apelidos.
   - `ehRodape(linha: string[]): boolean`
   - `type LinhaProduto = { codigo_barras: string | null; nome: string; categoria: string | null; unidade: string; preco_custo: number; preco_venda: number; estoque_atual: number | null; estoque_minimo: number; erros: string[] }`
-  - `analisarTabela(tabela: Tabela): { linhas: LinhaProduto[]; faltando: string[]; descartadas: number; somaPlanilha: number; somaGravada: number; validas: number; invalidas: number; avisos: string[] }`
+  - `analisarTabela(tabela: Tabela): { linhas: LinhaProduto[]; faltando: string[]; descartadas: number; totalImpresso: number | null; somaGravada: number; somaConferida: boolean; validas: number; invalidas: number; avisos: string[] }`
 
 **Apelidos do mapa canônico** (normalizados): `codigo_barras` ← `codigo`, `cod barras`, `codigo de barras`, `codigo_barras`, `ean`, `ean13`, `barra`; `nome` ← `nome`, `produto`, `descricao`, `descricao do produto`; `categoria` ← `categoria`, `grupo`, `secao`; `unidade` ← `unidade`, `un`, `embalagem`; `preco_custo` ← `preco_custo`, `custo`, `valor custo`, `vl custo`, `preco de compra`; `preco_venda` ← `preco_venda`, `preco`, `valor`, `vl venda`, `preco de venda`, `pv`; `estoque_atual` ← `estoque_atual`, `estoque`, `qtd`, `quantidade`, `saldo`; `estoque_minimo` ← `estoque_minimo`, `minimo`, `estoque min`, `ponto de pedido`.
 
 Único obrigatório: `nome`. Ausente → entra em `faltando` e a prévia **não** deixa confirmar.
 
-**Somas, e por que são duas:** `somaGravada` é a soma de `preco_venda` das linhas válidas, em centavos — é o que a RPC grava. `somaPlanilha` é a soma do valor **cru** da coluna de preço, lido como número, com o **mesmo** `parsearCentavos`; quando os dois divergem, a causa é decimal lido errado (fator 100) e a prévia mostra os dois lado a lado.
+**Somas, e por que são duas — os dois lados têm de ser INDEPENDENTES:** `somaGravada` é a soma de `preco_venda` das linhas válidas, em centavos — é o que a RPC grava, e passa pelo **nosso** leitor. O outro lado é `totalImpresso`, o TOTAL que o **sistema antigo imprimiu no rodapé do arquivo**, lido do `ehRodape` que hoje é descartado: é a aritmética **dele**, não a nossa. `somaConferida` só é `true` quando existe `totalImpresso` e ele bate ao centavo.
+
+> **Correção de 07/10/2026 (revisão final do branch):** este passo dizia antes que `somaPlanilha` era "a soma do valor **cru** da coluna de preço, lida com o **mesmo** `parsearCentavos`". Isso é autocontraditório: se os dois lados saem da mesma variável pelo mesmo leitor, eles são **sempre iguais** e a conferência não existe — foi exatamente o que aconteceu na execução, com a tarja vermelha virando código morto. A conferência só vale contra um número que **não** foi produzido por nós.
+>
+> **O que esta conferência pega e o que não pega:** ela pega defeito de seleção e de somatório (coluna trocada, linha perdida, linha contada duas vezes, rodapé que discorda). Ela **não** pega um defeito sistemático dentro do próprio `parsearCentavos`, porque aí os dois lados deslocam juntos — esse continua coberto pelos testes do `lib/dinheiro.ts`.
 
 - [ ] **Step 1: Escrever o teste que falha**
 
@@ -757,10 +761,19 @@ it('avisa quando o codigo chegou sem zeros a esquerda', () => {
   const r = analisarTabela({ colunas: ['nome', 'codigo'], linhas: [['DIPIRONA', '12345']] })
   expect(r.avisos.join(' ')).toContain('zeros')
 })
-it('as duas somas coincidem quando o preco e lido certo', () => {
-  const r = analisarTabela({ colunas: ['nome', 'preco'], linhas: [['A', '4,50'], ['B', '5,50']] })
-  expect(r.somaPlanilha).toBe(1000)
+it('acusa divergencia entre a soma das linhas e o TOTAL impresso no arquivo', () => {
+  const r = analisarTabela({
+    colunas: ['nome', 'preco'],
+    linhas: [['A', '4,50'], ['B', '5,50'], ['TOTAL', '12,00']],
+  })
+  expect(r.totalImpresso).toBe(1200)
   expect(r.somaGravada).toBe(1000)
+  expect(r.somaConferida).toBe(false)
+})
+it('sem linha de TOTAL nao afirma que conferiu', () => {
+  const r = analisarTabela({ colunas: ['nome', 'preco'], linhas: [['A', '4,50']] })
+  expect(r.totalImpresso).toBeNull()
+  expect(r.somaConferida).toBe(false)
 })
 it('detecta formato por assinatura', () => {
   expect(detectarFormato('x.xlsx', new Uint8Array([0x50, 0x4b, 3, 4]))).toBe('xlsx')
@@ -810,7 +823,7 @@ git commit -m "etapa-3: tabela normalizada com mapa de cabecalho tolerante"
 - Produces:
   - Server Action `analisarArquivo(formData: FormData): Promise<{ ok: true; previa: Previa } | { ok: false; mensagem: string }>`
   - Server Action `confirmarImportacao(formData: FormData): Promise<{ ok: true; resumo: Resumo } | { ok: false; mensagem: string }>`
-  - `type Previa = { colunas: Tabela['colunas']; primeiras: string[][]; validas: number; invalidas: number; descartadas: number; somaPlanilha: number; somaGravada: number; faltando: string[]; avisos: string[]; erros: { linha: number; erros: string[] }[]; json: string }`
+  - `type Previa = { colunas: Tabela['colunas']; primeiras: string[][]; validas: number; invalidas: number; descartadas: number; totalImpresso: number | null; somaGravada: number; somaConferida: boolean; faltando: string[]; avisos: string[]; erros: { linha: number; erros: string[] }[]; json: string }`
   - `type Resumo = { criados: number; atualizados: number; ignorados: number }`
   - As duas ações **só** existem para `papel = 'dono'`; atendente recebe `{ ok: false, mensagem: 'Só o dono pode importar produtos.' }` sem chamar a RPC.
 
@@ -844,7 +857,7 @@ const { data, error } = await supabase.rpc('importar_produtos', {
 
 Server Component com `perfilAtual()`; se `papel !== 'dono'`, mostrar `Só o dono pode importar produtos.` e nada mais. Senão: um formulário `multipart/form-data` com `type="file"` `accept=".xlsx,.csv"`, um checkbox `atualizar` já marcado (sua escolha: reimportar atualiza por código de barras) e o botão `Analisar arquivo` — que usa `useActionState` porque a ação **devolve** dados em vez de redirecionar (esta tela é a exceção: as outras telas usam o padrão de redirect do plano 1). Se veio `previa`, renderizar:
 
-1. as **duas somas lado a lado**, com `formatarMoeda`: `Soma na planilha` e `Soma que será gravada`, e uma tarja vermelha quando `somaPlanilha !== somaGravada` dizendo `As somas não batem — confira o separador decimal antes de importar.`;
+1. os **dois lados da conferência lado a lado**, com `formatarMoeda`: `Total impresso na planilha` (`totalImpresso`, ou `—` quando o arquivo não tem rodapé) e `Soma que será gravada` (`somaGravada`). Tarja **vermelha** quando `somaConferida` é `false` e existe `totalImpresso`, nomeando os dois números; tarja **verde** quando confere; e um aviso **âmbar** ("O arquivo não tem linha de TOTAL, então não há contra o que conferir a soma") quando `totalImpresso` é `null` — nunca um silêncio que pareça aprovação;
 2. `validas` / `invalidas` / `descartadas`;
 3. os `avisos` em amarelo;
 4. `faltando` (impede o botão de confirmar) quando não vazio, com o texto `Não encontrei a coluna obrigatória: nome.`;

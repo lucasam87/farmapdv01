@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import {
   detectarFormato,
@@ -6,6 +7,7 @@ import {
   ehRodape,
   analisarTabela,
 } from './tabela'
+import { lerXlsx } from './xlsx'
 
 // Este modulo e o funil: CSV e XLSX desembocam na mesma Tabela e daqui para a
 // frente existe UM caminho so. O que ele protege:
@@ -99,10 +101,56 @@ describe('analisarTabela', () => {
     const r = analisarTabela({ colunas: ['nome', 'codigo'], linhas: [['DIPIRONA', '12345']] })
     expect(r.avisos.join(' ')).toContain('zeros')
   })
-  it('as duas somas coincidem quando o preco e lido certo', () => {
-    const r = analisarTabela({ colunas: ['nome', 'preco'], linhas: [['A', '4,50'], ['B', '5,50']] })
-    expect(r.somaPlanilha).toBe(1000)
+  // A conferencia da spec 8.7 so existe se os dois lados forem INDEPENDENTES: um
+  // e a soma das linhas que o NOSSO leitor extraiu, o outro e o TOTAL que o
+  // sistema antigo IMPRIMIU no rodape do arquivo. Enquanto os dois lados saiam da
+  // mesma variavel, esta conferencia era uma identidade e nunca acusava nada.
+  it('acusa divergencia entre a soma das linhas e o TOTAL impresso no arquivo', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco'],
+      linhas: [['A', '4,50'], ['B', '5,50'], ['TOTAL', '12,00']],
+    })
+    expect(r.totalImpresso).toBe(1200)
     expect(r.somaGravada).toBe(1000)
+    expect(r.somaConferida).toBe(false)
+  })
+  it('marca a soma como conferida quando o TOTAL impresso bate com as linhas', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco'],
+      linhas: [['A', '4,50'], ['B', '5,50'], ['TOTAL', '10,00']],
+    })
+    expect(r.totalImpresso).toBe(1000)
+    expect(r.somaGravada).toBe(1000)
+    expect(r.somaConferida).toBe(true)
+  })
+  it('sem linha de TOTAL nao afirma que conferiu', () => {
+    const r = analisarTabela({ colunas: ['nome', 'preco'], linhas: [['A', '4,50']] })
+    expect(r.totalImpresso).toBeNull()
+    expect(r.somaConferida).toBe(false)
+  })
+  it('o TOTAL impresso e lido do arquivo, nao recalculado das linhas', () => {
+    // Se o TOTAL saisse da soma das linhas, este caso daria 2739 e "conferiria".
+    const r = analisarTabela({
+      colunas: ['nome', 'preco'],
+      linhas: [['A', '4,50'], ['B', '5,50'], ['TOTAL', '21,39']],
+    })
+    expect(r.totalImpresso).toBe(2139)
+  })
+  it('rodape ambiguo, sem coluna de preco reconhecida, devolve null em vez de escolher', () => {
+    // Duas celulas de dinheiro e nenhuma coluna que o mapa reconheca como preco:
+    // melhor nao conferir do que conferir contra o numero errado.
+    const r = analisarTabela({
+      colunas: ['nome', 'coluna_a', 'coluna_b'],
+      linhas: [['A', '2', '4,50'], ['TOTAL', '2', '4,50']],
+    })
+    expect(r.totalImpresso).toBeNull()
+  })
+  it('sem coluna de preco reconhecida, o unico valor do rodape serve de total', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'coluna_a'],
+      linhas: [['A', '4,50'], ['TOTAL', '4,50']],
+    })
+    expect(r.totalImpresso).toBe(450)
   })
   it('estoque 0 e VALOR, e nao ausencia de coluna', () => {
     const r = analisarTabela({ colunas: ['nome', 'estoque'], linhas: [['A', '0']] })
@@ -132,5 +180,27 @@ describe('analisarTabela', () => {
     const r = analisarTabela({ colunas: ['codigo', 'preco'], linhas: [['1', '4,50']] })
     expect(r.faltando).toEqual(['nome'])
     expect(r.validas).toBe(0)
+  })
+})
+
+describe('analisarTabela com o arquivo do exportador', () => {
+  // A fixture tem rodape TOTAL ("21,39") e tres produtos (4,50 + 6,90 + 9,99).
+  // Aqui a conferencia da spec 8.7 roda de ponta a ponta no formato real, nao numa
+  // Tabela montada a mao.
+  function tabelaDe(nome: string) {
+    return lerXlsx(new Uint8Array(fs.readFileSync(new URL(`../tests/fixtures/${nome}`, import.meta.url))))
+  }
+
+  it('confere a soma das linhas contra o TOTAL impresso no arquivo', () => {
+    const r = analisarTabela(tabelaDe('produtos_texto.xlsx'))
+    expect(r.totalImpresso).toBe(2139)
+    expect(r.somaGravada).toBe(2139)
+    expect(r.somaConferida).toBe(true)
+  })
+
+  it('sem linha de TOTAL no arquivo, nao afirma que conferiu', () => {
+    const r = analisarTabela(tabelaDe('produtos.xlsx'))
+    expect(r.totalImpresso).toBeNull()
+    expect(r.somaConferida).toBe(false)
   })
 })

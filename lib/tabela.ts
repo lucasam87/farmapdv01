@@ -37,8 +37,21 @@ export type ResultadoAnalise = {
   linhas: LinhaProduto[]
   faltando: string[]
   descartadas: number
-  somaPlanilha: number
+  /**
+   * O TOTAL que o exportador IMPRIMIU no arquivo, lido do rodape — nao a soma
+   * das linhas. E o unico lado INDEPENDENTE da conferencia da spec 8.7: a soma
+   * das linhas passa pelo nosso leitor, este numero passou pela aritmetica do
+   * sistema antigo. `null` quando o arquivo nao traz a linha de total, ou quando
+   * ela e ambigua.
+   */
+  totalImpresso: number | null
+  /** Soma dos precos de venda que serao gravados. */
   somaGravada: number
+  /**
+   * true SOMENTE quando existe total impresso e ele bate ao centavo. Sem total
+   * impresso isto e false de proposito: nao conferido nao e conferido.
+   */
+  somaConferida: boolean
   validas: number
   invalidas: number
   avisos: string[]
@@ -103,6 +116,39 @@ export function ehRodape(linha: string[]): boolean {
   return naoVazias.slice(1).every((c) => !/[a-zA-ZÀ-ÿ]/.test(c))
 }
 
+/**
+ * O TOTAL impresso no rodape — o lado INDEPENDENTE da conferencia.
+ *
+ * Ele NAO e recalculado das linhas: e o numero que o sistema antigo imprimiu,
+ * resultado da aritmetica DELE. E por isso que os dois lados podem divergir:
+ * enquanto os dois saiam da mesma variavel, a conferencia da spec 8.7 era uma
+ * identidade e a tarja vermelha era codigo morto.
+ *
+ * Quando o mapa reconhece a coluna de preco, o total e a celula dela. Sem essa
+ * coluna, aceitamos a UNICA celula de dinheiro do rodape; com duas ou mais
+ * (quantidade e valor, por exemplo) devolvemos null — melhor nao conferir do que
+ * conferir contra o numero errado e dar o aval.
+ *
+ * LIMITE: o leitor de dinheiro e o mesmo dos dois lados, entao uma leitura errada
+ * sistematica (um defeito dentro do proprio parsearCentavos) desloca os dois na
+ * mesma direcao e nao seria acusada aqui. O que esta conferencia pega e o defeito
+ * de SELECAO e de SOMATORIO: coluna trocada (somar preco de custo como venda),
+ * linha perdida, linha contada duas vezes, rodape que discorda das linhas.
+ */
+function totalDoRodape(linha: string[], indicePreco: number | undefined): number | null {
+  if (indicePreco !== undefined) {
+    return parsearCentavos((linha[indicePreco] ?? '').trim())
+  }
+
+  const dinheiro = linha
+    .map((c) => c.trim())
+    .filter((c) => c !== '' && !/[a-zA-ZÀ-ÿ]/.test(c))
+    .map((c) => parsearCentavos(c))
+    .filter((v): v is number => v !== null)
+
+  return dinheiro.length === 1 ? dinheiro[0] : null
+}
+
 /** Inteiro nao negativo, 0 a 999999. Zero e valor legitimo em estoque. */
 function lerEstoque(texto: string | undefined): number | null {
   if (texto === undefined) return null
@@ -131,13 +177,15 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   const linhas: LinhaProduto[] = []
   const avisos: string[] = []
   let descartadas = 0
-  let somaPlanilha = 0
+  let totalImpresso: number | null = null
   let somaGravada = 0
   let semZeros = 0
 
   for (const linha of tabela.linhas) {
     if (ehRodape(linha)) {
       descartadas++
+      // O primeiro rodape manda; um segundo seria anomalia do arquivo.
+      if (totalImpresso === null) totalImpresso = totalDoRodape(linha, mapa.preco_venda)
       continue
     }
 
@@ -176,10 +224,6 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
       }
     }
 
-    // Soma da planilha: usa o MESMO leitor no valor cru. Quando as duas somas
-    // divergem, a causa e decimal lido errado (fator 100).
-    somaPlanilha += precoVenda
-
     // Estoque: coluna ausente -> null (nao mexe); "0" -> 0 (zera de verdade).
     let estoqueAtual: number | null = null
     if (mapa.estoque_atual !== undefined) {
@@ -213,8 +257,9 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     linhas,
     faltando,
     descartadas,
-    somaPlanilha,
+    totalImpresso,
     somaGravada,
+    somaConferida: totalImpresso !== null && totalImpresso === somaGravada,
     validas,
     invalidas: linhas.length - validas,
     avisos,

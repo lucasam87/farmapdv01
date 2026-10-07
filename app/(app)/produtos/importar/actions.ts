@@ -18,8 +18,14 @@ export type Previa = {
   validas: number
   invalidas: number
   descartadas: number
-  somaPlanilha: number
+  /*
+   * O par que a tela confere: o TOTAL impresso no arquivo (aritmetica do sistema
+   * antigo) contra a soma que o NOSSO leitor vai gravar. Antes os dois campos
+   * saiam da mesma variavel e a conferencia nao existia de verdade.
+   */
+  totalImpresso: number | null
   somaGravada: number
+  somaConferida: boolean
   faltando: string[]
   avisos: string[]
   erros: { linha: number; erros: string[] }[]
@@ -103,8 +109,9 @@ export async function analisarArquivo(
     validas: analise.validas,
     invalidas: analise.invalidas,
     descartadas: analise.descartadas,
-    somaPlanilha: analise.somaPlanilha,
+    totalImpresso: analise.totalImpresso,
     somaGravada: analise.somaGravada,
+    somaConferida: analise.somaConferida,
     faltando: analise.faltando,
     avisos: [...avisos, ...analise.avisos],
     erros,
