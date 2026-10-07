@@ -137,6 +137,36 @@ test('acha o produto cujo nome tem virgula', async ({ page }) => {
   await expect(page.getByTestId('resultados')).toContainText(PRODUTO_VIRGULA_E2E)
 })
 
+test('a tela de caixa mostra o caixa aberto e lanca uma sangria', async ({ page }) => {
+  // A tela de caixa nao existia em nenhuma etapa da spec: sem ela nao se abre nem
+  // se fecha o caixa, e sem caixa aberto o PDV recusa vender. Estes dois testes
+  // sao a unica prova pelo CAMINHO DO NAVEGADOR — foi por testar por script (que
+  // pulava o Server Action) que os limites de corpo e de timeout passaram batido.
+  await page.goto('/caixa')
+  await expect(page.getByRole('heading', { name: 'Caixa aberto' })).toBeVisible()
+  await expect(page.getByText('Esperado na gaveta agora')).toBeVisible()
+
+  await page.getByLabel('Valor do movimento').fill('10,00')
+  await page.getByLabel('Motivo do movimento').fill('teste e2e')
+  await page.getByRole('button', { name: 'Lançar movimento' }).click()
+
+  await expect(page.getByTestId('ok')).toContainText('Sangria lançada')
+  await expect(page.getByText('teste e2e')).toBeVisible()
+})
+
+test('fechar o caixa com diferenca e sem observacao e recusado', async ({ page }) => {
+  await page.goto('/caixa')
+  // O caixa do cenario abriu com 0 e levou uma sangria de 10,00: contar 999,00 da
+  // diferenca de sobra, e a spec 8.3 exige observacao para diferenca diferente de
+  // zero. A recusa tem de acontecer ANTES da RPC, senao o caixa fecharia.
+  await page.getByLabel('Valor contado na gaveta').fill('999,00')
+  await page.getByRole('button', { name: 'Fechar caixa' }).click()
+
+  await expect(page.getByTestId('erro')).toContainText('precisa de observação')
+  // E o caixa continua aberto.
+  await expect(page.getByRole('heading', { name: 'Caixa aberto' })).toBeVisible()
+})
+
 test('F3 abre a nova venda a partir de outra tela', async ({ page }) => {
   await page.goto('/produtos')
   await page.keyboard.press('F3')
