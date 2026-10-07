@@ -48,13 +48,13 @@ export function FormularioImportacao() {
 
       <form action={acaoAnalisar} className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
         <label htmlFor="arquivo" className="block text-sm font-medium text-slate-700">
-          Planilha ou CSV do sistema antigo
+          Planilha, CSV ou PDF do sistema antigo
         </label>
         <input
           id="arquivo"
           name="arquivo"
           type="file"
-          accept=".xlsx,.csv"
+          accept=".xlsx,.csv,.pdf"
           required
           className="mt-2 block w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900"
         />
@@ -132,8 +132,9 @@ export function FormularioImportacao() {
           ) : null}
 
           <p className="mt-4 text-base text-slate-600">
-            {previa.validas} linha(s) válida(s) · {previa.invalidas} com erro ·{' '}
-            {previa.descartadas} de total ignorada(s)
+            <strong>{previa.totalLinhas} linha(s) de produto</strong> lidas do arquivo ·{' '}
+            {previa.validas} válida(s) · {previa.invalidas} com erro · {previa.descartadas} de
+            total ignorada(s)
           </p>
 
           {previa.existentes > 0 ? (
@@ -160,7 +161,8 @@ export function FormularioImportacao() {
           {previa.primeiras.length > 0 ? (
             <div className="mt-6 overflow-x-auto">
               <p className="mb-2 text-sm text-slate-500">
-                Primeiras {previa.primeiras.length} linha(s) que serão gravadas:
+                Amostra: as {previa.primeiras.length} primeiras linhas de {previa.totalLinhas} que
+                serão gravadas. Confira nome e preço de cada uma:
               </p>
               <table className="w-full text-left text-sm">
                 <thead>
@@ -177,7 +179,11 @@ export function FormularioImportacao() {
                     <tr key={i} className="border-b border-slate-100 text-slate-700">
                       {linha.map((valor, j) => (
                         <td key={j} className="py-2 pr-4">
-                          {valor}
+                          {j === 4 || j === 5 ? (
+                            <span className="whitespace-nowrap">{valor}</span>
+                          ) : (
+                            valor
+                          )}
                         </td>
                       ))}
                     </tr>

@@ -1,6 +1,13 @@
 import fs from 'node:fs'
 import { describe, it, expect } from 'vitest'
-import { lerPdf, textoDoPdf, linhaDeTotal } from './pdf'
+import {
+  lerPdf,
+  textoDoPdf,
+  linhaDeTotal,
+  lerPdfEmGrade,
+  mapearColunasDoRelatorio,
+  linhasDosTrechos,
+} from './pdf'
 import { lerXlsx } from './xlsx'
 import { analisarTabela } from './tabela'
 import { parsearCentavos } from './dinheiro'
@@ -102,23 +109,15 @@ describe('criterio de aceite', () => {
   })
 })
 
-// O PDF de verdade do sistema antigo (tests/fixtures/produtos-nex.pdf) ficou no
-// disco como evidencia da medicao do Step 1. Estes testes DOCUMENTAM o que foi
-// medido — eles nao provam que a importacao funciona, provam o contrario.
+// O PDF de verdade do sistema antigo (tests/fixtures/produtos-nex.pdf) fica no
+// disco como evidencia. A leitura por GRADE reconstroi ele: a pagina e
+// ROTACIONADA (`0 1 -1 0 595 0 cm`) e a tabela e DESENHADA com `re`, entao a
+// faixa de `x` de cada retangulo e o eixo dos produtos e a posicao dentro dela e
+// a coluna. Ver o bloco "LEITURA POR GRADE" em lib/pdf.ts.
 //
-// As tres causas, todas medidas no arquivo real:
-//   1. NAO EXISTE total impresso com valor: as 16 ocorrencias de "total" sao
-//      nome de produto ("TOTAL 12", "TOTALVITA", "TOTAL PTAO"). Sem total nao ha
-//      contra o que conferir a soma, e o criterio de aceite nao pode ser
-//      avaliado. Este e o motivo da decisao, e ele sozinho ja encerra o assunto.
-//   2. A pagina e ROTACIONADA (`0 1 -1 0 595 0 cm`) e o leitor nao aplica o `cm`
-//      — esta escrito como LIMITE CONHECIDO em lib/pdf.ts. Com os eixos trocados,
-//      agrupar por linha de base agrupa pela coordenada errada e as colunas se
-//      misturam.
-//   3. O exportador QUEBRA o nome dentro da celula, em varias linhas de base
-//      (" ACIDO" / "ACETILSALICILI" / "CO 100MG C3O" / "EUROFARMA"), entao
-//      produto != linha fisica do PDF.
-describe('PDF real do Nex (evidencia, nao aceite)', () => {
+// Estes testes valem contra os valores REAIS do arquivo, e nao contra um numero
+// digitado aqui: a linha do produto e conferida campo a campo.
+describe('PDF real do Nex (leitura por grade)', () => {
   // A evidencia pode nao estar no clone (o arquivo e grande): o teste que mede o
   // arquivo real nao pode derrubar a suite por causa disso.
   const temNex = fs.existsSync(new URL('../tests/fixtures/produtos-nex.pdf', import.meta.url))
@@ -134,11 +133,140 @@ describe('PDF real do Nex (evidencia, nao aceite)', () => {
     expect(totalDoPdf(textoDoPdf(bytes('produtos-nex.pdf')))).toBeNull()
   })
 
-  it.skipIf(!temNex)('nao reconstroi coluna confiavel: o cabecalho lido e nome de produto colado', () => {
-    const t = lerPdf(bytes('produtos-nex.pdf'))
-    // "codigo_barras" nao e o titulo de nada: o exportador quebrou centenas de
-    // nomes em varias linhas e o agrupamento por linha de base juntou todos.
-    expect(t.colunas[0]?.startsWith('codigo_barras')).toBe(false)
-    expect(t.colunas[0]?.length ?? 0).toBeGreaterThan(1000)
+  it.skipIf(!temNex)('reconstroi as colunas da grade, na ordem impressa no relatorio', () => {
+    // O cabecalho impresso tem 8 colunas; a Tabela devolve as 5 que o funil de
+    // importacao usa (lib/tabela.ts). As outras tres ("Código extra", "status" e
+    // o codigo INTERNO) nao tem campo canonico e por isso nao viram coluna.
+    const t = lerPdfEmGrade(bytes('produtos-nex.pdf'))
+    expect(t.colunas).toEqual(['nome', 'codigo_barras', 'preco_venda', 'estoque_atual', 'preco_custo'])
+    // 501 paginas, 11 a 12 produtos por pagina: o relatorio inteiro.
+    expect(t.linhas.length).toBeGreaterThan(5000)
+    for (const linha of t.linhas) expect(linha).toHaveLength(5)
+  })
+
+  it.skipIf(!temNex)('le nome, codigo de barras, preco, estoque e custo de um produto conhecido', () => {
+    const t = lerPdfEmGrade(bytes('produtos-nex.pdf'))
+    const produto = t.linhas.find((l) => (l[0] ?? '').includes('AAS PROTECT 100MG C30'))
+    expect(produto).toBeDefined()
+    if (!produto) return
+
+    // O nome sai juntado das linhas quebradas, o codigo de barras e o EAN de 13
+    // digitos (e NAO o codigo interno), e os valores sao os impressos no arquivo.
+    expect(produto[0]).toBe('AAS PROTECT 100MG C30')
+    expect(produto[1]).toBe('7896094928046')
+    expect(parsearCentavos(produto[2])).toBe(2854)
+    expect(produto[3]).toBe('0')
+    expect(parsearCentavos(produto[4])).toBe(1903)
+  })
+
+  it.skipIf(!temNex)('o codigo de barras de TODO produto e o EAN, nunca o codigo interno', () => {
+    const t = lerPdfEmGrade(bytes('produtos-nex.pdf'))
+    const codigos = t.linhas.map((l) => l[1])
+
+    // O relatorio tem a coluna "Código" (interno: "LO57719", "5366621") e a
+    // coluna "Código de barras" (EAN de 13). Se o leitor pegasse a primeira —
+    // que e o que `indiceDasColunas` faria — o codigo interno apareceria aqui.
+    expect(codigos.some((c) => c.startsWith('LO'))).toBe(false)
+
+    // 5465 dos 5782 produtos tem EAN (13 ou 14 digitos). Os outros 317 nao tem
+    // EAN NENHUM no relatorio e recebem o codigo interno como ultimo recurso —
+    // e um fallback declarado em lib/pdf.ts, nao o codigo interno vazando para
+    // uma coluna que tinha EAN.
+    const comEan = codigos.filter((c) => /^\d{13,14}$/.test(c))
+    expect(comEan.length).toBeGreaterThan(5000)
+    expect(codigos.filter((c) => /^\d{15,}$/.test(c))).toEqual([])
+  })
+
+  it.skipIf(!temNex)('o funil de importacao le a tabela do PDF real sem inventar linha', () => {
+    const r = analisarTabela(lerPdfEmGrade(bytes('produtos-nex.pdf')))
+    // Sem total impresso no arquivo, a conferencia NAO e afirmada.
+    expect(r.totalImpresso).toBeNull()
+    expect(r.somaConferida).toBe(false)
+    expect(r.faltando).toEqual([])
+    expect(r.validas).toBeGreaterThan(5000)
+    for (const linha of r.linhas) expect(linha.nome.length).toBeGreaterThan(0)
+  })
+})
+
+// A regra de juncao do nome quebrado e a escolha da coluna de codigo de barras
+// sao as duas decisoes que o relatorio real obriga a tomar. Elas sao testadas
+// aqui com a forma que o leitor ve, sem depender do arquivo grande.
+describe('regra de juncao do nome quebrado', () => {
+  it('junta as linhas de um mesmo produto com UM espaco, sem inventar palavra', () => {
+    // O exportador do Nex quebra a linha sem preservar o espaco que caiu na
+    // quebra, entao a emenda sai ora no meio de uma palavra, ora entre palavras.
+    // A regra conservadora e sempre com espaco: ela nunca inventa palavra nova.
+    const linhas = linhasDosTrechos([
+      { x: 44, y: 44, fonte: 10, texto: ' ACIDO' },
+      { x: 54, y: 44, fonte: 10, texto: 'ACETILSALICILI' },
+      { x: 64, y: 44, fonte: 10, texto: 'CO 100MG C3O' },
+      { x: 74, y: 44, fonte: 10, texto: 'EUROFARMA' },
+    ])
+    expect(linhas).toHaveLength(1)
+    expect(linhas[0].texto).toBe('ACIDO ACETILSALICILI CO 100MG C3O EUROFARMA')
+  })
+
+  it('nao cola dois produtos diferentes: o vao entre eles separa as linhas', () => {
+    // Medido no arquivo: dentro de um produto as linhas quebradas ficam a 10
+    // pontos; entre produtos o salto e 26. A tolerancia fica no meio disso.
+    const linhas = linhasDosTrechos([
+      { x: 44, y: 44, fonte: 10, texto: 'ACIDO' },
+      { x: 54, y: 44, fonte: 10, texto: 'ACETILSALICILICO' },
+      { x: 44, y: 70, fonte: 10, texto: 'COND PANTENE' },
+      { x: 54, y: 70, fonte: 10, texto: 'PRO-V BAMBU' },
+    ])
+    expect(linhas.map((l) => l.texto)).toEqual([
+      'ACIDO ACETILSALICILICO',
+      'COND PANTENE PRO-V BAMBU',
+    ])
+  })
+
+  it('descarta trecho em branco e normaliza espaco repetido', () => {
+    const linhas = linhasDosTrechos([
+      { x: 44, y: 44, fonte: 10, texto: '  DIPIRONA  ' },
+      { x: 54, y: 44, fonte: 10, texto: '  500mg   ' },
+    ])
+    expect(linhas.map((l) => l.texto)).toEqual(['DIPIRONA 500mg'])
+  })
+})
+
+describe('escolha da coluna de codigo de barras', () => {
+  it('prefere "Código de barras" a "Código" quando os dois casam com o campo', () => {
+    // E o caso do relatorio real: DUAS colunas de codigo. O apelido mais longo
+    // ("codigo de barras") ganha do mais curto ("codigo").
+    const { mapa } = mapearColunasDoRelatorio(['Nome', 'Código', 'Preço', 'Código de barras'])
+    expect(mapa.nome).toBe(0)
+    expect(mapa.preco_venda).toBe(2)
+    expect(mapa.codigo_barras).toBe(3)
+  })
+
+  it('olha a AMOSTRA quando os dois titulos sao iguais: vence a coluna que parece EAN', () => {
+    // Duas colunas com o MESMO titulo. O unico desempate honesto olha o dado:
+    // so a coluna com codigo de 6+ digitos pode ser o codigo de barras.
+    const cabecalho = ['Código de barras', 'Código de barras']
+    const amostra = [
+      ['LO57719', '7896094928046'],
+      ['41224112214211 24', '7891317026370'],
+    ]
+    const { mapa } = mapearColunasDoRelatorio(cabecalho, amostra)
+    expect(mapa.codigo_barras).toBe(1)
+  })
+
+  it('sem desempate possivel, o campo fica SEM coluna em vez de chutar', () => {
+    // Duas colunas iguais e nenhuma amostra: nao ha como escolher. Recusar e
+    // melhor que cadastrar o codigo errado — o produto iria casar com outro.
+    const { mapa, conflitos } = mapearColunasDoRelatorio(['Código de barras', 'Código de barras'])
+    expect(mapa.codigo_barras).toBeUndefined()
+    expect(conflitos).toContain('codigo_barras')
+  })
+
+  it('preco de custo nao e confundido com preco de venda', () => {
+    // "Preço" e "Preço de custo": o apelido mais longo vai para `preco_custo`, e
+    // o mais curto fica com `preco_venda`. Trocados, a importacao gravaria o
+    // custo como preco de venda.
+    const { mapa } = mapearColunasDoRelatorio(['Nome', 'Preço', 'Preço de custo', 'Estoque'])
+    expect(mapa.preco_venda).toBe(1)
+    expect(mapa.preco_custo).toBe(2)
+    expect(mapa.estoque_atual).toBe(3)
   })
 })

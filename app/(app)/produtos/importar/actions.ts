@@ -5,7 +5,9 @@ import { criarClienteServidor } from '@/lib/supabase/server'
 import { perfilAtual } from '@/lib/auth/perfil'
 import { lerCsv, pareceLatin1, type Tabela } from '@/lib/csv'
 import { lerXlsx } from '@/lib/xlsx'
+import { lerPdf } from '@/lib/pdf'
 import { analisarTabela, detectarFormato, type ColunasPresentes } from '@/lib/tabela'
+import { formatarMoeda } from '@/lib/format'
 import { paraOLinhasJson } from './preparacao'
 
 // Duas acoes, e nao uma, porque a importacao tem DUAS viagens de proposito:
@@ -15,6 +17,8 @@ import { paraOLinhasJson } from './preparacao'
 export type Previa = {
   colunas: Tabela['colunas']
   primeiras: string[][]
+  /** Quantas linhas de produto o arquivo trouxe, antes de qualquer filtro. */
+  totalLinhas: number
   validas: number
   invalidas: number
   descartadas: number
@@ -53,6 +57,21 @@ export type ResultadoImportacao =
   | { ok: false; mensagem: string }
 
 const SO_O_DONO = 'Só o dono pode importar produtos.'
+
+/**
+ * O PDF do sistema antigo (`%PDF`). A checagem e pela ASSINATURA, e nao pela
+ * extensao: um PDF renomeado para .csv chegaria aqui como texto e sairia com os
+ * bytes binarios interpretados como planilha.
+ */
+function ehPdf(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 5 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
+  )
+}
 
 /**
  * Quantos dos codigos da planilha JA existem no catalogo.
@@ -94,7 +113,7 @@ export async function analisarArquivo(
 
   const arquivo = formData.get('arquivo')
   if (!(arquivo instanceof File) || arquivo.size === 0) {
-    return { ok: false, mensagem: 'Escolha um arquivo .xlsx ou .csv.' }
+    return { ok: false, mensagem: 'Escolha um arquivo .xlsx, .csv ou .pdf.' }
   }
 
   const bytes = new Uint8Array(await arquivo.arrayBuffer())
@@ -106,20 +125,31 @@ export async function analisarArquivo(
     if (formato === 'xlsx') {
       tabela = lerXlsx(bytes)
     } else if (formato === 'csv') {
-      // O export antigo vem em Latin-1: sem isto os acentos chegam quebrados e
-      // o nome do produto entra errado no cadastro.
-      const latin1 = pareceLatin1(bytes)
-      if (latin1) {
-        avisos.push(
-          'O arquivo está em Latin-1 (padrão antigo do Windows). Os acentos foram convertidos — confira os nomes antes de confirmar.',
-        )
+      // O PDF do sistema antigo tambem e "csv" para o `detectarFormato` (ele so
+      // distingue xlsx de texto). A assinatura `%PDF` vem primeiro, pela mesma
+      // regra do modulo: o conteudo manda, a extensao mente.
+      if (ehPdf(bytes)) {
+        // O leitor recusa com a mensagem certa quando nao ha grade na pagina.
+        tabela = lerPdf(bytes)
+      } else {
+        // O export antigo vem em Latin-1: sem isto os acentos chegam quebrados e
+        // o nome do produto entra errado no cadastro.
+        const latin1 = pareceLatin1(bytes)
+        if (latin1) {
+          avisos.push(
+            'O arquivo está em Latin-1 (padrão antigo do Windows). Os acentos foram convertidos — confira os nomes antes de confirmar.',
+          )
+        }
+        tabela = lerCsv(new TextDecoder(latin1 ? 'windows-1252' : 'utf-8').decode(bytes))
       }
-      tabela = lerCsv(new TextDecoder(latin1 ? 'windows-1252' : 'utf-8').decode(bytes))
     } else {
-      return { ok: false, mensagem: 'Formato não reconhecido. Envie uma planilha .xlsx ou um arquivo .csv.' }
+      return {
+        ok: false,
+        mensagem: 'Formato não reconhecido. Envie uma planilha .xlsx, um arquivo .csv ou o PDF do sistema antigo.',
+      }
     }
   } catch (erro) {
-    // As mensagens de lerXlsx ja vem em portugues e explicando o que fazer.
+    // As mensagens de lerXlsx e lerPdf ja vem em portugues e explicando o que fazer.
     return { ok: false, mensagem: erro instanceof Error ? erro.message : 'Não foi possível ler o arquivo.' }
   }
 
@@ -146,19 +176,24 @@ export async function analisarArquivo(
 
   const previa: Previa = {
     colunas: tabela.colunas,
+    // AMOSTRA DA PREVIA: e ela que o dono confere antes de confirmar, e o unico
+    // criterio de aceite quando o arquivo nao tem total impresso (o PDF do
+    // sistema antigo nao tem). Oito linhas cabem na tela e ja mostram produto,
+    // codigo e preco de cada uma.
     primeiras: analise.linhas
       .filter((l) => l.erros.length === 0)
-      .slice(0, 5)
+      .slice(0, 8)
       .map((l) => [
         l.codigo_barras ?? '',
         l.nome,
         l.categoria ?? '',
         l.unidade,
-        String(l.preco_custo),
-        String(l.preco_venda),
+        formatarMoeda(l.preco_custo),
+        formatarMoeda(l.preco_venda),
         l.estoque_atual === null ? '' : String(l.estoque_atual),
         String(l.estoque_minimo),
       ]),
+    totalLinhas: analise.linhas.length,
     validas: analise.validas,
     invalidas: analise.invalidas,
     descartadas: analise.descartadas,
