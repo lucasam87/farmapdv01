@@ -176,6 +176,13 @@ begin
   perform teste_ok((select count(*) = 1 from v_estoque_zerado where produto_id = v_p_zerado),
     'caso 8: produto com estoque 0 aparece em v_estoque_zerado');
 
+  -- O estoque passou a ser INFORMATIVO (migration 011) e pode ficar negativo. Um
+  -- produto que deve 3 unidades precisa aparecer na lista de reposicao tanto
+  -- quanto um que tem 0 — por isso v_estoque_zerado filtra `<= 0`.
+  update produtos set estoque_atual = -3 where id = v_p_zerado;
+  perform teste_ok((select count(*) = 1 from v_estoque_zerado where produto_id = v_p_zerado),
+    'caso 8: produto com estoque NEGATIVO tambem aparece em v_estoque_zerado');
+
   -- ================= caso 9: estoque parado =================
   perform teste_ok((select count(*) = 1 from v_estoque_parado where produto_id = v_p_parado),
     'caso 9: produto com estoque e sem venda ha 61 dias ou mais aparece em v_estoque_parado');

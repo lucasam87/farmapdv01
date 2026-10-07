@@ -63,19 +63,29 @@ begin
                      'authenticated', 'registrar_venda(uuid,uuid,jsonb,jsonb,integer)', 'execute'),
     'caso 1: a funcao esta executavel pelo papel authenticated');
 
-  -- ================= caso 2: x3 + x4 do mesmo produto com estoque 5 =================
-  -- Review Focus A1: agregar por produto ANTES de validar estoque.
+  -- ================= caso 2: x3 + x4 do mesmo produto =================
+  -- Review Focus A1: o carrinho tem de ser AGREGADO por produto. Com o estoque
+  -- INFORMATIVO (migration 011) a venda deixa de ser recusada por falta de saldo,
+  -- mas a agregacao continua importando: sem ela seriam duas linhas do mesmo
+  -- produto (o unique (venda_id, produto_id) recusaria) e duas baixas separadas.
+  -- O produto tem estoque 5 e a venda e de 7: o saldo tem de ir a -2.
   v_chave := gen_random_uuid();
-  perform teste_erro(
-    format('select registrar_venda(%L, null, %L::jsonb, %L::jsonb, 0)', v_chave,
-      jsonb_build_array(
-        jsonb_build_object('produto_id', v_p_agregado, 'quantidade', 3),
-        jsonb_build_object('produto_id', v_p_agregado, 'quantidade', 4))::text,
-      jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 10000))::text),
-    'Estoque insuficiente para DIPIRONA 500mg (sistema: 5, pedido: 7). Faça um ajuste de inventário.',
-    'caso 2: x3 + x4 do mesmo produto com estoque 5 e recusado');
-  perform teste_ok((select estoque_atual = 5 from produtos where id = v_p_agregado),
-    'caso 2: estoque continua 5 (nada foi baixado)');
+  v_venda := registrar_venda(v_chave, null,
+    jsonb_build_array(
+      jsonb_build_object('produto_id', v_p_agregado, 'quantidade', 3),
+      jsonb_build_object('produto_id', v_p_agregado, 'quantidade', 4)),
+    jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 10000))::jsonb, 0);
+  perform teste_ok((select count(*) = 1 from venda_itens where venda_id = (v_venda->>'id')::uuid),
+    'caso 2: as duas linhas do mesmo produto viraram UMA no carrinho');
+  perform teste_ok((select quantidade = 7 from venda_itens where venda_id = (v_venda->>'id')::uuid),
+    'caso 2: com a quantidade somada (3 + 4 = 7)');
+  perform teste_ok((select estoque_atual = -2 from produtos where id = v_p_agregado),
+    'caso 2: o estoque era 5 e ficou -2 — venda NAO e recusada por estoque');
+  perform teste_ok((select count(*) = 1 from estoque_movimentos m
+                     where m.produto_id = v_p_agregado
+                       and m.venda_id = (v_venda->>'id')::uuid
+                       and m.quantidade = -7 and m.saldo_apos = -2),
+    'caso 2: uma unica baixa de -7 com saldo_apos -2');
 
   -- ================= caso 3: quantidade 0 e -1 =================
   v_chave := gen_random_uuid();

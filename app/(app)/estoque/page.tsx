@@ -13,7 +13,7 @@ import { FormularioEstoque } from '../produtos/formulario-estoque'
 
 const ABAS = [
   { chave: 'baixo', rotulo: 'Estoque baixo' },
-  { chave: 'zerado', rotulo: 'Zerado' },
+  { chave: 'zerado', rotulo: 'Zerado ou negativo' },
   { chave: 'parado', rotulo: 'Parado há 60 dias' },
 ] as const
 

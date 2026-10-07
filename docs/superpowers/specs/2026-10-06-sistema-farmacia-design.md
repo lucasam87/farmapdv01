@@ -118,7 +118,7 @@ precisa lembrar dessas duas coisas ao escrever tela.
 | `v_vendas_dia` | Vendas por dia (fuso SP): total, quantidade, ticket médio |
 | `v_vendas_lista` | Histórico paginado com resumo dos itens e formas de pagamento |
 | `v_estoque_baixo` | `estoque_atual <= estoque_minimo` e `ativo` |
-| `v_estoque_zerado` | `estoque_atual = 0` e `ativo` |
+| `v_estoque_zerado` | `estoque_atual <= 0` e `ativo` (inclui NEGATIVO desde a migration 011) |
 | `v_clientes_devedores` | Saldo por cliente (compra − pagamento), maior primeiro |
 | `v_mais_vendidos` | Ranking por período |
 | `v_lucro_periodo` | `(preco_unitario − preco_custo) × quantidade` |
@@ -164,7 +164,9 @@ create table produtos (
   unidade text not null default 'un',
   preco_custo integer not null default 0 check (preco_custo >= 0),
   preco_venda integer not null default 0 check (preco_venda >= 0),
-  estoque_atual integer not null default 0 check (estoque_atual >= 0),
+  -- sem `check (estoque_atual >= 0)`: o estoque e INFORMATIVO e pode ficar
+  -- negativo (migration 011_estoque_informativo, 07/10/2026). A coluna comeca em 0.
+  estoque_atual integer not null default 0,
   estoque_minimo integer not null default 0 check (estoque_minimo >= 0),
   ativo boolean not null default true,
   criado_em timestamptz not null default now(),
@@ -295,7 +297,13 @@ alter table crediario_lancamentos
    Postgres na cara do atendente. ← corrige A2
 6. Travar linhas com `for update` em **ordem fixa** (`order by produto_id`) —
    evita deadlock entre vendas simultâneas.
-7. Estoque suficiente para o total agregado.
+7. ~~Estoque suficiente para o total agregado.~~ **REMOVIDO em 07/10/2026
+   (migration `011_estoque_informativo`): o estoque é INFORMATIVO e não bloqueia
+   a venda.** O `for update` do passo 6 continua, mas por outro motivo: sem ele
+   duas vendas simultâneas do mesmo produto gravariam o mesmo `saldo_apos` e uma
+   das baixas sumiria (saldo perdido). Motivo da mudança: dos 5689 produtos
+   importados do sistema antigo, 4878 estavam com estoque zero e 1934 vieram de
+   estoque negativo — com o bloqueio, 86% do catálogo não podia ser vendido.
 8. `subtotal` = Σ `preco_venda` (do banco) × quantidade.
 9. Desconto `>= 0`, `<= subtotal`, e o **total precisa ser `> 0`** — desconto que
    zera a venda é recusado: dar o produto de graça é erro de digitação, não
@@ -363,8 +371,15 @@ diferenca = valor_contado − esperado_dinheiro
 
 - **Ajuste** grava o **delta** (não o saldo novo) com motivo obrigatório.
 - **Entrada** soma ao estoque e atualiza `preco_custo` quando informado.
-- `estoque_atual >= 0` é garantido no banco. Se o sistema diz 0 e a prateleira
-  tem 3, o caminho é ajuste de inventário — não venda forçada.
+- ~~`estoque_atual >= 0` é garantido no banco.~~ **MUDOU em 07/10/2026
+  (migration `011_estoque_informativo`): o estoque é INFORMATIVO.** A venda não é
+  recusada por falta de saldo e `estoque_atual` **pode ficar negativo** — o número
+  passa a dizer quanto falta de verdade. A constraint
+  `produtos_estoque_atual_check` foi removida e `v_estoque_zerado` passou a
+  filtrar `<= 0`, para um produto que deve 3 unidades aparecer na reposição.
+  **`produto_ajuste` continua recusando ajuste para saldo negativo**: ajuste é
+  inventário, e não existe contar -3 unidades na prateleira — quem leva o saldo a
+  negativo é a venda, não a contagem.
 - Produto com venda nunca é apagado: só `ativo = false`.
 
 ### 8.7 Importação CSV
@@ -387,7 +402,7 @@ Todas em português, sem termo técnico, dizendo o que fazer.
 | Situação | Mensagem |
 |---|---|
 | Caixa fechado | Abra o caixa para começar a vender. |
-| Estoque insuficiente | Estoque insuficiente para DIPIRONA 500mg (sistema: 5, pedido: 7). Faça um ajuste de inventário. |
+| ~~Estoque insuficiente~~ | **Mensagem removida em 07/10/2026**: o estoque é informativo e não bloqueia mais a venda (ver §8.1 passo 7). |
 | Cliente bloqueado | Este cliente está bloqueado para crediário. |
 | Sem crediário | Este cliente não tem crediário liberado. |
 | Limite excedido | Limite excedido. Dívida atual R$ 120,00 + esta venda R$ 45,00 = R$ 165,00 (limite R$ 150,00). |
@@ -425,7 +440,7 @@ Rastreabilidade: o que foi encontrado na revisão de `PLANO-SISTEMA-FARMACIA.md`
 
 | ID | Problema | Correção |
 |---|---|---|
-| A1 | Mesmo produto repetido no carrinho passava na validação linha a linha → estoque negativo | Agregar por `produto_id` antes de validar; constraint `estoque_atual >= 0`; teste dedicado |
+| A1 | Mesmo produto repetido no carrinho passava na validação linha a linha → estoque negativo | Agregar por `produto_id` na montagem do carrinho; teste dedicado (caso 2 de `010_venda.sql`). A constraint `estoque_atual >= 0` citada aqui **foi removida em 07/10/2026** — o estoque ficou informativo e negativo é permitido; o que a agregação protege agora é o unique `(venda_id, produto_id)` e a baixa única |
 | A2 | Quantidade negativa/zero não era validada → estoque aumentava e subtotal ficava negativo | Validação explícita de inteiro `> 0` por item |
 | A3 | `criado_em::date` agrupa em UTC → venda após 21h cai no dia seguinte | Todas as agregações usam `(criado_em at time zone 'America/Sao_Paulo')::date`, dentro das views |
 | A4 | Desconto negativo e `valor_pago` incoerente não eram checados; troco calculado em PIX | Constraints + regra de pagamentos por forma + troco só sobre dinheiro |

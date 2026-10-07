@@ -281,12 +281,16 @@ select jsonb_build_object(
     checar(ultimo.locks > 0,
       'ultimo item: A viu uma sessao esperando lock enquanto segurava a linha',
       'pg_locks = ' + ultimo.locks + ' (prova de que B ficou presa)')
-    checar(ultimo.b.ok, 'ultimo item: B respondeu (mesmo recusando)',
+    checar(ultimo.b.ok, 'ultimo item: B respondeu',
       'HTTP ' + ultimo.b.status + ': ' + ultimo.b.texto.slice(0, 200))
-    checar(!ultimo.vendeu, 'ultimo item: B NAO vendeu (o bug que este teste existe para pegar)',
-      'B vendeu — o estoque de 1 item foi vendido duas vezes')
-    checar(/Estoque insuficiente/i.test(ultimo.mensagem),
-      'ultimo item: B falhou com "Estoque insuficiente"', 'mensagem: ' + ultimo.mensagem)
+
+    // O ESTOQUE PASSOU A SER INFORMATIVO (migration 011, decisao do Lucas): B NAO
+    // e mais recusada por estoque. O que este cenario prova agora e o que o `for
+    // update` sempre protegeu de verdade — SALDO PERDIDO. Sem ele, as duas vendas
+    // leriam o mesmo estoque (1) e gravariam o mesmo saldo_apos (0), e uma das
+    // baixas sumiria: o estoque final mentiria.
+    checar(ultimo.vendeu, 'ultimo item: B TAMBEM vendeu — estoque nao bloqueia mais',
+      'B nao vendeu; mensagem: ' + ultimo.mensagem)
     checar(ultimo.esperouMs >= 200,
       'ultimo item: B ficou bloqueada por pelo menos 200 ms, medido dentro do banco',
       'esperou_ms = ' + ultimo.esperouMs)
@@ -296,13 +300,23 @@ select jsonb_build_object(
   'estoque', (select estoque_atual from produtos where id = '${ids.produto}'),
   'vendas',  (select count(*) from vendas where usuario_id = '${ids.usuario}'
                 and id in (select venda_id from venda_itens where produto_id = '${ids.produto}')),
-  'itens',   (select count(*) from venda_itens where produto_id = '${ids.produto}')
+  'itens',   (select count(*) from venda_itens where produto_id = '${ids.produto}'),
+  'saldos_distintos', (select count(distinct saldo_apos) from estoque_movimentos
+                        where produto_id = '${ids.produto}')
 ) as estado;
 `)
-    checar(estado1[0].estado.estoque === 0, 'ultimo item: o estoque final do produto e 0',
+    checar(estado1[0].estado.estoque === -1,
+      'ultimo item: o estoque final e -1 (vendeu 2 com 1 em estoque, sem bloqueio)',
       'estoque = ' + estado1[0].estado.estoque)
-    checar(estado1[0].estado.itens === 1, 'ultimo item: existe exatamente um item vendido',
+    checar(estado1[0].estado.vendas === 2, 'ultimo item: as DUAS vendas existem',
+      'vendas = ' + estado1[0].estado.vendas)
+    checar(estado1[0].estado.itens === 2, 'ultimo item: dois itens vendidos',
       'itens = ' + estado1[0].estado.itens)
+    // A PROVA do saldo perdido: os dois movimentos tem de ter saldo_apos
+    // DIFERENTES (0 e -1). Se o lock nao funcionasse, sairiam iguais.
+    checar(estado1[0].estado.saldos_distintos === 2,
+      'ultimo item: os dois movimentos tem saldo_apos DIFERENTES (0 e -1) — sem saldo perdido',
+      'saldos distintos = ' + estado1[0].estado.saldos_distintos + ' (1 seria saldo perdido)')
 
     // ============ cenario 2: limite de crediario ============
     const credito = await disputar({
