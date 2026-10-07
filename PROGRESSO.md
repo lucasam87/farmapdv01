@@ -32,22 +32,37 @@ inventar), 10 com código de fornecedor (`000127-WP`) ou garrancho (`DQEQWE12312
 rejeitada pelo preço. **Alerta que só a conferência humana pega:** `diltiazen 30mg` está no Nex
 por **R$ 3.999,00** (o PDF traz isso literalmente) e passou na validação — corrija.
 
-### ⚠️ 4878 dos 5689 produtos NÃO podem ser vendidos hoje
+### ✅ O estoque passou a ser INFORMATIVO (07/10/2026) — a venda não bloqueia mais
 
-`registrar_venda` recusa com "Estoque insuficiente" quando `estoque_atual < quantidade`
-(`002_registrar_venda.sql:169`), e o catálogo entrou assim:
+**Decisão do Lucas.** Motivo: dos 5689 produtos importados, **4878 estavam com estoque zero** e
+**1934 vieram de estoque NEGATIVO** no Nex. Com o estoque bloqueando, **86% do catálogo não podia
+ser vendido** — o sistema não servia para o balcão.
 
-| Estoque no Nex | Produtos | Situação no sistema novo |
-|---|---|---|
-| Positivo | **811** | vendável, até o limite |
-| Zero explícito | 2945 | não vende |
-| **Negativo** | **1934** | entrou como **0** — `lerEstoque` recusa negativo e `produto_entrada` também |
+**Migration `011_estoque_informativo`** (`10f5c2b`), três mudanças:
+1. `registrar_venda` **não levanta mais** `Estoque insuficiente`;
+2. a constraint **`produtos_estoque_atual_check (estoque_atual >= 0)` caiu** — o saldo pode ficar
+   **negativo**, e o número passa a dizer quanto falta de verdade;
+3. `v_estoque_zerado` filtra **`<= 0`**, senão um produto que deve 3 unidades não apareceria em
+   nenhuma lista de reposição. A aba da tela virou "Zerado ou negativo".
 
-Os 1934 negativos são inconsistência do próprio Nex (estoque negativo = vendeu sem entrada), e
-o nosso sistema **recusa** estoque negativo por desenho — por isso viraram 0. **Consequência: o
-estoque do sistema novo não bate com o do Nex nessas 1934 linhas, e elas não vendem até alguém
-dar entrada.** Se a farmácia não controla estoque de tudo, isso é uma decisão a tomar (estoque
-bloqueante × informativo) — hoje o sistema bloqueia.
+**O que NÃO mudou, de propósito:** `produto_ajuste` continua recusando ajuste para saldo
+negativo — ajuste é **inventário**, e não existe contar -3 unidades na prateleira. Quem leva o
+saldo a negativo é a venda, não a contagem.
+
+**O `for update` continua, e por outro motivo.** O teste de concorrência mudou de significado: ele
+provava que a segunda venda do último item era **recusada**; agora prova que o lock evita **saldo
+perdido** — sem ele, as duas vendas leriam o mesmo estoque (1) e gravariam o mesmo `saldo_apos`
+(0), e uma das baixas sumiria. O cenário passou a afirmar que os dois movimentos têm `saldo_apos`
+**diferentes** (0 e −1) e o estoque final é **−1** com **duas** vendas. **18 OK, 0 FALHOU.**
+
+**Verificado:** `npm run test:sql` → **237 OK, 0 FALHOU de 8 arquivos** (eram 231; o caso 2 de
+`010_venda.sql` agora prova a agregação por outro ângulo e o caso 8 de `040_views.sql` cobre
+estoque negativo). `npm test` 193 · lint exit 0 · build exit 0 · `npm run test:e2e` 8 passed.
+
+⚠️ **`npm run test:sql` não roda com caixa aberto** — e `abrir_caixa` recusa se houver **qualquer**
+sessão aberta, não só no mesmo terminal (é por isso que o `global-setup` do e2e insere a sessão
+direto na tabela). Para rodar a suíte com a farmácia operando, a sessão precisa sair do caminho.
+Por isso o `tests/sql/run.mjs` tem filtro por arquivo: `npm run test:sql -- 070_importacao.sql`.
 
 ## A leitura do PDF do sistema antigo (o que destravou)
 
