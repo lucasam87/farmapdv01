@@ -8,61 +8,67 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 
 ---
 
-# ⏸ ONDE PARAMOS — 06/10/2026 (segunda sessão do dia)
+# ⏸ ONDE PARAMOS — 07/10/2026
 
-**Branch:** `etapa-0-2-fundacao` (o `main` está intacto, só com spec e plano).
-**Etapas 0, 1 e 2 fechadas. O plano 1 está 100% executado** — 11 tarefas: ambiente,
-login, banco com RLS, funções de venda, cancelamento, caixa e as 10 views.
+**Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD `3165750`.
+**Etapas 0, 1, 2, 3 e 4 fechadas. Os planos 1 e 2 estão 100% executados** — 11 + 15
+tarefas. Falta só empurrar a branch do plano 2 para o GitHub.
 
-**Evidência da Etapa 2 (nível 1 da spec §12):**
+**O plano 2 está 100% executado: as 15 tarefas (0 a 14).** As duas últimas:
 
-| Comando | Resultado |
-|---|---|
-| `npm run test:sql` | **119 OK, 0 FALHOU de 6 arquivos**, exit 0 (3 rodadas seguidas, iguais) |
-| `npm run test:sql:concorrencia` | **17 OK, 0 FALHOU**, exit 0 — último item: B bloqueada ~1 s e recusada com `Estoque insuficiente`; limite de crediário: B bloqueada e recusada com `Limite excedido` |
-| `npm test` | **12/12** |
-
-**A execução do plano 2 está em 12 de 15 tarefas.** Tarefas 0 a 12 ✅; a 13 (Playwright)
-está **em andamento**; a 14 (PDF) não começou. Branch de trabalho:
-**`etapa-3-4-produtos-estoque-pdv`**, HEAD `e1125b8` (ainda **só local**, não foi enviada).
+- **Tarefa 13 (Playwright)** ✅ — `de84f3b` (testes) e `52f781b` (desmontagem do cenário).
+- **Tarefa 14 (PDF)** ✅ — `3165750`. **A importação de PDF NÃO entra na tela**, e a
+  decisão foi medida, não suposta: o relatório real do sistema antigo **não tem linha de
+  TOTAL impressa**, então o critério de aceite ("soma extraída == total impresso no PDF")
+  não tem contra o que conferir. Sem conferência não se importa preço de medicamento
+  (spec §1). A tela continua aceitando só `.xlsx` e `.csv`.
 
 **Estado verificado no fim da sessão:**
 
 | Comando | Resultado |
 |---|---|
-| `npm test` | **118/118** (eram 12 antes do plano 2) |
-| `npm run test:sql` | **224 OK, 0 FALHOU de 8 arquivos** (eram 119 de 6) |
-| `npm run test:sql:concorrencia` | 17 OK, 0 FALHOU (não foi mexido nesta etapa) |
+| `npm test` | **131 passed** (10 arquivos), exit 0 |
+| `npm run test:sql` | **224 OK, 0 FALHOU de 8 arquivos**, exit 0 |
+| `npm run test:sql:concorrencia` | **17 OK, 0 FALHOU**, exit 0 |
+| `npm run test:e2e` | **4 passed (34,1 s)**, exit 0 — repetido, 4 passed de novo |
 | `npm run build` | exit 0, com `/produtos`, `/produtos/[id]`, `/produtos/novo`, `/produtos/importar`, `/estoque`, `/vendas`, `/vendas/nova` e `/api/produtos/busca` |
-| `npm run test:e2e` | **inconclusivo** — ver o item 1 abaixo |
+| `npm run lint` | ⛔ **exit 1** — 2 erros `react-hooks/set-state-in-effect` em `app/(app)/vendas/nova/pdv.tsx:60` e `:69`, mais 3 avisos (2 deles em `.superpowers/**`, e `fs` não usado em `tests/sql/concorrencia.mjs`). **Pendência aberta** — ver abaixo |
 
-**Banco:** migrations `006_produtos`, `007_estoque` e `008_importacao` aplicadas, com
-`produto_salvar`, `produto_entrada`, `produto_ajuste` e `importar_produtos`.
+**Os testes e2e e SQL não se atropelam mais (era um defeito real):** a suíte e2e abre um
+caixa no terminal `e2e` e, até `52f781b`, **deixava a sessão aberta no banco**. Com isso
+`npm run test:sql` caía de 224 OK para **126 OK / 4 FALHOU** — "Já existe um caixa aberto."
+em `030_caixa`, `040_views` e `050_permissoes`, e "caso 6: venda sem caixa aberto e
+recusada — nenhuma excecao foi levantada" em `010_venda`. Agora existe
+`tests/e2e/global-teardown.mjs`, chamado pelo `globalTeardown` do `playwright.config.ts`.
+Conferido no banco depois da suíte: `caixas_abertos = 0`, `produtos_e2e = 0`,
+`clientes_e2e = 0`, `vendas = 0`.
 
 **O que falta, exatamente:**
 
-1. **Tarefa 13 (Playwright)** — a rodada 1 deu **1 passou (F3) e 3 falharam**, e as três
-   falhas eram **defeito do teste, não do sistema** (uma sonda provou que a busca e o
-   carrinho funcionam). Os defeitos foram corrigidos, mas a rodada 2 foi interrompida
-   antes de ver o resultado. **Retomar rodando `npm run test:e2e`.** Se falhar de novo, a
-   sonda em `.superpowers/probe-pdv.spec.ts` (com `.superpowers/probe-pdv.config.ts`,
-   ambos git-ignored) imprime a resposta da rota de busca e o estado do carrinho na tela.
-2. **Tarefa 14 (PDF)** — não começou. O critério é objetivo: a soma dos preços extraídos
-   do PDF tem que bater **ao centavo** com o total impresso no próprio PDF. Se não bater,
-   a importação de PDF **não** entra na tela e a tarefa termina registrando o motivo.
-3. **Fechamento** — rodar a suíte inteira, marcar as Etapas 3 e 4 no `PROGRESSO.md` com a
-   evidência colada, e pedir a revisão final do branch em contexto limpo.
+1. **Empurrar a branch**: `git push -u origin etapa-3-4-produtos-estoque-pdv`. Ela está
+   **só local** — o `main` e a `etapa-0-2-fundacao` estão no remoto como estavam.
+2. **Lint vermelho** — os 2 erros são reais e vêm da Tarefa 11 (`pdv.tsx`), não da Tarefa
+   14: o lint não era rodado desde a Etapa 1, quando dava exit 0. O ESLint também está
+   lendo `.superpowers/**`, que é rascunho git-ignored (ruído a ignorar na config).
+3. **Conferência da soma planilha × gravada contra uma planilha REAL do sistema antigo** —
+   as fixtures cobrem o formato, mas nenhum arquivo de verdade passou pela tela.
 
-**Lacuna registrada (importante):** as telas **não foram vistas por olho humano** — não há
-navegador neste ambiente além do Playwright, e as Server Actions não têm endpoint público
-para chamar por script. A verificação foi por build, por teste automatizado e por sonda.
-Foi exatamente essa lacuna que deixou passar o bug de contraste da Etapa 1, então vale
-abrir `npm run dev` e olhar as telas quando possível.
+**Lacuna registrada (continua valendo):** as telas **não foram vistas por olho humano** —
+não há navegador neste ambiente além do Playwright (headless), e as Server Actions não têm
+endpoint público para chamar por script. A verificação é por build, por teste automatizado
+e por sonda. Foi exatamente essa lacuna que deixou passar o bug de contraste da Etapa 1,
+então vale abrir `npm run dev` e olhar as telas: http://localhost:3000.
+
+**Sobre o PDF real (`tests/fixtures/produtos-nex.pdf`):** é o catálogo REAL da farmácia e
+traz o preço de custo de cada produto, então **entrou no `.gitignore`** e não sobe. A
+fixture versionada é a sintética `tests/fixtures/produtos.pdf`, gerada por
+`scripts/gerar-fixture-pdf.py` (Python puro, sem reportlab e sem fpdf). Os números da
+medição contra o arquivo real ficam no ledger e nos testes "PDF real do Nex" de
+`lib/pdf.test.ts`, que são **pulados** quando o arquivo não existe no clone.
 
 **O projeto está no GitHub:** https://github.com/lucasam87/farmapdv01 (**privado**), com as
 branches `main` (`a9f55cd`) e `etapa-0-2-fundacao` (`9f0c524`) — conferidas hash a hash, e
-auditadas: nenhum segredo subiu. Detalhes na seção "Publicado no GitHub". A branch do
-plano 2 sobe com `git push -u origin etapa-3-4-produtos-estoque-pdv`.
+auditadas: nenhum segredo subiu. Detalhes na seção "Publicado no GitHub".
 
 # ▶ COMO RETOMAR EM OUTRA JANELA
 
@@ -150,8 +156,8 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
 | 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**; `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**; `npm test` → 12/12. Revisão final em contexto limpo apontou 1 Critical + 4 Important, todos corrigidos com teste que nasceu vermelho: `anon` perdeu o EXECUTE das RPCs de escrita (`050_permissoes.sql`), o limite de crediário ganhou `for update` no cliente (cenário 2 da concorrência), o termo "cancelamentos em dinheiro" da §8.3 ganhou teste, RLS passou a ser exercitada de verdade, e `npm run migrar` passou a ser o caminho versionado de aplicar migration | 06/10/2026 |
-| 3 | Produtos e estoque | 🟡 | Tarefas 0–3, 5–10 do plano 2 ✅: CLI do Supabase ligado (histórico `001`–`005` reparado), `produto_salvar` (`d998d92`), `produto_entrada`/`produto_ajuste` (`f96db63`), `importar_produtos` (`6b76b94`), os leitores `dinheiro`/`csv`/`xlsx`/`tabela` e as telas de importação, produtos e estoque. `npm run test:sql` → **224 OK, 0 FALHOU de 8 arquivos**; `npm test` → **118/118**; `npm run build` exit 0. **Faltam a Tarefa 14 (PDF) e a conferência da soma planilha × gravada contra uma planilha real do sistema antigo** (as fixtures cobrem o formato) | 06/10/2026 |
-| 4 | PDV | 🟡 | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 18 testes das contas de pagamento, provados por mutação. **Falta a Tarefa 13 fechar**: a rodada 1 do Playwright deu 1 passou / 3 falharam por defeito do teste (corrigido) e a rodada 2 foi interrompida. Sem ela a Etapa 4 não tem a evidência que a spec §13 exige | 06/10/2026 |
+| 3 | Produtos e estoque | ✅ | As 11 tarefas do plano 2 desta etapa (0–10 e 14) ✅: CLI do Supabase ligado (histórico `001`–`005` reparado), `produto_salvar` (`d998d92`), `produto_entrada`/`produto_ajuste` (`f96db63`), `importar_produtos` (`6b76b94`), os leitores `dinheiro`/`csv`/`xlsx`/`tabela` e as telas de importação, produtos e estoque. `npm run test:sql` → **224 OK, 0 FALHOU de 8 arquivos**; `npm test` → **131 passed**; `npm run build` exit 0 com `ƒ /produtos`, `ƒ /produtos/[id]`, `ƒ /produtos/novo`, `ƒ /produtos/importar` e `ƒ /estoque`. **Tarefa 14 medida e decidida: o PDF não entra na tela** (o relatório real do sistema antigo não tem TOTAL impresso — ver "ONDE PARAMOS"). Fica aberta a conferência da soma planilha × gravada contra uma planilha real do sistema antigo (as fixtures cobrem o formato) | 07/10/2026 |
+| 4 | PDV | ✅ | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 18 testes das contas de pagamento, provados por mutação. **Tarefa 13 fechada**: `npm run test:e2e` → **4 passed (34,1 s)**, exit 0, repetido com **4 passed** de novo — venda só com teclado, clique duplo produzindo UMA venda (idempotência), F3 a partir de `/produtos` e limite de crediário. Commits `de84f3b` e `52f781b` (o e2e passou a desmontar o cenário; antes deixava caixa aberto e quebrava a suíte SQL) | 07/10/2026 |
 | 5 | Histórico de vendas | ⬜ | — | — |
 | 6 | Clientes e crediário | ⬜ | — | — |
 | 7 | Relatórios | ⬜ | — | — |
@@ -181,8 +187,8 @@ Plano: `docs/superpowers/plans/2026-10-06-fundacao-login-banco.md`
 ## Tarefas do Plano 2
 
 Plano: `docs/superpowers/plans/2026-10-06-produtos-estoque-pdv.md` (commit `6de378e`).
-Escrito e revisado em 06/10/2026. **A execução começou pela tarefa 0, que está ✅** — as
-demais seguem pendentes. Ledger de execução:
+Escrito e revisado em 06/10/2026. **As 15 tarefas (0 a 14) estão executadas** — o plano 2
+está fechado. Ledger de execução:
 `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`.
 
 | Tarefa | Entrega | Status |
@@ -200,8 +206,8 @@ demais seguem pendentes. Ledger de execução:
 | 10 | `/estoque` — abas baixo / zerado / parado | ✅ `09950c7` |
 | 11 | `/vendas/nova` — PDV com teclado, pagamento dividido, idempotência | ✅ `751e3da`, 18 testes de pagamento |
 | 12 | `/vendas` — lista do dia com valores ocultáveis | ✅ `15198f6` |
-| 13 | Playwright — teclado, clique duplo, F3, limite de crediário | 🟡 `e1125b8`: rodada 1 deu 1 passou / 3 falharam por defeito de teste; defeitos corrigidos, rodada 2 não concluída |
-| 14 | PDF — medir contra o total impresso e decidir (pode terminar inviável) | ⬜ |
+| 13 | Playwright — teclado, clique duplo, F3, limite de crediário | ✅ `de84f3b` e `52f781b`: **4 passed (34,1 s)**, exit 0, repetido com 4 passed. Dois defeitos de teste corrigidos (ordem de FK na limpeza e o rótulo do seletor de cliente) e, depois, o defeito real de o e2e deixar caixa aberto e quebrar a suíte SQL |
+| 14 | PDF — medir contra o total impresso e decidir (pode terminar inviável) | ✅ `3165750`: `lib/pdf.ts` + 13 testes + gerador de fixture em Python puro. **Decisão: o PDF não entra na tela** — o relatório real do Nex não tem linha de TOTAL, então não há contra o que conferir a soma, e sem conferência não se importa preço de medicamento (spec §1). A tela segue aceitando só `.xlsx` e `.csv` |
 
 ## Credenciais e segredos
 
