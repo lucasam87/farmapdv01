@@ -136,6 +136,15 @@ export function FormularioImportacao() {
             {previa.descartadas} de total ignorada(s)
           </p>
 
+          {previa.existentes > 0 ? (
+            <p className="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-base text-slate-700">
+              {previa.existentes} produto(s) deste arquivo já existem no catálogo e{' '}
+              {previa.atualizar
+                ? 'serão atualizados (nome, categoria, unidade e os preços que vierem na planilha).'
+                : 'NÃO serão alterados, porque a atualização está desmarcada.'}
+            </p>
+          ) : null}
+
           {previa.avisos.map((aviso) => (
             <p key={aviso} className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
               {aviso}
@@ -199,7 +208,9 @@ export function FormularioImportacao() {
           <form action={acaoImportar} className="mt-6 border-t border-slate-200 pt-6">
             {/* O arquivo NAO volta ao cliente: viaja so o JSON ja validado. */}
             <input type="hidden" name="linhas" value={previa.json} />
-            <input type="hidden" name="atualizar" value="sim" />
+            {/* A escolha FEITA na analise, e nao um `sim` fixo: era isso que
+                tornava o checkbox inerte. */}
+            <input type="hidden" name="atualizar" value={previa.atualizar ? 'sim' : 'nao'} />
             <button
               type="submit"
               disabled={!podeConfirmar || importando}

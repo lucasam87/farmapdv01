@@ -28,6 +28,14 @@ export type Previa = {
   somaConferida: boolean
   /* Colunas opcionais que a planilha trouxe. Ausente = a RPC nao mexe no campo. */
   colunasPresentes: ColunasPresentes
+  /*
+   * A escolha do checkbox da tela VIAJA no estado: sao dois formularios (o de
+   * analise e o de confirmacao) e antes o de confirmacao mandava `sim` fixo, o
+   * que tornava o checkbox inerte — desmarcar e confirmar atualizava tudo igual.
+   */
+  atualizar: boolean
+  /** Quantos codigos da planilha ja existem no catalogo. */
+  existentes: number
   faltando: string[]
   avisos: string[]
   erros: { linha: number; erros: string[] }[]
@@ -45,6 +53,34 @@ export type ResultadoImportacao =
   | { ok: false; mensagem: string }
 
 const SO_O_DONO = 'Só o dono pode importar produtos.'
+
+/**
+ * Quantos dos codigos da planilha JA existem no catalogo.
+ *
+ * Em LOTES de proposito: um `.in()` com milhares de codigos estoura o tamanho da
+ * URL da requisicao. Duas centenas por vez mantem a consulta pequena e o numero
+ * e o que o dono precisa ver antes de confirmar uma reimportacao.
+ *
+ * Limitacao conhecida: a contagem e feita FORA da transacao da RPC, entao uma
+ * venda de outro terminal entre a analise e a confirmacao pode criar um produto
+ * que ainda nao estava contado. E um numero para orientar a decisao humana, nao
+ * uma garantia transacional.
+ */
+async function contarExistentes(
+  supabase: Awaited<ReturnType<typeof criarClienteServidor>>,
+  codigos: string[],
+): Promise<number> {
+  const LOTE = 200
+  let total = 0
+  for (let i = 0; i < codigos.length; i += LOTE) {
+    const { count } = await supabase
+      .from('produtos')
+      .select('id', { count: 'exact', head: true })
+      .in('codigo_barras', codigos.slice(i, i + LOTE))
+    total += count ?? 0
+  }
+  return total
+}
 
 // Assinatura exigida pelo useActionState: o estado anterior vem primeiro (doc do
 // Next 16, app/guides/forms.md). O primeiro parametro nao e usado aqui.
@@ -89,6 +125,21 @@ export async function analisarArquivo(
 
   const analise = analisarTabela(tabela)
 
+  // A escolha do checkbox vem do formulario de ANALISE e segue no estado ate o de
+  // CONFIRMACAO: sem isso o segundo form mandava `sim` fixo e o checkbox nao
+  // valia nada.
+  const atualizar = formData.get('atualizar') === 'sim'
+
+  const supabase = await criarClienteServidor()
+  const codigos = [
+    ...new Set(
+      analise.linhas
+        .filter((l) => l.erros.length === 0 && l.codigo_barras !== null)
+        .map((l) => l.codigo_barras as string),
+    ),
+  ]
+  const existentes = await contarExistentes(supabase, codigos)
+
   const erros = analise.linhas
     .map((l, i) => ({ linha: i + 1, erros: l.erros }))
     .filter((e) => e.erros.length > 0)
@@ -115,6 +166,8 @@ export async function analisarArquivo(
     somaGravada: analise.somaGravada,
     somaConferida: analise.somaConferida,
     colunasPresentes: analise.colunasPresentes,
+    atualizar,
+    existentes,
     faltando: analise.faltando,
     avisos: [...avisos, ...analise.avisos],
     erros,
