@@ -28,6 +28,9 @@ export type Previa = {
    * saiam da mesma variavel e a conferencia nao existia de verdade.
    */
   totalImpresso: number | null
+  /* Soma de TUDO que o arquivo trouxe — e com ela que o total impresso se compara. */
+  somaLida: number
+  /* Soma do que a RPC vai receber de fato (sem repetidos, sem linhas com erro). */
   somaGravada: number
   somaConferida: boolean
   /* Colunas opcionais que a planilha trouxe. Ausente = a RPC nao mexe no campo. */
@@ -210,6 +213,7 @@ export async function analisarArquivo(
     invalidas: analise.invalidas,
     descartadas: analise.descartadas,
     totalImpresso: analise.totalImpresso,
+    somaLida: analise.somaLida,
     somaGravada: analise.somaGravada,
     somaConferida: analise.somaConferida,
     colunasPresentes: analise.colunasPresentes,

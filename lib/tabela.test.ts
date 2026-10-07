@@ -222,6 +222,40 @@ describe('analisarTabela', () => {
     expect(r.validas).toBe(2)
   })
 
+  // Sao DUAS somas, e elas respondem perguntas diferentes: `somaLida` e o que o
+  // arquivo trouxe (e com ela que o TOTAL impresso se compara), `somaGravada` e o
+  // que a RPC vai receber de fato. Somar as linhas descartadas na segunda fazia a
+  // previa prometer R$ 1.452,55 a mais do que o banco gravava.
+  it('a soma GRAVADA nao conta as linhas descartadas por codigo repetido', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [
+        ['A', '789', '4,50'],
+        ['B', '789', '5,50'],
+      ],
+    })
+    expect(r.somaLida).toBe(1000)
+    expect(r.somaGravada).toBe(450)
+  })
+
+  it('a conferencia do TOTAL impresso usa a soma LIDA, nao a gravada', () => {
+    // O sistema antigo somou as DUAS linhas dele no rodape (4,50 + 5,50 = 10,00),
+    // mesmo repetindo o codigo: a conferencia tem que bater com o que ele imprimiu.
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [
+        ['A', '789', '4,50'],
+        ['B', '789', '5,50'],
+        ['TOTAL', '', '10,00'],
+      ],
+    })
+    expect(r.totalImpresso).toBe(1000)
+    expect(r.somaLida).toBe(1000)
+    expect(r.somaConferida).toBe(true)
+    // E o que sera gravado e so a primeira linha.
+    expect(r.somaGravada).toBe(450)
+  })
+
   it('codigo repetido em linha INVALIDA nao conta (ela nao vai ser gravada)', () => {
     const r = analisarTabela({
       colunas: ['nome', 'codigo', 'preco'],

@@ -93,12 +93,21 @@ export function FormularioImportacao() {
               </p>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Soma que será gravada</p>
+              <p className="text-sm text-slate-500">Soma das linhas lidas</p>
               <p className="text-2xl font-semibold text-slate-800">
-                {formatarMoeda(previa.somaGravada)}
+                {formatarMoeda(previa.somaLida)}
               </p>
             </div>
           </div>
+
+          {/* Quando as duas somas diferem, a diferenca sao as linhas descartadas
+              por codigo repetido — o dono precisa saber quanto sai da conta. */}
+          {previa.somaGravada !== previa.somaLida ? (
+            <p className="mt-4 text-base text-slate-600">
+              Descontando as linhas ignoradas, a <strong>soma que será gravada</strong> é{' '}
+              {formatarMoeda(previa.somaGravada)}.
+            </p>
+          ) : null}
 
           {somasDivergem ? (
             <p role="alert" className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-base text-red-700">

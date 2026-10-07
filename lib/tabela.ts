@@ -65,7 +65,12 @@ export type ResultadoAnalise = {
    * ela e ambigua.
    */
   totalImpresso: number | null
-  /** Soma dos precos de venda que serao gravados. */
+  /** Soma dos precos de venda de TUDO que o arquivo trouxe, antes da deduplicacao. */
+  somaLida: number
+  /**
+   * Soma dos precos de venda que serao GRAVADOS: so as linhas validas e sem
+   * repeticao. E esta que a tela chama de "Soma que sera gravada".
+   */
   somaGravada: number
   /**
    * Codigos de barras que aparecem MAIS DE UMA VEZ entre as linhas validas.
@@ -260,7 +265,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   const avisos: string[] = []
   let descartadas = 0
   let totalImpresso: number | null = null
-  let somaGravada = 0
+  let somaLida = 0
   let semZeros = 0
   let invertidasCorrigidas = 0
 
@@ -331,7 +336,10 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
         erros.push(`Preço de venda acima do limite do banco (${LIMITE_EM_REAIS}).`)
       } else {
         precoVenda = venda
-        somaGravada += venda
+        // Soma de TUDO que foi lido, inclusive as linhas que a deduplicacao vai
+        // descartar depois: e com esta soma que o TOTAL impresso no arquivo se
+        // compara (o sistema antigo somou todas as linhas dele).
+        somaLida += venda
       }
     }
 
@@ -385,6 +393,14 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
 
   const validas = linhasUnicas.filter((l) => l.erros.length === 0).length
 
+  // A SOMA QUE SERA GRAVADA e a das linhas que a RPC vai receber de verdade:
+  // linha com erro nao chega, e repetido so entra o primeiro. Antes esta soma era
+  // acumulada no laco e incluia as 92 linhas descartadas por repeticao — a previa
+  // prometia um valor e o banco gravava outro R$ 1.452,55 menor.
+  const somaGravada = linhasUnicas
+    .filter((l) => l.erros.length === 0)
+    .reduce((soma, l) => soma + l.preco_venda, 0)
+
   return {
     linhas: linhasUnicas,
     faltando,
@@ -395,8 +411,9 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
       estoque_minimo: mapa.estoque_minimo !== undefined,
     },
     totalImpresso,
+    somaLida,
     somaGravada,
-    somaConferida: totalImpresso !== null && totalImpresso === somaGravada,
+    somaConferida: totalImpresso !== null && totalImpresso === somaLida,
     codigosRepetidos,
     invertidasCorrigidas,
     ignoradasPorRepeticao,
