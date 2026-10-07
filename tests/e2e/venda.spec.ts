@@ -108,6 +108,25 @@ test('clique duplo em Finalizar produz uma unica venda', async ({ page }) => {
   await expect(page.getByTestId('linha-venda')).toHaveCount(antes + 1)
 })
 
+test('desconto ilegivel nao fecha a venda com desconto zero', async ({ page }) => {
+  // O `lerDesconto` devolve null quando o texto nao da para ler. Antes esse null
+  // era colapsado em zero e a venda fechava com o total cheio — o atendente via
+  // um desconto que o sistema nao aplicou.
+  await page.goto('/vendas/nova')
+  await adicionarProduto(page, PRODUTO_E2E)
+
+  await page.keyboard.press('F6')
+  await page.getByLabel('Valor do pagamento').pressSequentially('10,00')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Enter')
+
+  await page.getByLabel('Desconto (5 ou 5%)').pressSequentially('abc')
+  await page.keyboard.press('F2')
+
+  await expect(page.getByTestId('erro')).toContainText('Desconto inválido')
+  await expect(page.getByTestId('confirmacao')).toHaveCount(0)
+})
+
 test('F3 abre a nova venda a partir de outra tela', async ({ page }) => {
   await page.goto('/produtos')
   await page.keyboard.press('F3')

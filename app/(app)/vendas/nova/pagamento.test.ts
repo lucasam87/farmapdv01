@@ -88,6 +88,19 @@ describe('lerDesconto', () => {
     expect(lerDesconto('150%', 10000)).toBeNull()
     expect(lerDesconto('-5', 10000)).toBeNull()
   })
+  // O PDV tinha um leitor de dinheiro PROPRIO, que tratava o ponto sempre como
+  // milhar: "20.00" virava R$ 2.000,00 no balcao e R$ 20,00 na importacao. O
+  // contrato do projeto e UM leitor so, o parsearCentavos.
+  it('le o ponto com 1 ou 2 digitos como decimal, igual ao resto do sistema', () => {
+    expect(lerDesconto('20.00', 100000)).toBe(2000)
+    expect(lerDesconto('5.50', 100000)).toBe(550)
+  })
+  it('ponto com tres digitos continua sendo milhar', () => {
+    expect(lerDesconto('1.234', 1000000)).toBe(123400)
+  })
+  it('aceita R$ e espaco, como o leitor oficial de dinheiro', () => {
+    expect(lerDesconto('R$ 5', 10000)).toBe(500)
+  })
 })
 
 describe('adicionarItem', () => {

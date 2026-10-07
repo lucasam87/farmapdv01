@@ -7,6 +7,12 @@
 // atendente ver quanto falta antes de fechar. Quem decide total, troco, desconto
 // e limite e o BANCO, dentro de registrar_venda. O que o PDV envia e so intencao:
 // produto_id, quantidade, forma e valor.
+//
+// O dinheiro digitado e lido SEMPRE pelo parsearCentavos (lib/dinheiro.ts): um
+// leitor so em todo o projeto, senao o mesmo texto passa a valer coisas
+// diferentes conforme a tela.
+
+import { parsearCentavos } from '@/lib/dinheiro'
 
 export type FormaPagamento = 'dinheiro' | 'pix' | 'debito' | 'credito' | 'crediario'
 
@@ -70,10 +76,11 @@ export function lerDesconto(texto: string, subtotal: number): number | null {
     return Math.round((subtotal * numero) / 100)
   }
 
-  // Sem % e valor em reais: reaproveita a mesma leitura de dinheiro do sistema.
-  const emCentavos = Number(limpo.replace(/\./g, '').replace(',', '.'))
-  if (!Number.isFinite(emCentavos) || emCentavos < 0) return null
-  return Math.round(emCentavos * 100)
+  // Sem % e valor em reais: quem le dinheiro no projeto e o parsearCentavos, e so
+  // ele. Havia aqui um leitor proprio (`Number(limpo.replace(/\./g,'')...)`) que
+  // tratava o ponto SEMPRE como milhar, entao "20.00" valia R$ 2.000,00 no balcao
+  // e R$ 20,00 na importacao — o mesmo texto significando dois valores.
+  return parsearCentavos(limpo)
 }
 
 /** Adiciona ao carrinho ou soma na quantidade, se o produto ja estiver la. */

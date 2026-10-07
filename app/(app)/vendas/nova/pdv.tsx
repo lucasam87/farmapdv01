@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { formatarMoeda } from '@/lib/format'
+import { parsearCentavos } from '@/lib/dinheiro'
 import { finalizarVenda, type VendaRegistrada } from './actions'
 import {
   FORMAS,
@@ -94,7 +95,13 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
   }, [termo])
 
   const subtotal = itens.reduce((s, i) => s + i.preco_unitario * i.quantidade, 0)
-  const desconto = lerDesconto(descontoTexto, subtotal) ?? 0
+  // `null` = desconto ILEGIVEL (nao e "sem desconto": vazio ja vira 0 dentro do
+  // lerDesconto). Somar com null daria zero calado, entao o valor so entra na
+  // conta depois de lido, e o finalizar RECUSA enquanto for null — fechar a venda
+  // com desconto zero quando o atendente digitou um desconto e a pior forma de
+  // errar dinheiro.
+  const descontoLido = lerDesconto(descontoTexto, subtotal)
+  const desconto = descontoLido ?? 0
   const total = calcularTotal(itens, desconto)
   const falta = calcularFalta(total, pagamentos)
   const troco = calcularTroco(total, pagamentos)
@@ -120,13 +127,15 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
   }
 
   function adicionarPagamento() {
-    const centavos = Number(valorTexto.replace(/\./g, '').replace(',', '.'))
-    if (!Number.isFinite(centavos) || centavos <= 0) {
+    // Um leitor de dinheiro so no projeto (parsearCentavos). Aqui havia um
+    // Number(...) proprio que lia o ponto como milhar: "20.00" virava R$ 2.000.
+    const centavos = parsearCentavos(valorTexto)
+    if (centavos === null || centavos <= 0) {
       setErro('Valor de pagamento inválido.')
       return
     }
     setErro(null)
-    setPagamentos((atual) => [...atual, { forma: formaAtual, valor: Math.round(centavos * 100) }])
+    setPagamentos((atual) => [...atual, { forma: formaAtual, valor: centavos }])
     setValorTexto('')
   }
 
@@ -152,6 +161,10 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
     }
     if (pagamentos.length === 0) {
       setErro('Informe a forma de pagamento.')
+      return
+    }
+    if (descontoLido === null) {
+      setErro('Desconto inválido. Digite um valor em reais (5) ou em porcento (5%).')
       return
     }
     if (falta > 0) {
