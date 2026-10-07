@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Rascunho do processo de execucao (ledger, briefs, sondas): esta no
+    // .gitignore e lintar isso so gera aviso de codigo que nao e do projeto.
+    ".superpowers/**",
   ]),
 ]);
 

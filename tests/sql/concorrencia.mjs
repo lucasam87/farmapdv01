@@ -18,7 +18,6 @@
 // banco, com clock_timestamp(): o endpoint leva ~1,5 s de overhead por
 // requisicao, o que tornaria qualquer medicao no Node uma prova falsa.
 
-import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import dotenv from 'dotenv'

@@ -50,25 +50,29 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
   const [erro, setErro] = useState<string | null>(null)
   const [confirmacao, setConfirmacao] = useState<VendaRegistrada | null>(null)
   const [enviando, setEnviando] = useState(false)
-  const [chave, setChave] = useState('')
+  // A chave nasce UMA vez, na inicializacao preguicosa do estado: o valor nunca
+  // e renderizado, entao nao existe risco de divergencia de hidratacao. Nascer
+  // dentro de um useEffect era um setState sincrono no efeito (lint
+  // react-hooks/set-state-in-effect) sem necessidade.
+  // Trocar de carrinho NAO troca a chave; so uma venda concluida troca.
+  const [chave, setChave] = useState(() => crypto.randomUUID())
 
   const buscaRef = useRef<HTMLInputElement>(null)
 
-  // A chave so nasce no cliente (crypto.randomUUID) e sobrevive a re-render.
-  // Trocar de carrinho NAO troca a chave; so uma venda concluida troca.
   useEffect(() => {
-    setChave(crypto.randomUUID())
     buscaRef.current?.focus()
   }, [])
 
   // Busca com espera curta: o leitor de codigo de barras digita rapido e manda
   // Enter, entao a espera nao pode atrapalhar.
+  //
+  // O termo curto NAO limpa a lista daqui: quem limpa e o onChange do campo. Um
+  // setState sincrono no corpo do efeito dispara render em cascata e o lint
+  // recusa (react-hooks/set-state-in-effect) — e o evento que mudou o termo ja e
+  // o lugar certo para reagir a isso.
   useEffect(() => {
     const alvo = termo.trim()
-    if (alvo.length < 2) {
-      setResultados([])
-      return
-    }
+    if (alvo.length < 2) return
     const controle = new AbortController()
     const timer = setTimeout(async () => {
       try {
@@ -220,7 +224,12 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
       <input
         ref={buscaRef}
         value={termo}
-        onChange={(e) => setTermo(e.target.value)}
+        onChange={(e) => {
+          setTermo(e.target.value)
+          // Termo curto demais para buscar: some com a lista aqui, e nao dentro
+          // do efeito (ver o comentario do efeito de busca).
+          if (e.target.value.trim().length < 2) setResultados([])
+        }}
         onKeyDown={teclaBusca}
         placeholder="Bipe o código de barras ou digite o nome"
         aria-label="Buscar produto"
