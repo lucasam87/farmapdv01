@@ -78,6 +78,11 @@ export type ResultadoAnalise = {
    */
   codigosRepetidos: string[]
   /**
+   * Quantas linhas tinham nome e codigo de barras TROCADOS no arquivo e foram
+   * corrigidas na leitura. A previa avisa: dado do dono nao se corrige calado.
+   */
+  invertidasCorrigidas: number
+  /**
    * Quantas linhas foram DEIXADAS DE FORA por repetirem um codigo de barras.
    *
    * Decisao do Lucas (07/10/2026): o catalogo real do sistema antigo tem EAN
@@ -235,6 +240,19 @@ function ehNuloDoExportador(valor: string | undefined): boolean {
   return limpo === '' || limpo === 'null'
 }
 
+/**
+ * A celula inteira e um codigo (digitos e espacos)? O apostrofo da frente conta:
+ * e como o Excel marca "isto e texto" e o exportador do sistema antigo o imprimiu.
+ */
+function ehSoCodigo(valor: string): boolean {
+  return /^'?[\d][\d ]*$/.test(valor.trim())
+}
+
+/** Tem letra (acentuada inclusive)? Entao e texto, nao codigo. */
+function temLetra(valor: string): boolean {
+  return /[A-Za-zÀ-ÿ]/.test(valor)
+}
+
 export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   const { mapa, faltando } = indiceDasColunas(tabela.colunas)
 
@@ -244,6 +262,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   let totalImpresso: number | null = null
   let somaGravada = 0
   let semZeros = 0
+  let invertidasCorrigidas = 0
 
   for (const linha of tabela.linhas) {
     if (ehRodape(linha)) {
@@ -255,10 +274,26 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
 
     const erros: string[] = []
 
-    const nome = (celula(linha, mapa.nome) ?? '').trim()
-    if (nome === '') erros.push('Informe o nome do produto.')
+    let nome = (celula(linha, mapa.nome) ?? '').trim()
+    let codigoTexto = textoOuNulo(celula(linha, mapa.codigo_barras))
 
-    const codigoTexto = textoOuNulo(celula(linha, mapa.codigo_barras))
+    // CADASTRO INVERTIDO no exportador: a coluna de nome tem o codigo e a de
+    // codigo tem o nome do produto. E dado real do sistema antigo (6 linhas do
+    // catalogo), e inverter aqui e o unico jeito de o produto entrar certo — se o
+    // dono corrigir no Nex depois, a reimportacao casa por CODIGO DE BARRAS e nao
+    // acharia esta linha (o codigo dela e um nome), criando duplicata.
+    //
+    // A troca so acontece quando e INEQUIVOCA: um lado e so digitos e o outro tem
+    // letra. Cadastro normal nao casa; codigo de fornecedor com letra ("000127-WP")
+    // tambem nao, porque ai a coluna de nome tem um nome de verdade.
+    if (codigoTexto !== null && ehSoCodigo(nome) && temLetra(codigoTexto)) {
+      const nomeRecuperado = codigoTexto
+      codigoTexto = nome.replace(/^'/, '').replace(/\s+/g, '')
+      nome = nomeRecuperado
+      invertidasCorrigidas++
+    }
+
+    if (nome === '') erros.push('Informe o nome do produto.')
     // Aviso de zeros a esquerda vale para codigo CURTO: e o Excel que come o zero
     // de "0012345" e ele sai "12345". Um EAN-13/14 completo NAO perdeu zero
     // nenhum, e sem o teto de 12 digitos o aviso acusava em falso os 5613 EANs do
@@ -363,6 +398,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     somaGravada,
     somaConferida: totalImpresso !== null && totalImpresso === somaGravada,
     codigosRepetidos,
+    invertidasCorrigidas,
     ignoradasPorRepeticao,
     validas,
     invalidas: linhasUnicas.length - validas,

@@ -161,6 +161,18 @@ export function FormularioImportacao() {
           {/* A RPC recusa a importacao INTEIRA por um codigo repetido, e o
               catalogo real do sistema antigo tem varios. Melhor avisar aqui do
               que o dono descobrir na recusa, depois de conferir a amostra. */}
+          {/* Dado do dono nao se corrige calado: a previa diz o que foi mexido. */}
+          {previa.invertidasCorrigidas > 0 ? (
+            <p className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
+              <strong>
+                {previa.invertidasCorrigidas} linha(s) tinham o nome e o código de barras TROCADOS
+                no arquivo
+              </strong>{' '}
+              (o sistema antigo gravou um no campo do outro). Foram invertidas na leitura — confira
+              na amostra abaixo se ficaram certas.
+            </p>
+          ) : null}
+
           {previa.codigosRepetidos.length > 0 ? (
             <p role="alert" className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
               <strong>

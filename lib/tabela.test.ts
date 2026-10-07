@@ -303,6 +303,60 @@ describe('analisarTabela', () => {
     expect(r.invalidas).toBe(0)
     expect(r.linhas[0].preco_venda).toBe(2147483647)
   })
+
+  // Cadastro INVERTIDO no exportador: a coluna de nome tem o codigo de barras e a
+  // de codigo tem o nome do produto. Sao 6 linhas do catalogo real. Inverter e o
+  // unico jeito de o produto entrar certo — e evita a DUPLICATA que aconteceria se
+  // o dono corrigisse no Nex depois, porque a reimportacao casa por codigo de barras
+  // e o codigo da linha errada e um nome.
+  it('inverte nome e codigo quando o exportador trocou os dois campos', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [['7895296383011', 'QUETIAPINA 25MG C30', '29,99']],
+    })
+    expect(r.invertidasCorrigidas).toBe(1)
+    expect(r.linhas[0].nome).toBe('QUETIAPINA 25MG C30')
+    expect(r.linhas[0].codigo_barras).toBe('7895296383011')
+    expect(r.invalidas).toBe(0)
+  })
+
+  it('tira o apostrofo do codigo que veio como texto do Excel', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [["'7896512911865", 'GLICERINA GRANADO', '7,00']],
+    })
+    expect(r.invertidasCorrigidas).toBe(1)
+    expect(r.linhas[0].nome).toBe('GLICERINA GRANADO')
+    expect(r.linhas[0].codigo_barras).toBe('7896512911865')
+  })
+
+  it('NAO inverte quando os dois lados sao codigos (nao ha nome para recuperar)', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [['14792184791287 41', '7898556850209', '4,00']],
+    })
+    expect(r.invertidasCorrigidas).toBe(0)
+    expect(r.linhas[0].nome).toBe('14792184791287 41')
+  })
+
+  it('NAO inverte cadastro normal (nome e nome, codigo e codigo)', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [['DIPIRONA 500mg', '7891317026370', '4,50']],
+    })
+    expect(r.invertidasCorrigidas).toBe(0)
+    expect(r.linhas[0].nome).toBe('DIPIRONA 500mg')
+  })
+
+  it('NAO inverte quando o codigo e um codigo de fornecedor com letras', () => {
+    // "000127-WP" tem letras, mas o nome esta no lugar certo.
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [['GLIBENCLAMIDA 5MG C30', '000127-WP', '6,78']],
+    })
+    expect(r.invertidasCorrigidas).toBe(0)
+    expect(r.linhas[0].nome).toBe('GLIBENCLAMIDA 5MG C30')
+  })
 })
 
 describe('analisarTabela com o arquivo do exportador', () => {

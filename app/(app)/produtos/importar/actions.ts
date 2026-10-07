@@ -38,6 +38,8 @@ export type Previa = {
    * do sistema antigo tem varios — por isso a tela avisa antes de confirmar.
    */
   codigosRepetidos: string[]
+  /* Linhas que tinham nome e codigo trocados no arquivo e foram corrigidas. */
+  invertidasCorrigidas: number
   /* Quantas linhas ficaram de fora por repetirem um codigo de barras. */
   ignoradasPorRepeticao: number
   /*
@@ -212,6 +214,7 @@ export async function analisarArquivo(
     somaConferida: analise.somaConferida,
     colunasPresentes: analise.colunasPresentes,
     codigosRepetidos: analise.codigosRepetidos,
+    invertidasCorrigidas: analise.invertidasCorrigidas,
     ignoradasPorRepeticao: analise.ignoradasPorRepeticao,
     atualizar,
     existentes,
