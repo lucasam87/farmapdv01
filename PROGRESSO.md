@@ -10,19 +10,28 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 
 # ⏸ ONDE PARAMOS — 07/10/2026
 
-**Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD `0821d0f` (o remoto está em `b76ab36`).
+**Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD `f120328`.
 **Etapas 0, 1, 2 e 4 fechadas. A Etapa 3 está 🟡** — ver a linha dela na tabela de Etapas.
-**As 15 tarefas do plano 2 (0 a 14) estão executadas**, mas a **revisão final do branch deu
-"No"**: 1 Critical + 7 Important, listados abaixo. O plano está executado; o código ainda
-não está pronto para merge.
 
-**A revisão final do branch** (contexto limpo, range `9f0c524..3165750`) encontrou um
-Critical que **derruba a evidência de aceite da Etapa 3**: em `lib/tabela.ts:175` e `:181`,
-`somaGravada` e `somaPlanilha` somam a **mesma** variável pelo **mesmo** `parsearCentavos`.
-As duas somas são idênticas por construção, então a tarja "As somas não batem — confira o
-separador decimal" é código morto e a conferência contra erro de fator 100 que a spec §8.7
-exige **não existe**. Isso também é defeito do plano (linha 701), que descreve a comparação
-de forma autocontraditória e foi seguido à risca. Ver "O que falta, exatamente".
+**As 15 tarefas do plano 2 (0 a 14) estão executadas** e a **revisão final do branch** (em
+contexto limpo, range `9f0c524..3165750`) apontou **1 Critical + 7 Important**. **Oito dos
+nove achados já foram corrigidos** nesta sessão, cada um com teste que nasce vermelho, e
+**`npm run lint` voltou a exit 0**. **Falta só o item 8** (o seletor de cliente do PDV, que
+é mudança de tela no balcão e depende de decisão do Lucas).
+
+**O Critical e o que ele significava:** em `lib/tabela.ts`, `somaGravada` e a (então)
+`somaPlanilha` somavam a **mesma** variável pelo **mesmo** `parsearCentavos` — as duas somas
+eram idênticas por construção, a tarja "As somas não batem" era código morto e a conferência
+contra erro de fator 100 da spec §8.7 **não existia**. O "Pronto quando" da Etapa 3 estava
+apoiado numa identidade matemática. Isso também era defeito do plano (linha 701), que
+descrevia a comparação de forma autocontraditória; **o plano foi corrigido junto**.
+
+**O conserto:** `analisarTabela` agora devolve `totalImpresso` — o TOTAL que o sistema antigo
+**imprimiu no rodapé do arquivo**, lido do `ehRodape` que antes era descartado — e
+`somaConferida`, que só é `true` quando existe total impresso e ele bate ao centavo. Os dois
+lados são independentes. Os limites estão escritos no código: a conferência pega defeito de
+seleção e somatório (coluna trocada, linha perdida, rodapé que discorda), **não** pega um erro
+sistemático dentro do próprio `parsearCentavos` (aí os dois lados deslocam juntos).
 
 **O plano 2 está 100% executado: as 15 tarefas (0 a 14).** As duas últimas:
 
@@ -37,16 +46,20 @@ de forma autocontraditória e foi seguido à risca. Ver "O que falta, exatamente
   não tem contra o que conferir. Sem conferência não se importa preço de medicamento
   (spec §1). A tela continua aceitando só `.xlsx` e `.csv`.
 
-**Estado verificado no fim da sessão:**
+**Estado verificado no fim da sessão (tudo rodado em sequência, sem nada em paralelo):**
 
 | Comando | Resultado |
 |---|---|
-| `npm test` | **131 passed** (10 arquivos), exit 0 |
-| `npm run test:sql` | **224 OK, 0 FALHOU de 8 arquivos**, exit 0 |
+| `npm test` | **151 passed** (11 arquivos), exit 0 |
+| `npm run test:sql` | **231 OK, 0 FALHOU de 8 arquivos**, exit 0 |
 | `npm run test:sql:concorrencia` | **17 OK, 0 FALHOU**, exit 0 |
-| `npm run test:e2e` | **4 passed (25,4 s)**, exit 0 — rodado 4 vezes na sessão, sempre 4 passed. O teste de teclado foi provado por mutação (desligando o `Enter` da busca, ele falha) |
-| `npm run build` | exit 0, com `/produtos`, `/produtos/[id]`, `/produtos/novo`, `/produtos/importar`, `/estoque`, `/vendas`, `/vendas/nova` e `/api/produtos/busca` |
-| `npm run lint` | ⛔ **exit 1** — 2 erros `react-hooks/set-state-in-effect` em `app/(app)/vendas/nova/pdv.tsx:60` e `:69`, mais 3 avisos (2 deles em `.superpowers/**`, e `fs` não usado em `tests/sql/concorrencia.mjs`). **Pendência aberta** — ver abaixo |
+| `npm run test:e2e` | **6 passed (41,9 s)**, exit 0 |
+| `npm run build` | exit 0 |
+| `npm run lint` | ✅ **exit 0**, zero problemas (era exit 1 com 2 erros e 3 avisos) |
+
+⚠️ **Nunca rode `test:sql`, `test:sql:concorrencia` e `test:e2e` em paralelo:** os três
+mexem no mesmo banco e o resultado vira falso negativo (aconteceu nesta sessão: 126 OK /
+4 FALHOU por causa disso).
 
 **Os testes e2e e SQL não se atropelam mais (era um defeito real):** a suíte e2e abre um
 caixa no terminal `e2e` e, até `52f781b`, **deixava a sessão aberta no banco**. Com isso
@@ -57,33 +70,45 @@ recusada — nenhuma excecao foi levantada" em `010_venda`. Agora existe
 Conferido no banco depois da suíte: `caixas_abertos = 0`, `produtos_e2e = 0`,
 `clientes_e2e = 0`, `vendas = 0`.
 
+**Migrations aplicadas:** `001` a `009`. A **`009_importacao_precos.sql`** é desta sessão:
+ela faz a RPC `importar_produtos` parar de gravar zero por cima do preço quando a planilha
+não traz a coluna (ver o item 9 na tabela abaixo).
+
 **O que falta, exatamente:**
 
-1. **A revisão final do branch deu "No" (não mergear como está): 1 Critical + 7 Important.**
-   O veredito completo está no ledger (`Fechamento: REVISAO FINAL do branch`). Os itens
-   estão listados abaixo por gravidade, e o primeiro é o motivo de a Etapa 3 ter voltado
-   para 🟡.
-2. **Empurrar a branch** de novo depois de qualquer correção:
-   `git push -u origin etapa-3-4-produtos-estoque-pdv` (hoje o remoto está em `b76ab36` e
-   o local em `0821d0f` — o commit `0821d0f` ainda **não** subiu).
-3. **Lint vermelho** — 2 erros reais em `pdv.tsx` (Tarefa 11); o ESLint também lê
-   `.superpowers/**`, que é rascunho git-ignored (ruído a ignorar na config).
+1. **O item 8 da revisão (o único que não foi corrigido)** — o seletor de cliente do PDV é
+   um `<select>` com os **500 primeiros** clientes em ordem alfabética (`vendas/nova/page.tsx`),
+   e o plano pedia **campo de busca**. Cliente fora do corte não consegue comprar no
+   crediário. Os dois caminhos possíveis, para o Lucas escolher: (a) campo de busca com rota
+   própria, como já é a busca de produto (`/api/clientes/busca`), ou (b) manter o `<select>` e
+   só avisar quando a lista for cortada. **É mudança na tela do balcão, por isso não foi
+   feita sozinha.**
+2. **Empurrar a branch** depois do commit do fechamento:
+   `git push -u origin etapa-3-4-produtos-estoque-pdv`.
+3. **Passar uma planilha REAL do sistema antigo pela tela de importação.** É o único item que
+   impede a Etapa 3 de virar ✅: a conferência "soma extraída × TOTAL impresso no arquivo"
+   agora existe e está testada, mas nunca rodou contra um arquivo de verdade — só contra as
+   fixtures, que cobrem o formato.
 
-**Os defeitos da revisão, em ordem de gravidade:**
+**Os defeitos da revisão, com o que foi feito em cada um:**
 
-| # | Grau | O que é | Onde |
+| # | Grau | O que era | Situação |
 |---|---|---|---|
-| 1 | **Critical** | `somaPlanilha` e `somaGravada` somam a **mesma** variável pelo mesmo `parsearCentavos`: as duas somas são **sempre iguais**, a tarja "As somas não batem" é código morto e a conferência contra fator 100 da spec §8.7 **não existe**. Conserto indicado: comparar com o TOTAL impresso no rodapé da própria planilha (o `ehRodape` já o identifica e hoje o descarta) — o mesmo critério que a Tarefa 14 usou no PDF, e a fixture `produtos_texto.xlsx` já tem rodapé | `lib/tabela.ts:175,181`; `formulario.tsx:35,97-101` |
-| 2 | Important | O checkbox "Atualizar produtos que já existem" é **inerte**: desmarcar não muda nada, porque o form de confirmação manda `atualizar=sim` fixo. E a prévia não mostra **quantos** existentes serão atualizados, como o ruling prometia | `formulario.tsx:60` vs `:171`; `actions.ts:143` |
-| 3 | Important | O PDV lê dinheiro digitado com parser próprio que diverge do `parsearCentavos` por **fator 100**: `"20.00"` é R$ 2.000,00 no balcão e R$ 20,00 na importação | `pdv.tsx:119`; `pagamento.ts:74` |
-| 4 | Important | Desconto ilegível (`"abc"`, `"R$5"`) é silenciosamente tratado como **zero** e a venda fecha: `lerDesconto(...) ?? 0` joga fora o `null` que existe justamente para sinalizar inválido | `pdv.tsx:93` |
-| 5 | Important | Termo de busca do usuário interpolado **cru** em `.or()` do PostgREST: vírgula ou parêntese quebram o filtro, e nome de medicamento com vírgula é comum | `api/produtos/busca/route.ts:30`; `produtos/page.tsx:43` |
-| 6 | Important | ~~O teste "venda só com teclado" clicava duas vezes~~ — **CORRIGIDO em `0821d0f`**: agora busca pelo código de barras com `pressSequentially` + `ArrowDown` + `Enter`, aciona "Lançar" com `Tab` + `Enter` e **não tem nenhum clique**; provado por mutação (com o `Enter` da busca desligado o teste **falha**) | `tests/e2e/venda.spec.ts` |
-| 7 | Important | `npm run lint` vermelho (ver acima) | `pdv.tsx:60,69` |
-| 8 | Important | O cliente do PDV é um `<select>` limitado aos **500 primeiros**, e o plano pedia campo de busca: cliente fora do corte não consegue vender no crediário | `vendas/nova/page.tsx:24-28` |
-| 9 | Important | Reimportar planilha **sem coluna de preço** grava `preco_venda = 0` nos produtos casados (o "chave ausente ≠ zero" só foi aplicado a `estoque_inicial`) — com o checkbox marcado por padrão | `preparacao.ts:20-22`; `008_importacao.sql:146-148` |
+| 1 | **Critical** | `somaPlanilha` e `somaGravada` somavam a **mesma** variável pelo mesmo `parsearCentavos`: as somas eram **sempre iguais**, a tarja "As somas não batem" era código morto e a conferência contra fator 100 da spec §8.7 **não existia** | ✅ **`ced0a74`** — as duas somas viraram `totalImpresso` (o TOTAL impresso no rodapé do arquivo, via `ehRodape`) contra `somaGravada`, com `somaConferida`. 7 testes novos e a **fixture real** (`produtos_texto.xlsx`, rodapé `21,39`). Provado por mutação: somando a coluna de custo, 3 testes falham. O **plano** (linha 701) foi corrigido junto |
+| 2 | Important | O checkbox "Atualizar produtos que já existem" era **inerte** (o form de confirmação mandava `sim` fixo) e a prévia não dizia **quantos** existentes seriam atualizados | ✅ **`f120328`** — a escolha viaja no estado (`Previa.atualizar`), o hidden usa o valor real e a prévia mostra "N produto(s) já existem e serão/não serão atualizados" (contagem em lotes de 200) |
+| 3 | Important | O PDV lia dinheiro com parser próprio, divergente do `parsearCentavos` por **fator 100** (`"20.00"` = R$ 2.000,00 no balcão) | ✅ **`5f44851`** — os dois pontos passaram a usar `parsearCentavos`, com 4 testes novos |
+| 4 | Important | Desconto ilegível virava **zero** calado e a venda fechava | ✅ **`5f44851`** — o `null` do `lerDesconto` agora **bloqueia** o finalizar com mensagem; teste e2e novo, provado por mutação |
+| 5 | Important | Termo de busca interpolado **cru** no `.or()` do PostgREST: vírgula ou parêntese quebravam a busca | ✅ **`lib/postgrest.ts`** — valor entre aspas com escape; 7 testes de unidade + produto **com vírgula no nome** no cenário e2e, provado por mutação |
+| 6 | Important | O teste "venda só com teclado" clicava duas vezes (e o comentário prometia uma cobertura que não existia) | ✅ **`0821d0f`** — nenhum clique; `ArrowDown` + `Enter` na busca, `Tab` + `Enter` no "Lançar"; provado por mutação |
+| 7 | Important | `npm run lint` vermelho (2 erros + 3 avisos) | ✅ **`d2341bf`** — `useState` preguiçoso para a chave, `setResultados([])` saiu do corpo do efeito, `.superpowers/**` ignorado e `fs` não usado removido. **exit 0, zero problemas** |
+| 8 | Important | Cliente do PDV é `<select>` limitado aos **500 primeiros**; o plano pedia campo de busca | ⬜ **PENDENTE** — ver o item 1 de "O que falta" |
+| 9 | Important | Reimportar planilha **sem coluna de preço** gravava `preco_venda = 0` nos produtos casados | ✅ **`3fc1559`** — migration **009**, `colunasPresentes` no `analisarTabela`, chave ausente também para preço, e a tela avisa. 3 casos SQL novos (nasceram **vermelhos** contra a 008) + 3 testes de unidade. O `test:sql` foi de 224 para **231 OK** |
 
-**Menores registrados pela revisão:** `lib/pdf.ts` mistura linhas de páginas diferentes (y global); `lib/xlsx.ts:117` devolve o primeiro texto compartilhado quando `t="s"` vem sem `<v>`; `xlsx.ts:78-80` pode lançar `RangeError` em inglês; `/vendas` corta o dia em 50 linhas enquanto o cartão de resumo mostra o total certo; `lib/csv.ts:80` não trata quebra de linha dentro de aspas; o F3 dentro do próprio PDV não reposiciona o foco; o ESLint lê `.superpowers/**`.
+**Menores registrados pela revisão (não corrigidos):** `lib/pdf.ts` mistura linhas de páginas diferentes (y global); `lib/xlsx.ts:117` devolve o primeiro texto compartilhado quando `t="s"` vem sem `<v>`; `xlsx.ts:78-80` pode lançar `RangeError` em inglês; `/vendas` corta o dia em 50 linhas enquanto o cartão de resumo mostra o total certo; `lib/csv.ts:80` não trata quebra de linha dentro de aspas; o F3 dentro do próprio PDV não reposiciona o foco.
+
+**Lacuna sem teste automatizado:** o conserto do item 2 (o checkbox) é verificado por tipo e
+build, mas **não tem teste de comportamento** — as Server Actions exigem sessão e não há
+harness para testá-las, e um e2e de importação escreveria no catálogo real. Fica registrado.
 
 **Lacuna registrada (continua valendo):** as telas **não foram vistas por olho humano** —
 não há navegador neste ambiente além do Playwright (headless), e as Server Actions não têm
@@ -108,48 +133,47 @@ Diga ao agente, nesta ordem:
 
 1. **"Leia o `PROGRESSO.md` e o ledger em
    `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`. Estamos na branch
-   `etapa-3-4-produtos-estoque-pdv`, com as 15 tarefas do plano 2 executadas, e a revisão
-   final do branch deu 'No': 1 Critical + 7 Important. Vamos corrigir os defeitos, começando
-   pelo Critical da soma planilha × gravada."** O ledger é o registro detalhado de **todas**
+   `etapa-3-4-produtos-estoque-pdv`, com as 15 tarefas do plano 2 executadas e 8 dos 9
+   defeitos da revisão final já corrigidos. Falta o item 8 (o seletor de cliente do PDV) e
+   passar uma planilha real pela importação."** O ledger é o registro detalhado de **todas**
    as decisões (rulings) e do que já foi verificado. Ele é ignorado pelo git de propósito
    (é rascunho do processo), mas está no disco. O ledger do plano 1 está em
    `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`.
 
-2. Confirmar a branch e rodar as suítes:
+2. Confirmar a branch e rodar as suítes (**em sequência, nunca em paralelo**):
    - `git branch --show-current` → `etapa-3-4-produtos-estoque-pdv`
-   - `npm test` → **131 passed**
-   - `npm run test:sql` → **224 OK, 0 FALHOU de 8 arquivos**
+   - `npm test` → **151 passed** (11 arquivos)
+   - `npm run test:sql` → **231 OK, 0 FALHOU de 8 arquivos**
    - `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**
+   - `npm run test:e2e` → **6 passed**
    - `npm run build` → exit 0
-   - `npm run test:e2e` → **4 passed**
-   - `npm run lint` → **exit 1** (esperado hoje; faz parte dos defeitos a corrigir)
+   - `npm run lint` → **exit 0** (zero problemas)
 
    ⚠️ **Nunca rode o `test:sql` em paralelo com o `test:sql:concorrencia`, nem com o e2e:**
-   os três mexem no mesmo banco e o resultado vira falso negativo.
+   os três mexem no mesmo banco e o resultado vira falso negativo (já aconteceu: 126 OK /
+   4 FALHOU por causa disso).
 
-3. **Primeiro passo concreto: o Critical.** O defeito está em `lib/tabela.ts:175` e `:181`
-   (as duas somas usam a mesma variável, então nunca divergem) e aparece em
-   `app/(app)/produtos/importar/formulario.tsx:35,97-101`. O caminho indicado pela revisão:
-   comparar a soma extraída com o TOTAL impresso no rodapé da própria planilha — o
-   `ehRodape` (`lib/tabela.ts:94-104`) já identifica essa linha e hoje a descarta, e a
-   fixture `tests/fixtures/produtos_texto.xlsx` já tem rodapé (`21,39`). **Escreva o teste
-   primeiro**: ele tem que nascer vermelho.
+3. **O que sobrou: decidir o item 8 e rodar a planilha real.**
+   - **Item 8:** o seletor de cliente do PDV (`app/(app)/vendas/nova/page.tsx`) é um
+     `<select>` com os 500 primeiros clientes; cliente fora do corte não consegue comprar no
+     crediário. Ou vira campo de busca (rota própria, como `/api/produtos/busca`), ou fica
+     como está com aviso de corte. **É decisão da tela do balcão.**
+   - **Planilha real:** pegue um arquivo de verdade do sistema antigo, abra
+     `http://localhost:3000/produtos/importar`, e confira na prévia se "Total impresso na
+     planilha" bate com "Soma que será gravada". Se a planilha não tiver rodapé TOTAL, a tela
+     avisa que não há contra o que conferir.
 
-4. Depois, na ordem: item 2 (checkbox de atualização inerte), 3 e 4 (dinheiro do PDV —
-   unificar em `parsearCentavos` e não engolir o `null` do desconto), 5 (escape na busca),
-   7 (lint) e 9 (reimportação sem coluna de preço zerando preço). Os itens 6 já está feito
-   (`0821d0f`) e o 8 (busca de cliente) é decisão de tela.
-
-5. Para ver a interface: `npm run dev` e abrir http://localhost:3000. **As telas do plano
-   2 ainda não foram olhadas por olho humano** — vale conferir.
+4. Para ver a interface: `npm run dev` e abrir http://localhost:3000. **As telas do plano
+   2 ainda não foram olhadas por olho humano** — vale conferir, é a lacuna que deixou passar
+   o bug de contraste da Etapa 1.
 
 **Sobre as migrations:** continuam por `npm run migrar` (o banco não aceita conexão `pg`).
-As `006_produtos`, `007_estoque` e `008_importacao` já estão aplicadas. **Não** rodar
-`supabase db push`.
+As `006_produtos`, `007_estoque`, `008_importacao` e **`009_importacao_precos`** já estão
+aplicadas. **Não** rodar `supabase db push`.
 
 **Não é preciso refazer nada das Etapas 0, 1 e 2.** Estão commitadas e verificadas.
-Da Etapa 3, as tarefas estão feitas — o que falta é o conserto do Critical e a conferência
-com uma planilha real. Não apague a branch nem o `.superpowers/`.
+Da Etapa 3, as tarefas estão feitas — o que falta é passar uma planilha real. Não apague a
+branch nem o `.superpowers/`.
 
 **Como as migrations são aplicadas (importante):** o banco **não** aceita conexão `pg`
 (a senha nunca autenticou), então `supabase db push` e `psql` não servem. O caminho é o
@@ -199,8 +223,8 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 0 | Decisões e ambiente | ✅ | Next 16.3.8, versões travadas no `package.json`, `PROGRESSO.md`; commits `498a53d`, `80a7f5d`; `npm run build` → Compiled successfully | 06/10/2026 |
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
 | 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**; `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**; `npm test` → 12/12. Revisão final em contexto limpo apontou 1 Critical + 4 Important, todos corrigidos com teste que nasceu vermelho: `anon` perdeu o EXECUTE das RPCs de escrita (`050_permissoes.sql`), o limite de crediário ganhou `for update` no cliente (cenário 2 da concorrência), o termo "cancelamentos em dinheiro" da §8.3 ganhou teste, RLS passou a ser exercitada de verdade, e `npm run migrar` passou a ser o caminho versionado de aplicar migration | 06/10/2026 |
-| 3 | Produtos e estoque | 🟡 | As 11 tarefas do plano 2 desta etapa (0–10 e 14) ✅: CLI do Supabase ligado (histórico `001`–`005` reparado), `produto_salvar` (`d998d92`), `produto_entrada`/`produto_ajuste` (`f96db63`), `importar_produtos` (`6b76b94`), os leitores `dinheiro`/`csv`/`xlsx`/`tabela` e as telas de importação, produtos e estoque. `npm run test:sql` → **224 OK, 0 FALHOU de 8 arquivos**; `npm test` → **131 passed**; `npm run build` exit 0 com `ƒ /produtos`, `ƒ /produtos/[id]`, `ƒ /produtos/novo`, `ƒ /produtos/importar` e `ƒ /estoque`. **A etapa NÃO fecha por dois motivos, os dois apontados na revisão final do branch:** (a) **a conferência "soma planilha × soma gravada" da spec §8.7 NÃO existe** — `lib/tabela.ts:175` e `:181` somam a MESMA variável pelo MESMO `parsearCentavos`, então as duas somas são sempre idênticas, a tarja "As somas não batem" é código morto e o "Pronto quando" da etapa (spec §13) está apoiado numa identidade matemática; (b) a conferência contra uma planilha REAL do sistema antigo nunca foi feita (as fixtures cobrem o formato). O PDF foi medido e decidido (não entra na tela) | 07/10/2026 |
-| 4 | PDV | ✅ | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 18 testes das contas de pagamento, provados por mutação. **Tarefa 13 fechada**: `npm run test:e2e` → **4 passed (34,1 s)**, exit 0, repetido com **4 passed** de novo — venda só com teclado, clique duplo produzindo UMA venda (idempotência), F3 a partir de `/produtos` e limite de crediário. Commits `de84f3b` e `52f781b` (o e2e passou a desmontar o cenário; antes deixava caixa aberto e quebrava a suíte SQL) | 07/10/2026 |
+| 3 | Produtos e estoque | 🟡 | As 11 tarefas do plano 2 desta etapa (0–10 e 14) ✅: CLI do Supabase ligado (histórico `001`–`005` reparado), `produto_salvar` (`d998d92`), `produto_entrada`/`produto_ajuste` (`f96db63`), `importar_produtos` (`6b76b94`), os leitores `dinheiro`/`csv`/`xlsx`/`tabela` e as telas de importação, produtos e estoque. `npm run test:sql` → **231 OK, 0 FALHOU de 8 arquivos**; `npm test` → **151 passed**; `npm run build` exit 0 com `ƒ /produtos`, `ƒ /produtos/[id]`, `ƒ /produtos/novo`, `ƒ /produtos/importar` e `ƒ /estoque`. **A conferência "soma extraída × TOTAL impresso no arquivo" da spec §8.7 agora EXISTE e está testada** (`ced0a74`): ela era uma identidade matemática até a revisão final do branch apontar que os dois lados saíam da mesma variável; hoje o outro lado é o TOTAL impresso no rodapé, e o plano foi corrigido junto. A reimportação também deixou de zerar preço (`3fc1559`, migration `009`). **A etapa não vira ✅ porque falta a conferência contra uma planilha REAL do sistema antigo** — as fixtures cobrem o formato, mas nenhum arquivo de verdade passou pela tela. O PDF foi medido e decidido (não entra na tela) | 07/10/2026 |
+| 4 | PDV | ✅ | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 21 testes das contas de pagamento (4 novos), provados por mutação. **Tarefa 13 fechada** e a revisão final corrigida: `npm run test:e2e` → **6 passed (41,9 s)**, exit 0 — venda só com teclado (**sem nenhum clique**, provado por mutação), clique duplo produzindo UMA venda (idempotência), desconto ilegível bloqueando a venda, produto com vírgula no nome sendo achado, F3 a partir de `/produtos` e limite de crediário. Commits `de84f3b`, `52f781b`, `0821d0f`, `5f44851`. **Pendência conhecida:** o seletor de cliente é um `<select>` com os 500 primeiros (item 8 da revisão) | 07/10/2026 |
 | 5 | Histórico de vendas | ⬜ | — | — |
 | 6 | Clientes e crediário | ⬜ | — | — |
 | 7 | Relatórios | ⬜ | — | — |
