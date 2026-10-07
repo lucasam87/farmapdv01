@@ -158,6 +158,24 @@ export function FormularioImportacao() {
             </p>
           ) : null}
 
+          {/* A RPC recusa a importacao INTEIRA por um codigo repetido, e o
+              catalogo real do sistema antigo tem varios. Melhor avisar aqui do
+              que o dono descobrir na recusa, depois de conferir a amostra. */}
+          {previa.codigosRepetidos.length > 0 ? (
+            <p role="alert" className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-base text-red-700">
+              <strong>
+                {previa.codigosRepetidos.length} código(s) de barras aparecem mais de uma vez no
+                arquivo
+              </strong>{' '}
+              — a importação é recusada inteira por causa disso, porque a segunda linha
+              sobrescreveria a primeira em silêncio. Resolva no sistema antigo antes de importar.
+              Repetido(s): {previa.codigosRepetidos.slice(0, 5).join(', ')}
+              {previa.codigosRepetidos.length > 5
+                ? ` … e mais ${previa.codigosRepetidos.length - 5}.`
+                : '.'}
+            </p>
+          ) : null}
+
           {previa.primeiras.length > 0 ? (
             <div className="mt-6 overflow-x-auto">
               <p className="mb-2 text-sm text-slate-500">

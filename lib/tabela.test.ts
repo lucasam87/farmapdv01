@@ -181,6 +181,45 @@ describe('analisarTabela', () => {
     expect(r.faltando).toEqual(['nome'])
     expect(r.validas).toBe(0)
   })
+
+  // A RPC importar_produtos RECUSA o arquivo inteiro quando o mesmo codigo de
+  // barras aparece duas vezes (caso 11 de 070_importacao.sql), porque a segunda
+  // linha sobrescreveria a primeira em silencio. O catalogo real do sistema
+  // antigo TEM esses repetidos, entao a previa precisa avisar ANTES de o dono
+  // confirmar e levar a recusa.
+  it('aponta os codigos de barras repetidos entre as linhas validas', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [
+        ['A', '789', '4,50'],
+        ['B', '789', '5,50'],
+        ['C', '123', '1,00'],
+      ],
+    })
+    expect(r.codigosRepetidos).toEqual(['789'])
+  })
+
+  it('codigo repetido em linha INVALIDA nao conta (ela nao vai ser gravada)', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [
+        ['A', '789', '4,50'],
+        ['', '789', '5,50'],
+      ],
+    })
+    expect(r.codigosRepetidos).toEqual([])
+  })
+
+  it('sem codigo de barras nao ha repetido (linha sem codigo sempre cria)', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [
+        ['A', '', '4,50'],
+        ['B', '', '5,50'],
+      ],
+    })
+    expect(r.codigosRepetidos).toEqual([])
+  })
 })
 
 describe('analisarTabela com o arquivo do exportador', () => {

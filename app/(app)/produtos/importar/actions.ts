@@ -33,6 +33,12 @@ export type Previa = {
   /* Colunas opcionais que a planilha trouxe. Ausente = a RPC nao mexe no campo. */
   colunasPresentes: ColunasPresentes
   /*
+   * Codigos de barras repetidos no arquivo. A RPC recusa a importacao INTEIRA
+   * por causa de um repetido (caso 11 de 070_importacao.sql), e o catalogo real
+   * do sistema antigo tem varios — por isso a tela avisa antes de confirmar.
+   */
+  codigosRepetidos: string[]
+  /*
    * A escolha do checkbox da tela VIAJA no estado: sao dois formularios (o de
    * analise e o de confirmacao) e antes o de confirmacao mandava `sim` fixo, o
    * que tornava o checkbox inerte — desmarcar e confirmar atualizava tudo igual.
@@ -201,6 +207,7 @@ export async function analisarArquivo(
     somaGravada: analise.somaGravada,
     somaConferida: analise.somaConferida,
     colunasPresentes: analise.colunasPresentes,
+    codigosRepetidos: analise.codigosRepetidos,
     atualizar,
     existentes,
     faltando: analise.faltando,

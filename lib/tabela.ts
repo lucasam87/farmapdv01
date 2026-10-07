@@ -63,6 +63,16 @@ export type ResultadoAnalise = {
   /** Soma dos precos de venda que serao gravados. */
   somaGravada: number
   /**
+   * Codigos de barras que aparecem MAIS DE UMA VEZ entre as linhas validas.
+   *
+   * Nao e um detalhe: a RPC `importar_produtos` recusa o arquivo INTEIRO quando
+   * um codigo se repete (a segunda linha sobrescreveria a primeira em silencio —
+   * caso 11 de 070_importacao.sql), e o catalogo REAL do sistema antigo tem
+   * repetidos: o mesmo EAN em dois cadastros, com nomes e precos diferentes.
+   * A previa avisa antes, para o dono nao descobrir isso so na recusa.
+   */
+  codigosRepetidos: string[]
+  /**
    * true SOMENTE quando existe total impresso e ele bate ao centavo. Sem total
    * impresso isto e false de proposito: nao conferido nao e conferido.
    */
@@ -268,6 +278,18 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
 
   const validas = linhas.filter((l) => l.erros.length === 0).length
 
+  // Codigo repetido so importa entre as linhas que a RPC vai receber: uma linha
+  // com erro nunca chega ao banco (paraOLinhasJson a descarta), entao ela nao
+  // provocaria a recusa.
+  const contagemDeCodigos = new Map<string, number>()
+  for (const l of linhas) {
+    if (l.erros.length > 0 || l.codigo_barras === null) continue
+    contagemDeCodigos.set(l.codigo_barras, (contagemDeCodigos.get(l.codigo_barras) ?? 0) + 1)
+  }
+  const codigosRepetidos = [...contagemDeCodigos.entries()]
+    .filter(([, n]) => n > 1)
+    .map(([codigo]) => codigo)
+
   return {
     linhas,
     faltando,
@@ -280,6 +302,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     totalImpresso,
     somaGravada,
     somaConferida: totalImpresso !== null && totalImpresso === somaGravada,
+    codigosRepetidos,
     validas,
     invalidas: linhas.length - validas,
     avisos,
