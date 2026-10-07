@@ -78,21 +78,33 @@ extraídas batem **exatamente** com a medição independente do texto cru do PDF
 Pro) e **26 s não cabe no Hobby**. A importação do catálogo vai precisar de outro caminho no
 deploy.
 
-## 🔴 A tela de caixa NÃO existe — e isso bloqueia vender
+## ✅ A tela de caixa EXISTE agora (07/10/2026) — não estava em nenhuma etapa da spec
 
-Achado desta sessão, e é buraco no **planejamento**, não bug de código:
+Achado desta sessão, e era buraco no **planejamento**, não bug de código: as três RPCs de
+caixa estavam prontas e testadas desde a Etapa 2 (30 asserções em `030_caixa.sql`), a spec
+lista "Caixa" entre as 9 entradas do menu (§10) e diz que o caixa está na v1 (decisão D2) —
+mas **nenhuma das 11 etapas construía a tela**. Nada em `app/` chamava `abrir_caixa`,
+`caixa_movimento` ou `fechar_caixa`; os únicos chamadores eram os testes SQL e o
+`global-setup` do e2e, que **insere a sessão direto na tabela**. Foi por isso que o e2e nunca
+pegou o problema. Na prática: o PDV recusava vender ("Abra o caixa para começar a vender") e
+não havia como abrir.
 
-- `registrar_venda` recusa com **"Abra o caixa para começar a vender."** (`002_registrar_venda.sql:105`).
-- Buscando em todo o `app/`: **nada chama `abrir_caixa`, `caixa_movimento` ou `fechar_caixa`**. Os únicos chamadores são os testes SQL e o `global-setup` do e2e — que **insere a sessão direto na tabela** justamente porque a tela não existe. Foi por isso que o e2e nunca pegou o problema.
-- As 11 etapas da spec (`docs/superpowers/specs/2026-10-06-sistema-farmacia-design.md:510-524`) **não incluem a tela de caixa**. A Etapa 2 entregou as *funções* (testadas, 30 asserções em `030_caixa.sql`), a spec lista "Caixa" entre as 9 entradas do menu (§10) e diz que o caixa está na v1 (decisão D2) — mas nenhuma etapa constrói a tela.
-- **O Lucas decidiu não construir agora**; eu abri uma sessão pela RPC de verdade (terminal `balcao`, `0cd79e5c`) só para ele conseguir testar o PDV.
+**Construída em `5b74738`** (`app/(app)/caixa/`): abrir com valor inicial, sangria e
+suprimento com motivo, resumo com a conta da spec §8.3 linha a linha, lista dos movimentos e
+fechamento (só o dono, com observação obrigatória quando a diferença não é zero). 14 testes
+de validação pura + **2 testes e2e pelo caminho do navegador**.
 
-⚠️ **Consequência operacional medida:** a suíte `npm run test:sql` **não roda com um caixa
-aberto** — 5 casos falham com "Já existe um caixa aberto" (010_venda caso 6, 030_caixa,
-040_views, 050_permissoes). Como os testes rodam contra o **banco de produção**, isso
-significa que a suíte não pode ser rodada enquanto a farmácia estiver operando. Por isso o
-`tests/sql/run.mjs` ganhou um filtro por arquivo:
-`npm run test:sql -- 070_importacao.sql`.
+**Um achado que só apareceu no e2e:** `v_caixa_atual` tem **uma linha por terminal aberto**, e
+`maybeSingle()` falha com duas — a tela mostraria "não há caixa aberto" com o caixa aberto. A
+tela passou a pegar a sessão **mais recente**, que é o que `registrar_venda` e
+`caixa_movimento` já faziam (`where status = 'aberto' order by aberto_em desc limit 1`): tela
+e RPCs têm de apontar para a mesma sessão, senão o resumo mente.
+
+⚠️ **Continua valendo:** a suíte `npm run test:sql` **não roda com um caixa aberto** — 5 casos
+falham com "Já existe um caixa aberto" (010_venda caso 6, 030_caixa, 040_views,
+050_permissoes). Como os testes rodam contra o **banco de produção**, a suíte não pode ser
+rodada enquanto a farmácia estiver operando. Por isso o `tests/sql/run.mjs` ganhou um filtro
+por arquivo: `npm run test:sql -- 070_importacao.sql`.
 
 ## O resto do estado
 
