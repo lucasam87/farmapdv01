@@ -111,6 +111,19 @@ const APELIDOS: Record<string, string[]> = {
 
 const OBRIGATORIO = 'nome'
 
+/**
+ * O maior valor que a coluna `integer` do Postgres aceita, em centavos.
+ *
+ * NAO e um limite de negocio inventado: e o limite do BANCO. O catalogo real do
+ * sistema antigo tem uma linha com preco R$ 7.896.714.283,00 (cadastro
+ * corrompido); em centavos isso estoura o `integer`, e como a importacao e tudo
+ * ou nada, essa unica linha derrubava o catalogo INTEIRO com um erro cru do
+ * Postgres. Barrando aqui, a linha ruim vira uma linha invalida nomeada na previa
+ * e o resto do catalogo entra.
+ */
+const LIMITE_DE_CENTAVOS = 2147483647
+const LIMITE_EM_REAIS = 'R$ 21.474.836,47'
+
 export function normalizarCabecalho(texto: string): string {
   return texto
     .toLowerCase()
@@ -266,6 +279,8 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
       const custo = parsearCentavos(custoTexto ?? '')
       if (custo === null) {
         if ((custoTexto ?? '').trim() !== '') erros.push('Preço de custo inválido.')
+      } else if (custo > LIMITE_DE_CENTAVOS) {
+        erros.push(`Preço de custo acima do limite do banco (${LIMITE_EM_REAIS}).`)
       } else {
         precoCusto = custo
       }
@@ -277,6 +292,8 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
       const venda = parsearCentavos(vendaTexto ?? '')
       if (venda === null) {
         if ((vendaTexto ?? '').trim() !== '') erros.push('Preço de venda inválido.')
+      } else if (venda > LIMITE_DE_CENTAVOS) {
+        erros.push(`Preço de venda acima do limite do banco (${LIMITE_EM_REAIS}).`)
       } else {
         precoVenda = venda
         somaGravada += venda

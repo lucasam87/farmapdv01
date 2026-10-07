@@ -269,6 +269,40 @@ describe('analisarTabela', () => {
     expect(r.invalidas).toBe(1)
     expect(r.linhas[0].erros[0]).toContain('custo')
   })
+
+  // O catalogo REAL do sistema antigo tem uma linha com preco R$ 7.896.714.283,00.
+  // Em centavos isso estoura o `integer` do Postgres, e como a importacao e tudo
+  // ou nada, essa unica linha derrubava o catalogo INTEIRO com um erro cru
+  // ("value ... is out of range for type integer"). A linha tem que virar invalida
+  // aqui, com aviso em portugues, para o resto entrar.
+  it('preco acima do limite do integer do banco vira linha invalida, e nao estouro', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco'],
+      linhas: [
+        ['A', '7.896.714.283,00'],
+        ['B', '4,50'],
+      ],
+    })
+    expect(r.invalidas).toBe(1)
+    expect(r.linhas[0].erros.join(' ')).toContain('limite')
+    // E o resto do catalogo continua importavel.
+    expect(r.validas).toBe(1)
+  })
+
+  it('custo acima do limite do banco tambem vira linha invalida', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco', 'custo'],
+      linhas: [['A', '4,50', '7.896.714.283,00']],
+    })
+    expect(r.invalidas).toBe(1)
+    expect(r.linhas[0].erros.join(' ')).toContain('limite')
+  })
+
+  it('o limite exato do integer ainda passa', () => {
+    const r = analisarTabela({ colunas: ['nome', 'preco'], linhas: [['A', '21.474.836,47']] })
+    expect(r.invalidas).toBe(0)
+    expect(r.linhas[0].preco_venda).toBe(2147483647)
+  })
 })
 
 describe('analisarTabela com o arquivo do exportador', () => {
