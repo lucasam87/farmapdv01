@@ -26,7 +26,12 @@ export type LinhaProduto = {
   nome: string
   categoria: string | null
   unidade: string
-  preco_custo: number
+  /**
+   * `null` = o arquivo NAO disse o custo (coluna ausente, celula vazia, ou a
+   * palavra "null" que o exportador do sistema antigo imprime no lugar do null do
+   * banco). E diferente de 0: com `null` a RPC nao mexe no custo cadastrado.
+   */
+  preco_custo: number | null
   preco_venda: number
   estoque_atual: number | null
   estoque_minimo: number
@@ -72,6 +77,15 @@ export type ResultadoAnalise = {
    * A previa avisa antes, para o dono nao descobrir isso so na recusa.
    */
   codigosRepetidos: string[]
+  /**
+   * Quantas linhas foram DEIXADAS DE FORA por repetirem um codigo de barras.
+   *
+   * Decisao do Lucas (07/10/2026): o catalogo real do sistema antigo tem EAN
+   * repetido, e importar so o PRIMEIRO cadastro de cada codigo e melhor do que
+   * recusar o arquivo inteiro. O que ficou de fora e listado na previa, para ele
+   * corrigir no Nex — nada e sobrescrito em silencio.
+   */
+  ignoradasPorRepeticao: number
   /**
    * true SOMENTE quando existe total impresso e ele bate ao centavo. Sem total
    * impresso isto e false de proposito: nao conferido nao e conferido.
@@ -196,6 +210,18 @@ function textoOuNulo(valor: string | undefined): string | null {
   return limpo === '' ? null : limpo
 }
 
+/**
+ * O exportador do sistema antigo imprimiu um valor NULO como a palavra "null"?
+ *
+ * Nao e um caso de teste inventado: 524 produtos do catalogo real saem assim na
+ * coluna "Preço de custo". Tratar isso como "preco ilegivel" recusava 9% do
+ * catalogo por causa de um dado que o proprio sistema antigo nunca teve.
+ */
+function ehNuloDoExportador(valor: string | undefined): boolean {
+  const limpo = (valor ?? '').trim().toLowerCase()
+  return limpo === '' || limpo === 'null'
+}
+
 export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   const { mapa, faltando } = indiceDasColunas(tabela.colunas)
 
@@ -220,15 +246,23 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     if (nome === '') erros.push('Informe o nome do produto.')
 
     const codigoTexto = textoOuNulo(celula(linha, mapa.codigo_barras))
-    if (codigoTexto !== null && /^\d{5,}$/.test(codigoTexto) && !codigoTexto.startsWith('0')) {
+    // Aviso de zeros a esquerda vale para codigo CURTO: e o Excel que come o zero
+    // de "0012345" e ele sai "12345". Um EAN-13/14 completo NAO perdeu zero
+    // nenhum, e sem o teto de 12 digitos o aviso acusava em falso os 5613 EANs do
+    // catalogo real do sistema antigo (todos comecam com 7 ou 8).
+    if (codigoTexto !== null && /^\d{5,12}$/.test(codigoTexto) && !codigoTexto.startsWith('0')) {
       semZeros++
     }
 
-    // Preco: a coluna pode nao existir (vira 0) ou existir com valor ilegivel
-    // (vira erro — melhor recusar que gravar preco errado).
-    let precoCusto = 0
+    // Preco de custo: a coluna pode nao existir, a celula pode vir vazia, ou pode
+    // vir a PALAVRA "null" — que e como o exportador do sistema antigo imprime o
+    // null do banco (524 produtos do catalogo real saem assim). Os tres casos sao
+    // "nao sei o custo" e viram `null`, que faz a RPC nao mexer no custo
+    // cadastrado. Um texto ilegivel de verdade continua sendo erro: melhor
+    // recusar a linha do que gravar custo errado.
+    let precoCusto: number | null = null
     const custoTexto = celula(linha, mapa.preco_custo)
-    if (mapa.preco_custo !== undefined) {
+    if (mapa.preco_custo !== undefined && !ehNuloDoExportador(custoTexto)) {
       const custo = parsearCentavos(custoTexto ?? '')
       if (custo === null) {
         if ((custoTexto ?? '').trim() !== '') erros.push('Preço de custo inválido.')
@@ -276,22 +310,31 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     )
   }
 
-  const validas = linhas.filter((l) => l.erros.length === 0).length
+  // Codigo de barras repetido: a RPC recusa o arquivo INTEIRO por causa de um
+  // repetido (caso 11 de 070_importacao.sql), e o catalogo real do sistema antigo
+  // tem varios — o mesmo EAN em dois cadastros, as vezes com precos diferentes.
+  // DECISAO DO LUCAS (07/10/2026): importar so o PRIMEIRO cadastro de cada codigo
+  // e listar o que ficou de fora, em vez de recusar o catalogo inteiro. Nada e
+  // sobrescrito em silencio, e a RPC continua recusando se um repetido escapar.
+  const jaVisto = new Set<string>()
+  const codigosRepetidos: string[] = []
+  let ignoradasPorRepeticao = 0
+  const linhasUnicas = linhas.filter((l) => {
+    // Linha com erro nao chega ao banco, entao nao participa da decisao.
+    if (l.erros.length > 0 || l.codigo_barras === null) return true
+    if (jaVisto.has(l.codigo_barras)) {
+      if (!codigosRepetidos.includes(l.codigo_barras)) codigosRepetidos.push(l.codigo_barras)
+      ignoradasPorRepeticao++
+      return false
+    }
+    jaVisto.add(l.codigo_barras)
+    return true
+  })
 
-  // Codigo repetido so importa entre as linhas que a RPC vai receber: uma linha
-  // com erro nunca chega ao banco (paraOLinhasJson a descarta), entao ela nao
-  // provocaria a recusa.
-  const contagemDeCodigos = new Map<string, number>()
-  for (const l of linhas) {
-    if (l.erros.length > 0 || l.codigo_barras === null) continue
-    contagemDeCodigos.set(l.codigo_barras, (contagemDeCodigos.get(l.codigo_barras) ?? 0) + 1)
-  }
-  const codigosRepetidos = [...contagemDeCodigos.entries()]
-    .filter(([, n]) => n > 1)
-    .map(([codigo]) => codigo)
+  const validas = linhasUnicas.filter((l) => l.erros.length === 0).length
 
   return {
-    linhas,
+    linhas: linhasUnicas,
     faltando,
     descartadas,
     colunasPresentes: {
@@ -303,8 +346,9 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     somaGravada,
     somaConferida: totalImpresso !== null && totalImpresso === somaGravada,
     codigosRepetidos,
+    ignoradasPorRepeticao,
     validas,
-    invalidas: linhas.length - validas,
+    invalidas: linhasUnicas.length - validas,
     avisos,
   }
 }

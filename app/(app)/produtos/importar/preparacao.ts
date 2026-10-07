@@ -22,7 +22,11 @@ export function paraOLinhasJson(linhas: LinhaProduto[], presentes: ColunasPresen
       // tambem: e o que faz a RPC nao mexer no que ja esta cadastrado. So inclui
       // os campos cuja coluna veio na planilha — sem isto, reimportar uma
       // planilha sem coluna de preco ZERAVA o preco de venda do catalogo.
-      if (presentes.preco_custo) base.preco_custo = l.preco_custo
+      //
+      // `preco_custo` e por LINHA, e nao pela coluna: o exportador do sistema
+      // antigo escreve a palavra "null" nas linhas sem custo (524 produtos do
+      // catalogo real), e nessas o custo cadastrado nao pode ser tocado.
+      if (l.preco_custo !== null) base.preco_custo = l.preco_custo
       if (presentes.preco_venda) base.preco_venda = l.preco_venda
       if (presentes.estoque_minimo) base.estoque_minimo = l.estoque_minimo
       // O estoque ja usava o mesmo desenho: `estoque_atual` e null quando a

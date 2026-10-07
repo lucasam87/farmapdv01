@@ -51,7 +51,9 @@ describe('paraOLinhasJson', () => {
   })
 
   it('nao inclui preco nenhum quando a planilha nao trouxe as colunas', () => {
-    const json = paraOLinhasJson([linha()], {
+    // Sem a coluna, `analisarTabela` deixa o custo como null e o preco de venda
+    // como 0 — e o `presentes` diz que a coluna nao veio.
+    const json = paraOLinhasJson([linha({ preco_custo: null })], {
       preco_custo: false,
       preco_venda: false,
       estoque_minimo: false,
@@ -62,9 +64,19 @@ describe('paraOLinhasJson', () => {
   })
 
   it('inclui o preco quando a planilha trouxe a coluna, inclusive zero', () => {
-    const json = paraOLinhasJson([linha({ preco_venda: 0 })], { ...TUDO, preco_custo: false })
+    const json = paraOLinhasJson([linha({ preco_venda: 0, preco_custo: 0 })], TUDO)
     expect(json[0].preco_venda).toBe(0)
+    expect(json[0].preco_custo).toBe(0)
+  })
+
+  // O exportador do sistema antigo escreve a palavra "null" nas linhas sem custo
+  // (524 produtos do catalogo real). Custo por LINHA e nao por coluna: nessas
+  // linhas a chave nao pode viajar, senao a RPC gravaria zero por cima do custo
+  // de quem ja esta cadastrado.
+  it('nao manda preco_custo na linha que veio SEM custo', () => {
+    const json = paraOLinhasJson([linha({ preco_custo: null })], TUDO)
     expect('preco_custo' in json[0]).toBe(false)
+    expect('preco_venda' in json[0]).toBe(true)
   })
 
   it('uma tabela REAL sem coluna de preco nao manda preco nenhum para a RPC', () => {

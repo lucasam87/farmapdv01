@@ -95,9 +95,16 @@ if (!token || !urlProjeto) {
     'rollback;',
   ].join('\n')
 
+  // Filtro opcional por nome de arquivo: `npm run test:sql -- 070_importacao.sql`
+  // roda so um caso. Existe porque a suite inteira exige o banco SEM caixa aberto
+  // (varios casos chamam abrir_caixa, que recusa uma segunda sessao) — e com a
+  // farmacia operando nao da para rodar tudo so para conferir um arquivo.
+  const filtro = process.argv[2]
+
   const arquivos = fs
     .readdirSync(casosDir)
     .filter((arquivo) => arquivo.endsWith('.sql'))
+    .filter((arquivo) => !filtro || arquivo.includes(filtro))
     .sort()
 
   if (arquivos.length === 0) {

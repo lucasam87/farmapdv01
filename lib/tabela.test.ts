@@ -101,6 +101,25 @@ describe('analisarTabela', () => {
     const r = analisarTabela({ colunas: ['nome', 'codigo'], linhas: [['DIPIRONA', '12345']] })
     expect(r.avisos.join(' ')).toContain('zeros')
   })
+
+  // O aviso existe para o Excel que come o zero de um codigo CURTO. Um EAN-13/14
+  // completo nao perdeu zero nenhum, e o catalogo real do sistema antigo tem
+  // 5613 EANs que comecam com 7 ou 8 — todos acusados em falso antes do teto.
+  it('NAO avisa de zeros a esquerda para EAN de 13 ou 14 digitos', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo'],
+      linhas: [
+        ['A', '7891317026370'],
+        ['B', '7500435154260'],
+      ],
+    })
+    expect(r.avisos).toEqual([])
+  })
+
+  it('EAN de 12 digitos (que pode ter perdido um zero) ainda avisa', () => {
+    const r = analisarTabela({ colunas: ['nome', 'codigo'], linhas: [['A', '789131702637']] })
+    expect(r.avisos.join(' ')).toContain('zeros')
+  })
   // A conferencia da spec 8.7 so existe se os dois lados forem INDEPENDENTES: um
   // e a soma das linhas que o NOSSO leitor extraiu, o outro e o TOTAL que o
   // sistema antigo IMPRIMIU no rodape do arquivo. Enquanto os dois lados saiam da
@@ -185,9 +204,9 @@ describe('analisarTabela', () => {
   // A RPC importar_produtos RECUSA o arquivo inteiro quando o mesmo codigo de
   // barras aparece duas vezes (caso 11 de 070_importacao.sql), porque a segunda
   // linha sobrescreveria a primeira em silencio. O catalogo real do sistema
-  // antigo TEM esses repetidos, entao a previa precisa avisar ANTES de o dono
-  // confirmar e levar a recusa.
-  it('aponta os codigos de barras repetidos entre as linhas validas', () => {
+  // antigo TEM esses repetidos. Decisao do Lucas: importar so o PRIMEIRO cadastro
+  // de cada codigo e listar o que ficou de fora.
+  it('aponta os codigos repetidos e importa so o primeiro cadastro', () => {
     const r = analisarTabela({
       colunas: ['nome', 'codigo', 'preco'],
       linhas: [
@@ -197,6 +216,10 @@ describe('analisarTabela', () => {
       ],
     })
     expect(r.codigosRepetidos).toEqual(['789'])
+    expect(r.ignoradasPorRepeticao).toBe(1)
+    // A linha B (segundo cadastro do mesmo EAN) nao chega a RPC.
+    expect(r.linhas.map((l) => l.nome)).toEqual(['A', 'C'])
+    expect(r.validas).toBe(2)
   })
 
   it('codigo repetido em linha INVALIDA nao conta (ela nao vai ser gravada)', () => {
@@ -208,6 +231,7 @@ describe('analisarTabela', () => {
       ],
     })
     expect(r.codigosRepetidos).toEqual([])
+    expect(r.ignoradasPorRepeticao).toBe(0)
   })
 
   it('sem codigo de barras nao ha repetido (linha sem codigo sempre cria)', () => {
@@ -219,6 +243,31 @@ describe('analisarTabela', () => {
       ],
     })
     expect(r.codigosRepetidos).toEqual([])
+    expect(r.linhas).toHaveLength(2)
+  })
+
+  // O exportador do sistema antigo imprime o null do banco como a palavra "null".
+  // Sao 524 produtos do catalogo real: tratar isso como preco ilegivel recusava 9%
+  // do catalogo por um dado que o sistema antigo nunca teve.
+  it('a palavra "null" no custo e "nao sei o custo", e nao linha invalida', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco', 'custo'],
+      linhas: [
+        ['A', '4,50', 'null'],
+        ['B', '5,50', ''],
+        ['C', '6,50', '2.50'],
+      ],
+    })
+    expect(r.invalidas).toBe(0)
+    expect(r.linhas[0].preco_custo).toBeNull()
+    expect(r.linhas[1].preco_custo).toBeNull()
+    expect(r.linhas[2].preco_custo).toBe(250)
+  })
+
+  it('custo ilegivel de verdade continua sendo erro', () => {
+    const r = analisarTabela({ colunas: ['nome', 'preco', 'custo'], linhas: [['A', '4,50', 'dois reais']] })
+    expect(r.invalidas).toBe(1)
+    expect(r.linhas[0].erros[0]).toContain('custo')
   })
 })
 

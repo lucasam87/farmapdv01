@@ -162,14 +162,15 @@ export function FormularioImportacao() {
               catalogo real do sistema antigo tem varios. Melhor avisar aqui do
               que o dono descobrir na recusa, depois de conferir a amostra. */}
           {previa.codigosRepetidos.length > 0 ? (
-            <p role="alert" className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-base text-red-700">
+            <p role="alert" className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
               <strong>
                 {previa.codigosRepetidos.length} código(s) de barras aparecem mais de uma vez no
-                arquivo
+                arquivo.
               </strong>{' '}
-              — a importação é recusada inteira por causa disso, porque a segunda linha
-              sobrescreveria a primeira em silêncio. Resolva no sistema antigo antes de importar.
-              Repetido(s): {previa.codigosRepetidos.slice(0, 5).join(', ')}
+              Importando o <strong>primeiro cadastro</strong> de cada um e ignorando{' '}
+              {previa.ignoradasPorRepeticao} linha(s) — a segunda sobrescreveria a primeira em
+              silêncio. Corrija no sistema antigo quando puder. Repetido(s):{' '}
+              {previa.codigosRepetidos.slice(0, 5).join(', ')}
               {previa.codigosRepetidos.length > 5
                 ? ` … e mais ${previa.codigosRepetidos.length - 5}.`
                 : '.'}

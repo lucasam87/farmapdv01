@@ -38,6 +38,8 @@ export type Previa = {
    * do sistema antigo tem varios — por isso a tela avisa antes de confirmar.
    */
   codigosRepetidos: string[]
+  /* Quantas linhas ficaram de fora por repetirem um codigo de barras. */
+  ignoradasPorRepeticao: number
   /*
    * A escolha do checkbox da tela VIAJA no estado: sao dois formularios (o de
    * analise e o de confirmacao) e antes o de confirmacao mandava `sim` fixo, o
@@ -194,7 +196,9 @@ export async function analisarArquivo(
         l.nome,
         l.categoria ?? '',
         l.unidade,
-        formatarMoeda(l.preco_custo),
+        // `null` = o arquivo nao disse o custo; a celula fica vazia na amostra,
+        // em vez de mostrar "R$ 0,00" para um custo que ninguem informou.
+        l.preco_custo === null ? '' : formatarMoeda(l.preco_custo),
         formatarMoeda(l.preco_venda),
         l.estoque_atual === null ? '' : String(l.estoque_atual),
         String(l.estoque_minimo),
@@ -208,6 +212,7 @@ export async function analisarArquivo(
     somaConferida: analise.somaConferida,
     colunasPresentes: analise.colunasPresentes,
     codigosRepetidos: analise.codigosRepetidos,
+    ignoradasPorRepeticao: analise.ignoradasPorRepeticao,
     atualizar,
     existentes,
     faltando: analise.faltando,

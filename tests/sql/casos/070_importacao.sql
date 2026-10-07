@@ -227,6 +227,31 @@ begin
                     from produtos where codigo_barras = '0012121'),
     'caso 18: produto novo sem preco nasce com zero, nao com null');
 
+  -- ================= caso 19: reimportar SEM a chave preco_custo =================
+  -- Mesmo desenho dos casos 16 e 17, agora para o CUSTO. O catalogo real do
+  -- sistema antigo tem 524 linhas sem custo (o exportador imprime a palavra
+  -- "null"), e nessas o custo cadastrado nao pode ser zerado — e por isso que a
+  -- chave e omitida por LINHA, e nao so quando a coluna inteira falta.
+  v_resumo := importar_produtos(jsonb_build_array(
+    jsonb_build_object('codigo_barras', '0033333', 'nome', 'IMPORTADO COM ESTOQUE NOVO',
+                       'preco_custo', 300)
+  ), true);
+  perform teste_ok((select preco_custo = 300 from produtos where codigo_barras = '0033333'),
+    'caso 19: o custo 300 foi gravado');
+
+  v_resumo := importar_produtos(jsonb_build_array(
+    jsonb_build_object('codigo_barras', '0033333', 'nome', 'IMPORTADO COM ESTOQUE NOVO')
+  ), true);
+  perform teste_ok((select preco_custo = 300 from produtos where codigo_barras = '0033333'),
+    'caso 19: reimportar sem a chave preco_custo NAO zera o custo cadastrado');
+
+  v_resumo := importar_produtos(jsonb_build_array(
+    jsonb_build_object('codigo_barras', '0033333', 'nome', 'IMPORTADO COM ESTOQUE NOVO',
+                       'preco_custo', 0)
+  ), true);
+  perform teste_ok((select preco_custo = 0 from produtos where codigo_barras = '0033333'),
+    'caso 19: custo 0 explicito ZERA — ausente e diferente de zero');
+
   -- ================= caso 15: so o dono importa (spec 5) =================
   perform set_config('request.jwt.claims',
     jsonb_build_object('sub', v_atendente, 'role', 'authenticated')::text, true);
