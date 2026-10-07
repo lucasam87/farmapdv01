@@ -10,14 +10,60 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 
 # ⏸ ONDE PARAMOS — 07/10/2026
 
-**Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD `f120328`.
+**Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD `989f459`.
 **Etapas 0, 1, 2 e 4 fechadas. A Etapa 3 está 🟡** — ver a linha dela na tabela de Etapas.
 
+**A importação agora aceita o PDF do sistema antigo** (a leitura por grade, abaixo), e o
+catálogo real de 501 páginas passa pela prévia com **5695 linhas válidas** e **0 inválidas**.
+Falta você conferir a amostra na tela e confirmar.
+
+## A leitura do PDF do sistema antigo (o que destravou)
+
+O PDF **não tem linha de TOTAL impressa**, então a conferência "soma extraída × total
+impresso" não tem contra o que conferir — esse foi o motivo de, na Tarefa 14, o PDF ter
+ficado de fora. O que mudou: medindo o arquivo, descobri que **ele desenha a grade da tabela
+com retângulos** (`x y w h re`), e que a página é **rotacionada** (`0 1 -1 0 595 0 cm`, um
+`cm` que o leitor ignorava). Aplicando o `cm`, a grade sai regular (colunas em 93.5, 117.0,
+173.0, 219.0, 275.0, 321.0, 377.0, 423.0, 459.0, 505.0) e cada trecho de texto pode ser
+atribuído à célula em que cai — o que resolve de uma vez a rotação, o nome quebrado em
+várias linhas dentro da célula e a falta de total.
+
+**Critério de aceite combinado com o Lucas: a amostra conferida por ele na prévia** (não há
+total para comparar). A verificação que eu fiz antes de aceitar: as 3 primeiras linhas
+extraídas batem **exatamente** com a medição independente do texto cru do PDF —
+`ACIDO ACETILSALICILI CO 100MG C3O EUROFARMA` · `7891317026370` · R$ 18,77 · custo 7.99.
+
+**O que o catálogo real trouxe e como ficou (medido, não suposto):**
+
+| Achado no arquivo real | Tamanho | Decisão / situação |
+|---|---|---|
+| EAN repetido em dois cadastros (ex.: `7894164009381` = "ABIDOR CAF C 10" a R$ 10,10 **e** a R$ 6,45; `7500435127226` = "ABS ALWAYS BASICO..." **e** "ALWAYS SECA COM ABAS") | **83 códigos**, 87 linhas | Decisão do Lucas: importar **só o primeiro** cadastro de cada código e listar o que ficou de fora na prévia. Sem isso a RPC recusa o arquivo inteiro (caso 11 de `070_importacao.sql`) |
+| `Preço de custo` com a **palavra `null`** (o Nex imprime o null do banco como texto) | **516 linhas** | Decisão do Lucas: tratar como **sem custo** (chave omitida por linha), em vez de linha inválida. Antes, 524 produtos (9%) eram recusados |
+| `R$ 7.896.714.283,00` num produto chamado `ACCC  ACC,,CC 7896714283005` | 1 linha | **Está assim NO ARQUIVO DE ORIGEM** — o stream do PDF traz `(R$)(7.896.714.283.00)(5,00)`. É cadastro corrompido no Nex, não defeito da extração. **Corrija no sistema antigo** |
+| Aviso falso "5613 códigos sem zeros à esquerda" | — | ✅ corrigido: o aviso vale para código **curto** (o Excel come o zero de `0012345`); um EAN-13/14 completo não perdeu zero nenhum |
+
+## 🔴 A tela de caixa NÃO existe — e isso bloqueia vender
+
+Achado desta sessão, e é buraco no **planejamento**, não bug de código:
+
+- `registrar_venda` recusa com **"Abra o caixa para começar a vender."** (`002_registrar_venda.sql:105`).
+- Buscando em todo o `app/`: **nada chama `abrir_caixa`, `caixa_movimento` ou `fechar_caixa`**. Os únicos chamadores são os testes SQL e o `global-setup` do e2e — que **insere a sessão direto na tabela** justamente porque a tela não existe. Foi por isso que o e2e nunca pegou o problema.
+- As 11 etapas da spec (`docs/superpowers/specs/2026-10-06-sistema-farmacia-design.md:510-524`) **não incluem a tela de caixa**. A Etapa 2 entregou as *funções* (testadas, 30 asserções em `030_caixa.sql`), a spec lista "Caixa" entre as 9 entradas do menu (§10) e diz que o caixa está na v1 (decisão D2) — mas nenhuma etapa constrói a tela.
+- **O Lucas decidiu não construir agora**; eu abri uma sessão pela RPC de verdade (terminal `balcao`, `0cd79e5c`) só para ele conseguir testar o PDV.
+
+⚠️ **Consequência operacional medida:** a suíte `npm run test:sql` **não roda com um caixa
+aberto** — 5 casos falham com "Já existe um caixa aberto" (010_venda caso 6, 030_caixa,
+040_views, 050_permissoes). Como os testes rodam contra o **banco de produção**, isso
+significa que a suíte não pode ser rodada enquanto a farmácia estiver operando. Por isso o
+`tests/sql/run.mjs` ganhou um filtro por arquivo:
+`npm run test:sql -- 070_importacao.sql`.
+
+## O resto do estado
+
 **As 15 tarefas do plano 2 (0 a 14) estão executadas** e a **revisão final do branch** (em
-contexto limpo, range `9f0c524..3165750`) apontou **1 Critical + 7 Important**. **Oito dos
-nove achados já foram corrigidos** nesta sessão, cada um com teste que nasce vermelho, e
-**`npm run lint` voltou a exit 0**. **Falta só o item 8** (o seletor de cliente do PDV, que
-é mudança de tela no balcão e depende de decisão do Lucas).
+contexto limpo, range `9f0c524..3165750`) apontou **1 Critical + 7 Important**, **todos os
+oito corrigidos**, cada um com teste que nasce vermelho. **`npm run lint` está exit 0.**
+**Falta só o item 8** (o seletor de cliente do PDV, que é mudança de tela no balcão).
 
 **O Critical e o que ele significava:** em `lib/tabela.ts`, `somaGravada` e a (então)
 `somaPlanilha` somavam a **mesma** variável pelo **mesmo** `parsearCentavos` — as duas somas
