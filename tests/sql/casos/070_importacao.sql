@@ -185,6 +185,48 @@ begin
                      'importar_produtos(jsonb,boolean)', 'execute'),
     'caso 14: authenticated pode executar importar_produtos');
 
+  -- Os casos 16 a 18 rodam AQUI, antes do caso 15, de proposito: o caso 15 troca
+  -- o usuario logado para o atendente e a partir dali so importa o dono.
+
+  -- ================= caso 16: reimportar SEM as chaves de preco =================
+  -- "Chave ausente != valor zero" vale para PRECO tambem, e nao so para estoque.
+  -- Antes da migration 009 os precos viajavam sempre (0 quando a coluna nao
+  -- existia) e o UPDATE gravava zero por cima: reimportar uma planilha so com
+  -- nome e codigo de barras ZERAVA o preco de venda do catalogo inteiro.
+  -- Estado antes: preco_venda 800 e estoque_minimo 8 (casos 4 e 7).
+  v_resumo := importar_produtos(jsonb_build_array(
+    jsonb_build_object('codigo_barras', '0033333', 'nome', 'IMPORTADO COM ESTOQUE NOVO')
+  ), true);
+  perform teste_ok((v_resumo->>'atualizados')::integer = 1,
+    'caso 16: a linha sem preco atualizou o produto');
+  perform teste_ok((select preco_venda = 800 from produtos where codigo_barras = '0033333'),
+    'caso 16: o preco de venda NAO foi zerado pela linha sem preco');
+  perform teste_ok((select estoque_minimo = 8 from produtos where codigo_barras = '0033333'),
+    'caso 16: o estoque minimo NAO foi zerado pela linha sem a chave');
+  perform teste_ok((select nome = 'IMPORTADO COM ESTOQUE NOVO' from produtos where codigo_barras = '0033333'),
+    'caso 16: mas o nome veio e foi atualizado');
+
+  -- ================= caso 17: preco 0 EXPLICITO zera =================
+  -- A outra metade da regra: ausente nao mexe, presente com zero zera de verdade.
+  v_resumo := importar_produtos(jsonb_build_array(
+    jsonb_build_object('codigo_barras', '0033333', 'nome', 'IMPORTADO COM ESTOQUE NOVO',
+                       'preco_venda', 0)
+  ), true);
+  perform teste_ok((select preco_venda = 0 from produtos where codigo_barras = '0033333'),
+    'caso 17: preco de venda 0 explicito ZERA — ausente e diferente de zero');
+
+  -- ================= caso 18: produto NOVO sem preco entra com zero =================
+  -- As colunas de preco sao `not null`: para produto novo o zero e obrigatorio, e
+  -- a tela avisa que ele entrou sem preco.
+  v_resumo := importar_produtos(jsonb_build_array(
+    jsonb_build_object('codigo_barras', '0012121', 'nome', 'SEM PRECO NENHUM')
+  ), true);
+  perform teste_ok((v_resumo->>'criados')::integer = 1,
+    'caso 18: o produto sem preco foi criado');
+  perform teste_ok((select preco_venda = 0 and preco_custo = 0 and estoque_minimo = 0
+                    from produtos where codigo_barras = '0012121'),
+    'caso 18: produto novo sem preco nasce com zero, nao com null');
+
   -- ================= caso 15: so o dono importa (spec 5) =================
   perform set_config('request.jwt.claims',
     jsonb_build_object('sub', v_atendente, 'role', 'authenticated')::text, true);

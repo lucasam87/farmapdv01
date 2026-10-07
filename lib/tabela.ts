@@ -33,10 +33,25 @@ export type LinhaProduto = {
   erros: string[]
 }
 
+/**
+ * Quais colunas OPCIONAIS a planilha realmente trouxe.
+ *
+ * Isto existe porque "chave ausente != valor zero" e a regra que protege a
+ * reimportacao: uma planilha só com nome e codigo de barras nao pode zerar o
+ * preco de venda de quem ja esta cadastrado. Enquanto esses campos viajavam
+ * sempre (com 0 quando a coluna nao existia), a RPC gravava zero por cima.
+ */
+export type ColunasPresentes = {
+  preco_custo: boolean
+  preco_venda: boolean
+  estoque_minimo: boolean
+}
+
 export type ResultadoAnalise = {
   linhas: LinhaProduto[]
   faltando: string[]
   descartadas: number
+  colunasPresentes: ColunasPresentes
   /**
    * O TOTAL que o exportador IMPRIMIU no arquivo, lido do rodape — nao a soma
    * das linhas. E o unico lado INDEPENDENTE da conferencia da spec 8.7: a soma
@@ -257,6 +272,11 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     linhas,
     faltando,
     descartadas,
+    colunasPresentes: {
+      preco_custo: mapa.preco_custo !== undefined,
+      preco_venda: mapa.preco_venda !== undefined,
+      estoque_minimo: mapa.estoque_minimo !== undefined,
+    },
     totalImpresso,
     somaGravada,
     somaConferida: totalImpresso !== null && totalImpresso === somaGravada,

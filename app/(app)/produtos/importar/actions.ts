@@ -5,7 +5,7 @@ import { criarClienteServidor } from '@/lib/supabase/server'
 import { perfilAtual } from '@/lib/auth/perfil'
 import { lerCsv, pareceLatin1, type Tabela } from '@/lib/csv'
 import { lerXlsx } from '@/lib/xlsx'
-import { analisarTabela, detectarFormato } from '@/lib/tabela'
+import { analisarTabela, detectarFormato, type ColunasPresentes } from '@/lib/tabela'
 import { paraOLinhasJson } from './preparacao'
 
 // Duas acoes, e nao uma, porque a importacao tem DUAS viagens de proposito:
@@ -26,6 +26,8 @@ export type Previa = {
   totalImpresso: number | null
   somaGravada: number
   somaConferida: boolean
+  /* Colunas opcionais que a planilha trouxe. Ausente = a RPC nao mexe no campo. */
+  colunasPresentes: ColunasPresentes
   faltando: string[]
   avisos: string[]
   erros: { linha: number; erros: string[] }[]
@@ -112,10 +114,11 @@ export async function analisarArquivo(
     totalImpresso: analise.totalImpresso,
     somaGravada: analise.somaGravada,
     somaConferida: analise.somaConferida,
+    colunasPresentes: analise.colunasPresentes,
     faltando: analise.faltando,
     avisos: [...avisos, ...analise.avisos],
     erros,
-    json: JSON.stringify(paraOLinhasJson(analise.linhas)),
+    json: JSON.stringify(paraOLinhasJson(analise.linhas, analise.colunasPresentes)),
   }
 
   return { ok: true, previa }

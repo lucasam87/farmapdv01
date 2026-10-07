@@ -6,9 +6,9 @@
 // — assim ela pode ser testada diretamente, que e o que prova a regra mais
 // perigosa da importacao.
 
-import type { LinhaProduto } from '@/lib/tabela'
+import type { ColunasPresentes, LinhaProduto } from '@/lib/tabela'
 
-export function paraOLinhasJson(linhas: LinhaProduto[]) {
+export function paraOLinhasJson(linhas: LinhaProduto[], presentes: ColunasPresentes) {
   return linhas
     .filter((l) => l.erros.length === 0)
     .map((l) => {
@@ -17,12 +17,16 @@ export function paraOLinhasJson(linhas: LinhaProduto[]) {
         nome: l.nome,
         categoria: l.categoria,
         unidade: l.unidade,
-        preco_custo: l.preco_custo,
-        preco_venda: l.preco_venda,
-        estoque_minimo: l.estoque_minimo,
       }
-      // A chave AUSENTE e diferente de valor nulo: e isso que faz a RPC nao
-      // mexer no estoque de quem ja existe. So inclui quando veio da planilha.
+      // A chave AUSENTE e diferente de valor nulo, e isso vale para o preco
+      // tambem: e o que faz a RPC nao mexer no que ja esta cadastrado. So inclui
+      // os campos cuja coluna veio na planilha — sem isto, reimportar uma
+      // planilha sem coluna de preco ZERAVA o preco de venda do catalogo.
+      if (presentes.preco_custo) base.preco_custo = l.preco_custo
+      if (presentes.preco_venda) base.preco_venda = l.preco_venda
+      if (presentes.estoque_minimo) base.estoque_minimo = l.estoque_minimo
+      // O estoque ja usava o mesmo desenho: `estoque_atual` e null quando a
+      // coluna nao veio.
       if (l.estoque_atual !== null) base.estoque_inicial = l.estoque_atual
       return base
     })

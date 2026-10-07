@@ -115,6 +115,15 @@ export function FormularioImportacao() {
             </p>
           ) : null}
 
+          {!previa.colunasPresentes.preco_venda ? (
+            <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
+              Esta planilha não trouxe a coluna de preço de venda
+              {!previa.colunasPresentes.preco_custo ? ' nem a de preço de custo' : ''}. Os produtos
+              que já existem <strong>não terão o preço alterado</strong>; os novos entram com preço
+              zero e precisam ser completados depois.
+            </p>
+          ) : null}
+
           {semTotalImpresso ? (
             <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
               O arquivo não tem linha de TOTAL, então não há contra o que conferir a soma. Confira
