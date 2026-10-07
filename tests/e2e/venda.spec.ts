@@ -18,6 +18,10 @@ import { test, expect, type Page } from '@playwright/test'
 const PRODUTO_E2E = 'PRODUTO E2E PARACETAMOL'
 const PRODUTO_CARO_E2E = 'PRODUTO E2E CARO'
 const CLIENTE_E2E = 'CLIENTE E2E LIMITE BAIXO'
+// Codigo de barras do PRODUTO_E2E (o mesmo de tests/e2e/global-setup.mjs). O
+// teste de teclado busca por ELE: "PRODUTO E2E" casa dois produtos e o
+// ArrowDown escolheria o segundo, o que faria o teste medir a ordem da lista.
+const CODIGO_E2E = '999000111'
 
 // As credenciais do usuario de teste vivem no .env.local; o Playwright nao le
 // esse arquivo sozinho (a convencao dele e .env). `__dirname` e nao
@@ -40,9 +44,10 @@ async function entrar(page: Page) {
  * Adiciona um produto ao carrinho.
  *
  * Usa a LISTA de resultados em vez de ArrowDown + Enter de proposito: "PRODUTO
- * E2E" casa os dois produtos do cenario, e um teste que depende da POSICAO na
+ * E2E" casa os DOIS produtos do cenario, e um teste que depende da POSICAO na
  * lista passa a testar a ordem em vez do PDV. O caminho por teclado
- * (setas + Enter) e coberto pelo teste de F3, que confere o foco.
+ * (setas + Enter) tem teste proprio — "faz uma venda inteira so com o teclado",
+ * que busca pelo CODIGO de barras, que casa exatamente um produto.
  */
 async function adicionarProduto(page: Page, nome: string) {
   await page.getByLabel('Buscar produto').fill(nome)
@@ -58,13 +63,25 @@ test.beforeEach(async ({ page }) => {
 
 test('faz uma venda inteira so com o teclado', async ({ page }) => {
   await page.goto('/vendas/nova')
-  await adicionarProduto(page, PRODUTO_E2E)
 
-  // Daqui para baixo NAO existe clique: e o criterio da spec (venda so com
-  // teclado, F6 escolhe a forma e F2 finaliza).
-  await page.keyboard.press('F6') // dinheiro
-  await page.getByLabel('Valor do pagamento').fill('10,00')
-  await page.getByRole('button', { name: 'Lançar' }).click()
+  // NENHUM clique nesta prova: e o criterio da spec 13 ("venda completa so com
+  // teclado"). A busca e pelo CODIGO de barras porque ele casa exatamente um
+  // produto — assim o ArrowDown + Enter exercita o caminho de teclado sem
+  // depender da ordem da lista, que e o que o adicionarProduto evita.
+  await page.getByLabel('Buscar produto').pressSequentially(CODIGO_E2E)
+  await expect(page.getByTestId('resultados')).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('carrinho')).toContainText(PRODUTO_E2E)
+
+  await page.keyboard.press('F6') // dinheiro, pelo atalho
+  // Tab ate o botao "Lancar" e Enter nele: acionar um botao pelo teclado e
+  // teclado. Hoje e o unico caminho sem mouse que existe — a tecla do formulario
+  // trata as formas de pagamento e o F2, e o botao e type="button" (nao ha
+  // submit implicito para o Enter do campo).
+  await page.getByLabel('Valor do pagamento').pressSequentially('10,00')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Enter')
 
   await page.keyboard.press('F2') // finalizar
   await expect(page.getByTestId('confirmacao')).toContainText('registrada')
