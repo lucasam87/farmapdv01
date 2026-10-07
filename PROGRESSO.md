@@ -10,12 +10,44 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 
 # ⏸ ONDE PARAMOS — 07/10/2026
 
-**Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD `989f459`.
+**Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD `db47eee`.
 **Etapas 0, 1, 2 e 4 fechadas. A Etapa 3 está 🟡** — ver a linha dela na tabela de Etapas.
 
-**A importação agora aceita o PDF do sistema antigo** (a leitura por grade, abaixo), e o
-catálogo real de 501 páginas passa pela prévia com **5695 linhas válidas** e **0 inválidas**.
-Falta você conferir a amostra na tela e confirmar.
+## ✅ O CATÁLOGO REAL FOI IMPORTADO (07/10/2026)
+
+O PDF do sistema antigo entrou: **5689 produtos**, todos ativos, nenhum sem código de barras.
+Pelo caminho real da tela (PostgREST, papel `authenticated`): `{"criados": 5689, "ignorados": 0,
+"atualizados": 0}` em **21,1 s**. Conferido no banco: soma dos preços de venda
+**R$ 121.142,60**, preço médio R$ 21,29, **811 movimentos** de estoque, e a linha corrompida
+(R$ 7,9 bi) **não entrou**.
+
+**O que a importação corrigiu sozinha:** 7 linhas com nome e código de barras TROCADOS no
+arquivo (o Nex gravou um no campo do outro). A prévia avisa que inverteu — conferido no banco:
+`GLICERINA GRANADO`/`7896512911865`, `CITRATO DE SILDENAFILA`/`7896714226705`,
+`CLORETO DE MAGNESIO PA`/`89128123238192` e mais 4.
+
+**14 linhas entraram como estão** e estão listadas em `PROBLEMAS-NO-CATALOGO.csv` (git-ignored):
+3 produtos SEM NOME (a descrição tem um código e não há nome em lugar nenhum — não dá para
+inventar), 10 com código de fornecedor (`000127-WP`) ou garrancho (`DQEQWE123123`), e 1
+rejeitada pelo preço. **Alerta que só a conferência humana pega:** `diltiazen 30mg` está no Nex
+por **R$ 3.999,00** (o PDF traz isso literalmente) e passou na validação — corrija.
+
+### ⚠️ 4878 dos 5689 produtos NÃO podem ser vendidos hoje
+
+`registrar_venda` recusa com "Estoque insuficiente" quando `estoque_atual < quantidade`
+(`002_registrar_venda.sql:169`), e o catálogo entrou assim:
+
+| Estoque no Nex | Produtos | Situação no sistema novo |
+|---|---|---|
+| Positivo | **811** | vendável, até o limite |
+| Zero explícito | 2945 | não vende |
+| **Negativo** | **1934** | entrou como **0** — `lerEstoque` recusa negativo e `produto_entrada` também |
+
+Os 1934 negativos são inconsistência do próprio Nex (estoque negativo = vendeu sem entrada), e
+o nosso sistema **recusa** estoque negativo por desenho — por isso viraram 0. **Consequência: o
+estoque do sistema novo não bate com o do Nex nessas 1934 linhas, e elas não vendem até alguém
+dar entrada.** Se a farmácia não controla estoque de tudo, isso é uma decisão a tomar (estoque
+bloqueante × informativo) — hoje o sistema bloqueia.
 
 ## A leitura do PDF do sistema antigo (o que destravou)
 
@@ -33,14 +65,18 @@ total para comparar). A verificação que eu fiz antes de aceitar: as 3 primeira
 extraídas batem **exatamente** com a medição independente do texto cru do PDF —
 `ACIDO ACETILSALICILI CO 100MG C3O EUROFARMA` · `7891317026370` · R$ 18,77 · custo 7.99.
 
-**O que o catálogo real trouxe e como ficou (medido, não suposto):**
+**Os tropeços no caminho, para não repetir:**
 
-| Achado no arquivo real | Tamanho | Decisão / situação |
+| Tropeço | Causa | Correção |
 |---|---|---|
-| EAN repetido em dois cadastros (ex.: `7894164009381` = "ABIDOR CAF C 10" a R$ 10,10 **e** a R$ 6,45; `7500435127226` = "ABS ALWAYS BASICO..." **e** "ALWAYS SECA COM ABAS") | **83 códigos**, 87 linhas | Decisão do Lucas: importar **só o primeiro** cadastro de cada código e listar o que ficou de fora na prévia. Sem isso a RPC recusa o arquivo inteiro (caso 11 de `070_importacao.sql`) |
-| `Preço de custo` com a **palavra `null`** (o Nex imprime o null do banco como texto) | **516 linhas** | Decisão do Lucas: tratar como **sem custo** (chave omitida por linha), em vez de linha inválida. Antes, 524 produtos (9%) eram recusados |
-| `R$ 7.896.714.283,00` num produto chamado `ACCC  ACC,,CC 7896714283005` | 1 linha | **Está assim NO ARQUIVO DE ORIGEM** — o stream do PDF traz `(R$)(7.896.714.283.00)(5,00)`. É cadastro corrompido no Nex, não defeito da extração. **Corrija no sistema antigo** |
-| Aviso falso "5613 códigos sem zeros à esquerda" | — | ✅ corrigido: o aviso vale para código **curto** (o Excel come o zero de `0012345`); um EAN-13/14 completo não perdeu zero nenhum |
+| A tela voltou sem gravar nada (1ª vez) | O cadastro corrompido (R$ 7,9 bi) estoura o `integer` do Postgres e, como é tudo-ou-nada, derrubava o catálogo inteiro com erro cru | `fec4fc4`: preço acima de R$ 21.474.836,47 vira **linha inválida nomeada** |
+| A tela voltou sem gravar nada (2ª vez) | O papel `authenticated` tem **`statement_timeout = 8s`** e a importação leva **26 s** | `84617f4` + migration **010**: `authenticated` → 120 s. `alter function ... set statement_timeout` **não funciona** (o timer já foi armado no início do statement) — está documentado na migration |
+| 524 produtos recusados | O Nex imprime a palavra **`null`** no preço de custo | `989f459`: `null` = "sem custo" (chave omitida por linha) |
+| Importação recusada inteira | **83 códigos de barras repetidos** no Nex (mesmo EAN em dois cadastros) | Decisão do Lucas: importa o **primeiro** cadastro e a prévia lista os ignorados |
+
+⚠️ **Etapa 9 (Vercel):** funções serverless têm limite de execução (10 s no Hobby, 60 s no
+Pro) e **26 s não cabe no Hobby**. A importação do catálogo vai precisar de outro caminho no
+deploy.
 
 ## 🔴 A tela de caixa NÃO existe — e isso bloqueia vender
 
