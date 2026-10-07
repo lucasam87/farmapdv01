@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { criarClienteServidor } from '@/lib/supabase/server'
 import { perfilAtual } from '@/lib/auth/perfil'
+import { filtroDeBuscaDeProduto } from '@/lib/postgrest'
 
 // Busca de produto do PDV. E uma rota de API e nao uma Server Action porque o
 // PDV chama isto a cada tecla: uma Server Action por tecla seria pior (e nao
@@ -23,11 +24,14 @@ export async function GET(request: Request) {
 
   // Codigo de barras exato (o leitor manda o codigo inteiro e da Enter) OU
   // pedaco do nome. So ativos: produto inativo nao vende.
+  //
+  // O termo NAO entra cru: o `or()` monta a string do filtro por concatenacao, e
+  // uma virgula no nome de um medicamento quebraria a consulta (ver lib/postgrest.ts).
   const { data, error } = await supabase
     .from('produtos')
     .select('id, codigo_barras, nome, preco_venda, estoque_atual')
     .eq('ativo', true)
-    .or(`codigo_barras.eq.${termo},nome.ilike.%${termo}%`)
+    .or(filtroDeBuscaDeProduto(termo))
     .order('nome')
     .limit(8)
 

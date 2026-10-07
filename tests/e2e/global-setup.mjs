@@ -35,6 +35,10 @@ export const TERMINAL_E2E = 'e2e'
 // alcanca o valor dele.
 export const PRODUTO_CARO_E2E = 'PRODUTO E2E CARO'
 export const PRECO_CARO_E2E = 4500
+// Nome com VIRGULA de proposito: e o caso que quebrava a busca, porque a virgula
+// e o separador de condicoes do filtro `or` do PostgREST. Nome de medicamento com
+// virgula e comum ("DIPIRONA, 20 COMPRIMIDOS").
+export const PRODUTO_VIRGULA_E2E = 'DIPIRONA, 20 COMPRIMIDOS'
 export const CLIENTE_E2E = 'CLIENTE E2E LIMITE BAIXO'
 export const LIMITE_CLIENTE_E2E = 3000
 
@@ -59,11 +63,13 @@ export async function limpar() {
     declare
       v_produto uuid;
       v_caro uuid;
+      v_virgula uuid;
       v_sessao uuid;
       v_vendas uuid[];
     begin
       select id into v_produto from produtos where nome = '${PRODUTO_E2E}';
       select id into v_caro from produtos where nome = '${PRODUTO_CARO_E2E}';
+      select id into v_virgula from produtos where nome = '${PRODUTO_VIRGULA_E2E}';
       select id into v_sessao from caixa_sessoes where terminal = '${TERMINAL_E2E}';
 
       -- Todas as vendas que a suite pode ter deixado: as da sessao e2e e as que
@@ -71,7 +77,7 @@ export async function limpar() {
       select coalesce(array_agg(id), '{}') into v_vendas
         from vendas
        where (v_sessao is not null and caixa_sessao_id = v_sessao)
-          or id in (select venda_id from venda_itens where produto_id in (v_produto, v_caro));
+          or id in (select venda_id from venda_itens where produto_id in (v_produto, v_caro, v_virgula));
 
       -- ORDEM OBRIGATORIA. caixa_movimentos, estoque_movimentos e
       -- crediario_lancamentos apontam para vendas(id) SEM on delete cascade
@@ -83,7 +89,7 @@ export async function limpar() {
 
       delete from estoque_movimentos
        where venda_id = any(v_vendas)
-          or produto_id in (v_produto, v_caro);
+          or produto_id in (v_produto, v_caro, v_virgula);
 
       delete from crediario_lancamentos
        where venda_id = any(v_vendas)
@@ -92,7 +98,7 @@ export async function limpar() {
       -- venda_itens e venda_pagamentos saem por on delete cascade.
       delete from vendas where id = any(v_vendas);
 
-      delete from produtos where id in (v_produto, v_caro);
+      delete from produtos where id in (v_produto, v_caro, v_virgula);
       delete from clientes where nome = '${CLIENTE_E2E}';
 
       if v_sessao is not null then
@@ -123,6 +129,11 @@ export async function preparar() {
       -- Produto caro: existe para o caso do crediario acima do limite.
       insert into produtos (nome, codigo_barras, preco_custo, preco_venda, estoque_atual, estoque_minimo)
       values ('${PRODUTO_CARO_E2E}', '999000222', 2000, ${PRECO_CARO_E2E}, 20, 1);
+
+      -- Nome com virgula: e o caso que quebrava a busca (virgula e o separador de
+      -- condicoes do filtro or do PostgREST).
+      insert into produtos (nome, codigo_barras, preco_custo, preco_venda, estoque_atual, estoque_minimo)
+      values ('${PRODUTO_VIRGULA_E2E}', '999000333', 200, ${PRECO_E2E}, 20, 1);
 
       -- Cliente com limite MENOR que o produto caro: o crediario tem que recusar.
       insert into clientes (nome, telefone, limite_credito, bloqueado)

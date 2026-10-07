@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { criarClienteServidor } from '@/lib/supabase/server'
 import { formatarMoeda } from '@/lib/format'
+import { filtroDeBuscaDeProduto } from '@/lib/postgrest'
 
 // Lista enxuta, uma tarefa por tela (spec 10). O teto de 50 linhas existe porque
 // a farmacia tem milhares de produtos: trazer todos e travar a tela do balcao.
@@ -39,8 +40,10 @@ export default async function ProdutosPage({
   const termo = (busca ?? '').trim()
   if (termo !== '') {
     // Codigo de barras exato OU pedaco do nome: o leitor manda o codigo inteiro,
-    // e quem digita procura por pedaco do nome.
-    consulta = consulta.or(`codigo_barras.eq.${termo},nome.ilike.%${termo}%`)
+    // e quem digita procura por pedaco do nome. O termo vai escapado — o `or()`
+    // concatena a string do filtro e uma virgula no nome quebraria a consulta
+    // (ver lib/postgrest.ts).
+    consulta = consulta.or(filtroDeBuscaDeProduto(termo))
   }
 
   const { data, count } = await consulta

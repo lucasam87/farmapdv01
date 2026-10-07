@@ -22,6 +22,10 @@ const CLIENTE_E2E = 'CLIENTE E2E LIMITE BAIXO'
 // teste de teclado busca por ELE: "PRODUTO E2E" casa dois produtos e o
 // ArrowDown escolheria o segundo, o que faria o teste medir a ordem da lista.
 const CODIGO_E2E = '999000111'
+// Nome com virgula: o separador de condicoes do filtro `or` do PostgREST. Antes
+// do escape em lib/postgrest.ts, buscar por este termo quebrava a consulta e o
+// PDV simplesmente nao achava o produto.
+const PRODUTO_VIRGULA_E2E = 'DIPIRONA, 20 COMPRIMIDOS'
 
 // As credenciais do usuario de teste vivem no .env.local; o Playwright nao le
 // esse arquivo sozinho (a convencao dele e .env). `__dirname` e nao
@@ -125,6 +129,12 @@ test('desconto ilegivel nao fecha a venda com desconto zero', async ({ page }) =
 
   await expect(page.getByTestId('erro')).toContainText('Desconto inválido')
   await expect(page.getByTestId('confirmacao')).toHaveCount(0)
+})
+
+test('acha o produto cujo nome tem virgula', async ({ page }) => {
+  await page.goto('/vendas/nova')
+  await page.getByLabel('Buscar produto').pressSequentially('DIPIRONA, 20')
+  await expect(page.getByTestId('resultados')).toContainText(PRODUTO_VIRGULA_E2E)
 })
 
 test('F3 abre a nova venda a partir de outra tela', async ({ page }) => {
