@@ -103,10 +103,18 @@ test('crediario acima do limite mostra a mensagem em portugues', async ({ page }
   await adicionarProduto(page, PRODUTO_CARO_E2E)
 
   // O cliente com limite baixo precisa estar selecionado: o crediario exige
-  // cliente. `selectOption` com label exige STRING exata (nao aceita regex), por
-  // isso o valor e escolhido pelo texto que comeca com o nome.
+  // cliente. `selectOption` com label exige STRING exata e nao aceita regex, e o
+  // texto da opcao muda com o saldo ("— deve R$ 0,00 de R$ 30,00", ou "— sem
+  // crediario" quando o limite e zero), entao o caminho estavel e pegar o VALUE
+  // da opcao cujo texto comeca com o nome e selecionar por ele.
   const seletor = page.getByLabel(/Cliente/)
-  await seletor.selectOption({ label: `${CLIENTE_E2E} — sem crediário` })
+  const valorDoCliente = await seletor
+    .locator('option')
+    .filter({ hasText: CLIENTE_E2E })
+    .first()
+    .getAttribute('value')
+  expect(valorDoCliente).toBeTruthy()
+  await seletor.selectOption(valorDoCliente!)
 
   await page.keyboard.press('F10') // crediario
   await page.getByLabel('Valor do pagamento').fill('45,00')

@@ -58,25 +58,44 @@ export async function limpar() {
     do $$
     declare
       v_produto uuid;
+      v_caro uuid;
       v_sessao uuid;
+      v_vendas uuid[];
     begin
       select id into v_produto from produtos where nome = '${PRODUTO_E2E}';
+      select id into v_caro from produtos where nome = '${PRODUTO_CARO_E2E}';
       select id into v_sessao from caixa_sessoes where terminal = '${TERMINAL_E2E}';
 
-      if v_produto is not null then
-        delete from estoque_movimentos where produto_id = v_produto;
-        -- venda_itens e venda_pagamentos saem por ON DELETE CASCADE
-        delete from vendas where id in (select venda_id from venda_itens where produto_id = v_produto);
-        delete from produtos where id = v_produto;
-      end if;
+      -- Todas as vendas que a suite pode ter deixado: as da sessao e2e e as que
+      -- contem os produtos e2e, mesmo que tenham caido em outra sessao.
+      select coalesce(array_agg(id), '{}') into v_vendas
+        from vendas
+       where (v_sessao is not null and caixa_sessao_id = v_sessao)
+          or id in (select venda_id from venda_itens where produto_id in (v_produto, v_caro));
+
+      -- ORDEM OBRIGATORIA. caixa_movimentos, estoque_movimentos e
+      -- crediario_lancamentos apontam para vendas(id) SEM on delete cascade
+      -- (001_base.sql, linhas 149, 167 e 181): apagar vendas antes delas falha
+      -- com 23503, que foi o defeito da primeira rodada de verdade.
+      delete from caixa_movimentos
+       where venda_id = any(v_vendas)
+          or (v_sessao is not null and sessao_id = v_sessao);
+
+      delete from estoque_movimentos
+       where venda_id = any(v_vendas)
+          or produto_id in (v_produto, v_caro);
 
       delete from crediario_lancamentos
-       where cliente_id in (select id from clientes where nome = '${CLIENTE_E2E}');
+       where venda_id = any(v_vendas)
+          or cliente_id in (select id from clientes where nome = '${CLIENTE_E2E}');
+
+      -- venda_itens e venda_pagamentos saem por on delete cascade.
+      delete from vendas where id = any(v_vendas);
+
+      delete from produtos where id in (v_produto, v_caro);
       delete from clientes where nome = '${CLIENTE_E2E}';
-      delete from produtos where nome = '${PRODUTO_CARO_E2E}';
 
       if v_sessao is not null then
-        delete from caixa_movimentos where sessao_id = v_sessao;
         delete from caixa_sessoes where id = v_sessao;
       end if;
     end $$;
