@@ -41,6 +41,8 @@ export type Previa = {
    * do sistema antigo tem varios — por isso a tela avisa antes de confirmar.
    */
   codigosRepetidos: string[]
+  /* Precos absurdos que entraram com zero (ou sem a chave, no caso do custo). */
+  precosZerados: { nome: string; campo: 'preco_venda' | 'preco_custo'; valorLido: number }[]
   /* Linhas que tinham nome e codigo trocados no arquivo e foram corrigidas. */
   invertidasCorrigidas: number
   /* Quantas linhas ficaram de fora por repetirem um codigo de barras. */
@@ -218,6 +220,7 @@ export async function analisarArquivo(
     somaConferida: analise.somaConferida,
     colunasPresentes: analise.colunasPresentes,
     codigosRepetidos: analise.codigosRepetidos,
+    precosZerados: analise.precosZerados,
     invertidasCorrigidas: analise.invertidasCorrigidas,
     ignoradasPorRepeticao: analise.ignoradasPorRepeticao,
     atualizar,

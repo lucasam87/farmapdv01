@@ -88,6 +88,20 @@ export type ResultadoAnalise = {
    */
   invertidasCorrigidas: number
   /**
+   * Precos que vieram acima do limite do `integer` do banco (~R$ 21,4 milhoes).
+   *
+   * DECISAO DO LUCAS (07/10/2026): o produto nao pode sumir do catalogo por causa
+   * de um preco corrompido no sistema antigo. Entao:
+   *   - `preco_venda` acima do limite entra com **ZERO** (explicito);
+   *   - `preco_custo` acima do limite fica **ausente** (a chave nao viaja: num
+   *     produto novo o insert grava 0, num existente o custo cadastrado e mantido).
+   *
+   * ATENCAO: um produto com `preco_venda = 0` PODE SER VENDIDO por R$ 0,00 — a
+   * constraint do banco aceita zero. Esses produtos tem de ser precificados antes
+   * de ir para o balcao, e por isso a previa lista cada um.
+   */
+  precosZerados: { nome: string; campo: 'preco_venda' | 'preco_custo'; valorLido: number }[]
+  /**
    * Quantas linhas foram DEIXADAS DE FORA por repetirem um codigo de barras.
    *
    * Decisao do Lucas (07/10/2026): o catalogo real do sistema antigo tem EAN
@@ -122,17 +136,19 @@ const APELIDOS: Record<string, string[]> = {
 const OBRIGATORIO = 'nome'
 
 /**
- * O maior valor que a coluna `integer` do Postgres aceita, em centavos.
+ * O maior valor que a coluna `integer` do Postgres aceita, em centavos
+ * (R$ 21.474.836,47).
  *
  * NAO e um limite de negocio inventado: e o limite do BANCO. O catalogo real do
  * sistema antigo tem uma linha com preco R$ 7.896.714.283,00 (cadastro
  * corrompido); em centavos isso estoura o `integer`, e como a importacao e tudo
  * ou nada, essa unica linha derrubava o catalogo INTEIRO com um erro cru do
- * Postgres. Barrando aqui, a linha ruim vira uma linha invalida nomeada na previa
- * e o resto do catalogo entra.
+ * Postgres ("value ... is out of range for type integer").
+ *
+ * Decisao do Lucas: o produto NAO pode sumir do catalogo. Preco de venda acima
+ * do limite entra com ZERO e a previa lista, para ele precificar depois.
  */
 const LIMITE_DE_CENTAVOS = 2147483647
-const LIMITE_EM_REAIS = 'R$ 21.474.836,47'
 
 export function normalizarCabecalho(texto: string): string {
   return texto
@@ -268,6 +284,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   let somaLida = 0
   let semZeros = 0
   let invertidasCorrigidas = 0
+  const precosZerados: { nome: string; campo: 'preco_venda' | 'preco_custo'; valorLido: number }[] = []
 
   for (const linha of tabela.linhas) {
     if (ehRodape(linha)) {
@@ -320,7 +337,8 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
       if (custo === null) {
         if ((custoTexto ?? '').trim() !== '') erros.push('Preço de custo inválido.')
       } else if (custo > LIMITE_DE_CENTAVOS) {
-        erros.push(`Preço de custo acima do limite do banco (${LIMITE_EM_REAIS}).`)
+        // Nao recusa a linha: o produto entra com custo ZERO e a tela avisa.
+        precosZerados.push({ nome, campo: 'preco_custo', valorLido: custo })
       } else {
         precoCusto = custo
       }
@@ -333,7 +351,9 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
       if (venda === null) {
         if ((vendaTexto ?? '').trim() !== '') erros.push('Preço de venda inválido.')
       } else if (venda > LIMITE_DE_CENTAVOS) {
-        erros.push(`Preço de venda acima do limite do banco (${LIMITE_EM_REAIS}).`)
+        // Decisao do Lucas: o produto NAO pode sumir do catalogo por causa de um
+        // preco corrompido no sistema antigo. Entra com ZERO e a previa avisa.
+        precosZerados.push({ nome, campo: 'preco_venda', valorLido: venda })
       } else {
         precoVenda = venda
         // Soma de TUDO que foi lido, inclusive as linhas que a deduplicacao vai
@@ -416,6 +436,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     somaConferida: totalImpresso !== null && totalImpresso === somaLida,
     codigosRepetidos,
     invertidasCorrigidas,
+    precosZerados,
     ignoradasPorRepeticao,
     validas,
     invalidas: linhasUnicas.length - validas,

@@ -307,9 +307,11 @@ describe('analisarTabela', () => {
   // O catalogo REAL do sistema antigo tem uma linha com preco R$ 7.896.714.283,00.
   // Em centavos isso estoura o `integer` do Postgres, e como a importacao e tudo
   // ou nada, essa unica linha derrubava o catalogo INTEIRO com um erro cru
-  // ("value ... is out of range for type integer"). A linha tem que virar invalida
-  // aqui, com aviso em portugues, para o resto entrar.
-  it('preco acima do limite do integer do banco vira linha invalida, e nao estouro', () => {
+  // ("value ... is out of range for type integer").
+  //
+  // DECISAO DO LUCAS (07/10/2026): o produto NAO pode sumir do catalogo. A linha
+  // entra com preco ZERO e a previa avisa — ele ajusta o preco depois.
+  it('preco acima do limite do banco entra com ZERO e a previa avisa', () => {
     const r = analisarTabela({
       colunas: ['nome', 'preco'],
       linhas: [
@@ -317,25 +319,34 @@ describe('analisarTabela', () => {
         ['B', '4,50'],
       ],
     })
-    expect(r.invalidas).toBe(1)
-    expect(r.linhas[0].erros.join(' ')).toContain('limite')
-    // E o resto do catalogo continua importavel.
-    expect(r.validas).toBe(1)
+    expect(r.invalidas).toBe(0)
+    expect(r.linhas[0].preco_venda).toBe(0)
+    expect(r.precosZerados).toHaveLength(1)
+    expect(r.precosZerados[0].campo).toBe('preco_venda')
+    expect(r.precosZerados[0].valorLido).toBe(789671428300)
+    // O produto continua no catalogo, com nome e codigo.
+    expect(r.linhas[0].nome).toBe('A')
+    // E o resto do catalogo segue normal.
+    expect(r.linhas[1].preco_venda).toBe(450)
   })
 
-  it('custo acima do limite do banco tambem vira linha invalida', () => {
+  it('custo acima do limite do banco nao e gravado nem derruba a linha', () => {
     const r = analisarTabela({
       colunas: ['nome', 'preco', 'custo'],
       linhas: [['A', '4,50', '7.896.714.283,00']],
     })
-    expect(r.invalidas).toBe(1)
-    expect(r.linhas[0].erros.join(' ')).toContain('limite')
+    expect(r.invalidas).toBe(0)
+    // `null` = "nao sei o custo": a chave nao viaja e a RPC nao mexe no custo ja
+    // cadastrado (num produto novo, o insert grava 0).
+    expect(r.linhas[0].preco_custo).toBeNull()
+    expect(r.precosZerados[0].campo).toBe('preco_custo')
   })
 
   it('o limite exato do integer ainda passa', () => {
     const r = analisarTabela({ colunas: ['nome', 'preco'], linhas: [['A', '21.474.836,47']] })
     expect(r.invalidas).toBe(0)
     expect(r.linhas[0].preco_venda).toBe(2147483647)
+    expect(r.precosZerados).toEqual([])
   })
 
   // Cadastro INVERTIDO no exportador: a coluna de nome tem o codigo de barras e a

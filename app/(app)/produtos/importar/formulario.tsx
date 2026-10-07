@@ -182,6 +182,30 @@ export function FormularioImportacao() {
             </p>
           ) : null}
 
+          {/* Preco zerado sem aviso e pior que preco ausente: o produto entra no
+              catalogo (nao some) mas NAO pode ir para o balcao antes de ser
+              precificado — com preco 0 ele vende por R$ 0,00. */}
+          {previa.precosZerados.length > 0 ? (
+            <div role="alert" className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-base text-red-700">
+              <p>
+                <strong>
+                  {previa.precosZerados.length} produto(s) entraram com PREÇO ZERO
+                </strong>{' '}
+                porque o valor no arquivo passava do limite do banco (R$ 21.474.836,47). Eles ficam
+                no catálogo, mas <strong>não venda antes de precificar</strong> — com preço zero a
+                venda fecha por R$ 0,00. São eles:
+              </p>
+              <ul className="mt-2 list-inside list-disc">
+                {previa.precosZerados.map((p, i) => (
+                  <li key={i}>
+                    {p.nome} — {p.campo === 'preco_venda' ? 'preço de venda' : 'preço de custo'} veio{' '}
+                    {formatarMoeda(p.valorLido)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {previa.codigosRepetidos.length > 0 ? (
             <p role="alert" className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
               <strong>
