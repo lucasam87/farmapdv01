@@ -14,7 +14,9 @@ declare
   v_atendente  uuid;
   v_caixa      uuid;
   v_c1         uuid;
+  v_c2         uuid;
   v_p1         uuid;
+  v_p2         uuid;
 begin
   -- ================= cenario =================
   v_dono := criar_usuario_teste(gen_random_uuid(), 'dono@farmacia.local');
@@ -24,8 +26,10 @@ begin
 
   -- limite folgado: quem limita o recebimento aqui e a divida, nao o credito
   v_c1 := criar_cliente('JOSE DA DIVIDA', 100000, false);
+  v_c2 := criar_cliente('CLIENTE QUE ZERA A DIVIDA', 100000, false);
 
   v_p1 := criar_produto('PRODUTO DO CREDIARIO', 10000, 10);
+  v_p2 := criar_produto('PRODUTO QUE SERA PAGO', 5000, 10);
 
   v_caixa := criar_caixa_aberto(v_dono);
 
@@ -46,22 +50,58 @@ begin
     'caso 1: pagamento de R$ 20,00 sobre dívida de R$ 100,00 deixa saldo de R$ 80,00');
 
   -- ================= caso 2: acima da divida e recusado (spec 8.4: nunca gerar saldo credor) =================
+  -- O trecho inclui o valor: uma mensagem que perdesse o centavos_em_reais nao
+  -- passaria por engano.
   perform teste_erro(format('select receber_pagamento(%L, 900000, %L)', v_c1, 'dinheiro'),
-    'O valor é maior que a dívida', 'caso 2: acima da divida e recusado sem gerar credito');
+    'O valor é maior que a dívida (R$ 80,00)',
+    'caso 2: acima da divida e recusado sem gerar credito');
   perform teste_ok((select saldo = 8000 from v_clientes_devedores where cliente_id = v_c1),
     'caso 2: a recusa nao mexeu no saldo devedor');
 
+  -- divida ja zerada: nao pode virar saldo credor (Review Focus 2).
+  -- O pagamento deste cliente e em PIX de proposito: assim ele nao mexe na
+  -- gaveta e o caso 3 continua medindo so o recebimento em dinheiro do caso 1.
+  perform registrar_venda(gen_random_uuid(), v_c2,
+    jsonb_build_array(jsonb_build_object('produto_id', v_p2, 'quantidade', 1)),
+    jsonb_build_array(jsonb_build_object('forma', 'crediario', 'valor', 5000)),
+    0);
+  perform teste_ok(((receber_pagamento(v_c2, 5000, 'pix'))->>'saldo_apos')::int = 0,
+    'caso 2b: o pagamento integral zera a divida do segundo cliente');
+  perform teste_erro(format('select receber_pagamento(%L, 100, %L)', v_c2, 'dinheiro'),
+    'O valor é maior que a dívida (R$ 0,00)',
+    'caso 2b: pagar com a divida ja zerada e recusado e nao gera credito');
+  perform teste_ok((select count(*) = 0 from v_clientes_devedores where cliente_id = v_c2),
+    'caso 2b: o cliente quitado sai da lista de devedores');
+
   -- ================= caso 3: dinheiro entra no esperado da gaveta; pix NAO =================
-  -- A venda em crediario nao mexeu no esperado (a forma e 'crediario', e so
-  -- 'dinheiro' entra), entao o esperado e o valor_inicial da sessao + os R$ 20,00
-  -- recem recebidos em dinheiro.
-  perform teste_ok((select esperado_dinheiro = valor_inicial + 2000 from v_caixa_atual),
+  -- A gaveta e lida da PROPRIA sessao do cenario, pela formula da spec 8.3 e sem
+  -- variavel intermediaria: `valor_inicial + so o que entrou em dinheiro`.
+  -- Nao ha recebimento em dinheiro antes deste caso (o do caso 2b e em PIX de
+  -- proposito), entao 2000 e o valor exato. Um segundo terminal aberto nao afeta
+  -- nada aqui, e a assercao nao depende de comparacao entre variaveis.
+  perform teste_ok((select valor_inicial + coalesce(sum(
+                        case when tipo in ('venda', 'recebimento_crediario')
+                                  and forma = 'dinheiro' then valor else 0 end), 0)
+                      from caixa_sessoes s
+                      left join caixa_movimentos m on m.sessao_id = s.id
+                      where s.id = v_caixa
+                      group by s.valor_inicial) = 2000,
     'caso 3: recebimento em dinheiro entra em esperado_dinheiro');
-  perform teste_ok((select vendas_dinheiro = 0 and recebimentos_dinheiro = 2000 from v_caixa_atual),
-    'caso 3: o recebimento entra como recebimento (nao como venda) no caixa');
+  perform teste_ok((select count(*) = 1 from caixa_movimentos
+                    where sessao_id = v_caixa and tipo = 'recebimento_crediario'
+                      and forma = 'dinheiro' and valor = 2000),
+    'caso 3: o recebimento entrou como recebimento_crediario/dinheiro, nao como venda');
 
   perform receber_pagamento(v_c1, 1000, 'pix');
-  perform teste_ok((select esperado_dinheiro = valor_inicial + 2000 from v_caixa_atual),
+  -- O PIX tem de ficar registrado no caixa, mas sem entrar na conta do dinheiro:
+  -- o mesmo calculo tem de continuar dando 2000.
+  perform teste_ok((select valor_inicial + coalesce(sum(
+                        case when tipo in ('venda', 'recebimento_crediario')
+                                  and forma = 'dinheiro' then valor else 0 end), 0)
+                      from caixa_sessoes s
+                      left join caixa_movimentos m on m.sessao_id = s.id
+                      where s.id = v_caixa
+                      group by s.valor_inicial) = 2000,
     'caso 3: recebimento em pix NAO entra em esperado_dinheiro');
   perform teste_ok((select count(*) = 1 from caixa_movimentos
                     where sessao_id = v_caixa and tipo = 'recebimento_crediario'
@@ -69,10 +109,13 @@ begin
     'caso 3: o recebimento em pix ficou registrado no caixa com a forma certa');
 
   -- ================= caso 5: valor zero ou negativo e recusado =================
+  -- O trecho e o da RPC, e SO dela: 'valor' sozinho casaria com o nome do check
+  -- do banco (crediario_lancamentos_valor_check) e com a mensagem do caso 2, entao
+  -- o teste passaria mesmo com o guarda de valor removido da funcao.
   perform teste_erro(format('select receber_pagamento(%L, 0, %L)', v_c1, 'dinheiro'),
-    'valor', 'caso 5: receber valor zero e recusado');
+    'precisa ser maior que zero', 'caso 5: receber valor zero e recusado');
   perform teste_erro(format('select receber_pagamento(%L, -500, %L)', v_c1, 'dinheiro'),
-    'valor', 'caso 5: receber valor negativo e recusado');
+    'precisa ser maior que zero', 'caso 5: receber valor negativo e recusado');
   perform teste_ok((select saldo = 7000 from v_clientes_devedores where cliente_id = v_c1),
     'caso 5: nenhuma das recusas mexeu no saldo');
 
