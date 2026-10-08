@@ -27,6 +27,19 @@
 --
 -- O saldo devedor e SEMPRE a soma de crediario_lancamentos (a mesma conta de
 -- receber_pagamento e de v_clientes_devedores); ninguem guarda saldo em coluna.
+--
+-- A MARCA 'Saldo importado do sistema antigo' aparece literalmente em TRES pontos
+-- deste arquivo (2 inserts e 1 teste de existencia, em `cliente_salvar`) e vai ser
+-- escrita de novo pela tela da Task 4/Task 6. SQL nao tem constante de modulo, e
+-- um helper so para devolver esta string seria pior que o problema: o que estes
+-- tres pontos (e a Task 6) precisam e do MESMO texto, caractere por caractere.
+-- Variacao de maiuscula, de acento ou de espaco faz a guarda parar de reconhecer
+-- o saldo — e a divida dobra sem nenhum erro aparecer.
+--
+-- Campo ausente NAO apaga dado (mesma regra da chave ausente em
+-- importar_produtos): `p_cpf` nulo na edicao mantem o CPF gravado (a v1 nao tem
+-- "apagar CPF"; a tela nao manda o campo), e na importacao `limite_credito` e
+-- `telefone` ausentes mantem o valor que o cliente ja tinha.
 
 -- ============================================================
 -- cliente_salvar — cadastro e edicao pelo balcao (dono e atendente)
@@ -103,10 +116,20 @@ begin
     v_limite := coalesce(p_limite_credito, v_cliente.limite_credito);
     v_bloqueado := coalesce(p_bloqueado, v_cliente.bloqueado);
     v_saldo := coalesce(p_saldo_inicial, 0);
+    -- CPF NULO NA EDICAO NAO APAGA O CPF. Ele e a chave de casamento da
+    -- importacao: apagar aqui faria o cliente ser criado de novo (duplicata) e o
+    -- saldo dele ser lancado uma segunda vez. A tela da v1 nao tem "apagar CPF";
+    -- se um dia tiver, isso vira um parametro explicito, nao um efeito de omissao.
+    if v_cpf is null then
+      v_cpf := v_cliente.cpf;
+    end if;
   end if;
 
   if v_limite < 0 then
     raise exception 'O limite de crédito não pode ser negativo.';
+  end if;
+  if v_saldo < 0 then
+    raise exception 'O saldo inicial não pode ser negativo.';
   end if;
 
   -- ---- as guardas de papel: limite, bloqueio e saldo sao do dono (spec 5) ----
@@ -125,8 +148,26 @@ begin
     end if;
   end if;
 
+  -- ---- o saldo inicial tambem tem a guarda da MARCA (o 2o caminho) ----
+  -- O saldo importado e UM lancamento marcado por cliente. A importacao ja
+  -- ignorava o segundo; a edicao do dono tambem precisa parar aqui, senao o
+  -- caminho "cadastrar com saldo" e uma segunda porta para dobrar a divida. Aqui
+  -- a escolha e RECUSAR, e nao ignorar em silencio: quem digitou o saldo precisa
+  -- saber que ele nao foi lancado.
+  if v_saldo > 0 and not v_criando then
+    if exists (select 1 from crediario_lancamentos l
+                where l.cliente_id = p_id
+                  and l.tipo = 'compra'
+                  and l.venda_id is null
+                  and l.observacao = 'Saldo importado do sistema antigo') then
+      raise exception 'Este cliente já tem um saldo inicial lançado.';
+    end if;
+  end if;
+
   -- ---- CPF repetido: a mensagem e da RPC, nao o nome do indice (spec 9) ----
-  if v_cpf is not null then
+  -- So recusa quando o CPF esta MUDANDO: reeditar o mesmo cliente mandando o CPF
+  -- que ele ja tem (ou nenhum, que agora herda o atual) e edicao, nao duplicata.
+  if v_cpf is not null and (v_criando or v_cpf is distinct from v_cliente.cpf) then
     if exists (select 1 from clientes c where c.cpf = v_cpf and c.id is distinct from p_id) then
       raise exception 'Já existe um cliente com este CPF.';
     end if;
@@ -255,7 +296,13 @@ begin
       'nome',           v_nome,
       'telefone',       nullif(regexp_replace(coalesce(v_linha->>'telefone', ''), '\D', '', 'g'), ''),
       'cpf',            v_cpf,
+      -- Ausente = "nao sei, nao mexe": o booleano abaixo e o que distingue "a
+      -- coluna nao veio na planilha" de "veio zero". Sem ele, reimportar um arquivo
+      -- so com nome e CPF ZERARIA o limite que o dono liberou (mesmo defeito do
+      -- preco em importar_produtos, corrigido na 009).
+      'tem_limite',     (v_linha ? 'limite_credito' and jsonb_typeof(v_linha->'limite_credito') <> 'null'),
       'limite_credito', coalesce((v_linha->>'limite_credito')::integer, 0),
+      'tem_telefone',   (v_linha ? 'telefone' and jsonb_typeof(v_linha->'telefone') <> 'null'),
       'saldo',          coalesce((v_linha->>'saldo')::integer, 0)
     );
   end loop;
@@ -278,7 +325,14 @@ begin
   for v_linha in select r.registro from jsonb_array_elements(v_registros) as r(registro)
   loop
     v_cliente := null;
-    select c.id into v_cliente from clientes c where c.cpf = v_linha->>'cpf';
+    -- `for update` pela MESMA razao de receber_pagamento: a checagem da guarda
+    -- abaixo e check-then-act. Sem o lock, dois imports simultaneos do mesmo
+    -- arquivo leem "nao existe lancamento marcado", os dois passam e a divida
+    -- dobra — que e exatamente o dano que esta tarefa existe para impedir. Com o
+    -- lock, a segunda transacao espera e, depois do commit da primeira, enxerga
+    -- (snapshot novo) o lancamento que ela gravou. A linha do cliente sempre
+    -- existe aqui: foi criada/atualizada logo abaixo, no ramo acima.
+    select c.id into v_cliente from clientes c where c.cpf = v_linha->>'cpf' for update;
 
     if v_cliente is not null and not coalesce(p_atualizar_existentes, false) then
       -- Existe e o dono nao pediu para atualizar: nao toca em nada. O SALDO
@@ -288,8 +342,14 @@ begin
     elsif v_cliente is not null then
       update clientes
          set nome           = v_linha->>'nome',
-             telefone       = nullif(v_linha->>'telefone', ''),
-             limite_credito = (v_linha->>'limite_credito')::integer
+             -- Ausente nao sobrescreve (ver o cabecalho): a planilha pode nao ter
+             -- a coluna, e apagar o telefone/limite do cliente e dado perdido.
+             telefone       = case when (v_linha->>'tem_telefone')::boolean
+                                   then nullif(v_linha->>'telefone', '')
+                                   else telefone end,
+             limite_credito = case when (v_linha->>'tem_limite')::boolean
+                                   then (v_linha->>'limite_credito')::integer
+                                   else limite_credito end
        where id = v_cliente;
       v_atualizados := v_atualizados + 1;
     else
