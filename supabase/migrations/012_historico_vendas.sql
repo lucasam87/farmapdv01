@@ -14,8 +14,11 @@
 -- Sem indice novo: a tabela `vendas` de uma farmacia e pequena e um indice de
 -- expressao sobre `criado_em at time zone ...` nao se paga.
 --
--- `itens` e `formas` seguem o mesmo formato de v_vendas_lista (a tela mostra o
--- mesmo resumo), e `cancelado_por_nome` evita que a tela precise de um join.
+-- ACOPLAMENTO: `itens` e `formas` sao o MESMO resumo de `v_vendas_lista`
+-- (005_views.sql) — a tela mostra os dois no mesmo formato. Se um mudar, o
+-- outro muda junto, na mesma migration.
+--
+-- `cancelado_por_nome` evita que a tela precise de um join com `perfis`.
 
 create or replace view v_vendas_historico as
 select v.id                                                        as venda_id,

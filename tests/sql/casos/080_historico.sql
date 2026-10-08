@@ -6,34 +6,47 @@
 --
 -- O cenario usa criado_em EXPLICITO e no passado (janeiro), para o dia de cada
 -- venda ser deterministico: a suite roda contra o banco de PRODUCAO, onde
--- existe venda real da farmacia. Por isso nenhuma assercao conta a tabela
--- inteira — todas filtram por venda_id ou por um dia de janeiro isolado.
+-- existe venda real da farmacia. Por isso as assercoes sao escopadas por
+-- venda_id OU comparam DELTA contra uma linha de base tirada antes do primeiro
+-- registrar_venda — nunca afirmam o total de um dia inteiro do banco, que uma
+-- venda retroativa da farmacia quebraria por motivo de dado.
 --
 -- Nota de interpretacao: a venda cancelada sai por 300 (produto de 450 com
--- desconto de 150), que e o total exigido pelo caso 2.
+-- desconto de 150). A assercao do caso 2 fixa subtotal e desconto, para as duas
+-- leituras de "300" nao passarem as duas.
 
 do $$
 declare
-  v_dono       uuid;
-  v_caixa      uuid;
-  v_chave      uuid;
-  v_p_noite    uuid;
-  v_p_hoje     uuid;
-  v_p_cancel   uuid;
-  v_s_noite    uuid;
-  v_s_hoje     uuid;
-  v_s_cancel   uuid;
+  v_dono        uuid;
+  v_chave       uuid;
+  v_p_noite     uuid;
+  v_p_hoje      uuid;
+  v_p_cancel    uuid;
+  v_s_noite     uuid;
+  v_s_meianoite uuid;
+  v_s_hoje      uuid;
+  v_s_cancel    uuid;
+  -- Linhas de base do banco de PRODUCAO, tiradas ANTES do primeiro
+  -- registrar_venda: o que se assere depois e o DELTA, nunca o dia inteiro.
+  v_dia14_antes integer;
+  v_dia15_antes integer;
+  v_dia17_antes integer;
 begin
   -- ================= cenario =================
   v_dono := criar_usuario_teste(gen_random_uuid(), 'historico@farmacia.local');
   perform set_config('request.jwt.claims',
     jsonb_build_object('sub', v_dono, 'role', 'authenticated')::text, true);
 
-  v_caixa := criar_caixa_aberto(v_dono);
+  perform criar_caixa_aberto(v_dono);
 
   v_p_noite := criar_produto('PRODUTO NOITE', 450, 100);
   v_p_hoje := criar_produto('PRODUTO HOJE', 500, 100);
   v_p_cancel := criar_produto('PRODUTO CANCELADO', 450, 100);
+
+  -- Linha de base: o que a farmacia ja tem nesses dias antes das vendas do caso.
+  v_dia14_antes := (select count(*) from v_vendas_historico where dia = date '2026-01-14');
+  v_dia15_antes := (select coalesce(sum(total), 0) from v_vendas_dia where dia = date '2026-01-15');
+  v_dia17_antes := (select coalesce(sum(total), 0) from v_vendas_dia where dia = date '2026-01-17');
 
   -- v_s_noite: 2x PRODUTO NOITE (900), dinheiro 1000
   v_chave := gen_random_uuid();
@@ -42,6 +55,14 @@ begin
     jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 1000)),
     0)->>'id')::uuid;
   update vendas set criado_em = timestamptz '2026-01-16 01:00:00+00' where id = v_s_noite;  -- 22h de 15/01 em SP
+
+  -- v_s_meianoite: 1x PRODUTO HOJE (500), dinheiro 1000 — a virada do dia
+  v_chave := gen_random_uuid();
+  v_s_meianoite := (registrar_venda(v_chave, null,
+    jsonb_build_array(jsonb_build_object('produto_id', v_p_hoje, 'quantidade', 1)),
+    jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 1000)),
+    0)->>'id')::uuid;
+  update vendas set criado_em = timestamptz '2026-01-16 03:30:00+00' where id = v_s_meianoite;  -- 00h30 de 16/01 em SP
 
   -- v_s_hoje: 1x PRODUTO HOJE (500), dinheiro 1000
   v_chave := gen_random_uuid();
@@ -71,6 +92,8 @@ begin
                       and motivo_cancelamento = 'cliente desistiu'
                       and cancelado_por_nome = 'historico@farmacia.local'
                       and cancelado_em is not null
+                      and subtotal = 450
+                      and desconto = 150
                       and total = 300
                       and itens = '1x PRODUTO CANCELADO'
                     from v_vendas_historico where venda_id = v_s_cancel),
@@ -79,17 +102,22 @@ begin
   -- ================= caso 3: o faturamento nao ve a cancelada =================
   perform teste_ok((select count(*) = 0 from v_vendas_lista where venda_id = v_s_cancel),
     'caso 3: a cancelada nao aparece em v_vendas_lista');
-  perform teste_ok((select coalesce(sum(total), 0) = 0 from v_vendas_dia where dia = date '2026-01-17'),
-    'caso 3: o dia da cancelada fica zerado em v_vendas_dia');
+  perform teste_ok((select coalesce(sum(total), 0) = v_dia17_antes
+                    from v_vendas_dia where dia = date '2026-01-17'),
+    'caso 3: o dia da cancelada nao muda em v_vendas_dia');
 
   -- ================= caso 4: o dia e o de Sao Paulo =================
   perform teste_ok((select dia = date '2026-01-15' and criado_em::time = time '22:00'
                     from v_vendas_historico where venda_id = v_s_noite),
     'caso 4: a venda das 22h de 15/01 tem dia 2026-01-15 e hora 22:00');
-  perform teste_ok((select coalesce(sum(total), 0) = 900 from v_vendas_dia where dia = date '2026-01-15'),
-    'caso 4: o total do dia 15/01 e o dela');
+  perform teste_ok((select dia = date '2026-01-16' and criado_em::time = time '00:30'
+                    from v_vendas_historico where venda_id = v_s_meianoite),
+    'caso 4: a venda das 00h30 de 16/01 tem dia 2026-01-16 e hora 00:30');
+  perform teste_ok((select coalesce(sum(total), 0) = v_dia15_antes + 900
+                    from v_vendas_dia where dia = date '2026-01-15'),
+    'caso 4: o dia 15/01 recebeu so os 900 dela');
 
   -- ================= caso 5: dia sem venda =================
-  perform teste_ok((select count(*) = 0 from v_vendas_historico where dia = date '2026-01-14'),
-    'caso 5: um dia sem venda nao devolve linha');
+  perform teste_ok((select count(*) = v_dia14_antes from v_vendas_historico where dia = date '2026-01-14'),
+    'caso 5: um dia sem venda do caso nao ganha linha');
 end $$;
