@@ -1,20 +1,23 @@
 import Link from 'next/link'
 import { criarClienteServidor } from '@/lib/supabase/server'
 import { formatarMoeda } from '@/lib/format'
+import {
+  validarDia,
+  diaAnterior,
+  diaSeguinte,
+  rotuloDoDia,
+  horaDe,
+  resumirCanceladas,
+  type VendaHistorico,
+} from './dia'
 
-// Casca do historico: o dia de hoje e as vendas dele, com os valores ocultaveis
-// (spec 10, como no sistema antigo). O historico completo, o detalhe da venda e o
-// cancelamento sao a Etapa 5 — esta tela existe para o PDV ter para onde mandar o
-// atendente depois de fechar a venda.
-
-type VendaLista = {
-  venda_id: string
-  numero: number
-  criado_em: string
-  cliente_nome: string | null
-  total: number
-  itens: string | null
-}
+// Historico de vendas: o dia no endereco, as setas de navegacao, o resumo do dia
+// e a venda cancelada marcada na lista (spec 10 e 8.2).
+//
+// A tela NAO faz conta — nem de dinheiro, nem de fuso, nem de data. `dia` ja vem
+// pronto da view (fuso de Sao Paulo) e `validarDia` e a UNICA porta do endereco:
+// as funcoes de `./dia` nao validam entrada, entao tudo o que sai daqui ja e um
+// dia confiavel. O que o endereco traz de torto vira aviso, nunca erro 500.
 
 type ResumoDia = {
   dia: string
@@ -23,99 +26,194 @@ type ResumoDia = {
   ticket_medio: number
 }
 
-/** A view ja entrega a data no fuso de Sao Paulo. */
-function hora(texto: string): string {
-  const partes = texto.replace(' ', 'T').match(/T(\d{2}:\d{2})/)
-  return partes ? partes[1] : texto
-}
+// Teto de linhas do dia: a lista nao pode travar o balcao num dia atipico.
+const LIMITE = 200
+
+const COLUNAS =
+  'venda_id, numero, dia, criado_em, cliente_id, cliente_nome, subtotal, desconto, total, troco, itens, formas, status, cancelado_em, cancelado_por_nome, motivo_cancelamento'
 
 export default async function VendasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ocultar?: string }>
+  searchParams: Promise<{ dia?: string; ocultar?: string }>
 }) {
-  const { ocultar } = await searchParams
-  const oculto = Boolean(ocultar)
-  const supabase = await criarClienteServidor()
+  const params = await searchParams
+  const oculto = Boolean(params.ocultar)
 
   const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+  const { dia, aviso } = validarDia(params.dia, hoje)
 
-  const { data: resumo } = await supabase
+  const supabase = await criarClienteServidor()
+
+  const { data: resumoBruto } = await supabase
     .from('v_vendas_dia')
     .select('dia, quantidade, total, ticket_medio')
-    .eq('dia', hoje)
+    .eq('dia', dia)
     .maybeSingle()
 
-  const dia = resumo as ResumoDia | null
-
   const { data: lista } = await supabase
-    .from('v_vendas_lista')
-    .select('venda_id, numero, criado_em, cliente_nome, total, itens')
+    .from('v_vendas_historico')
+    .select(COLUNAS)
+    .eq('dia', dia)
     .order('criado_em', { ascending: false })
-    .limit(50)
+    .limit(LIMITE)
 
-  const vendas = ((lista ?? []) as VendaLista[]).filter((v) => v.criado_em.startsWith(hoje))
+  const resumo = resumoBruto as ResumoDia | null
+  const vendas = (lista ?? []) as VendaHistorico[]
+  const canceladas = resumirCanceladas(vendas)
+  const rotulo = rotuloDoDia(dia, hoje)
 
   function valor(centavos: number): string {
     return oculto ? '••••' : formatarMoeda(centavos)
   }
 
+  // Ocultar valores vive no endereco (spec 10). Sem isto, trocar de dia ou abrir
+  // uma venda traria os valores de volta: o `ocultar=1` tem de ir junto em todo
+  // link que sai desta tela.
+  function comOcultar(url: string): string {
+    if (!oculto) return url
+    return `${url}${url.includes('?') ? '&' : '?'}ocultar=1`
+  }
+
   return (
     <div className="mx-auto max-w-4xl">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-slate-800">Vendas de hoje</h1>
+        <h1 className="text-2xl font-semibold text-slate-800">Vendas — {rotulo}</h1>
         <Link
-          href={oculto ? '/vendas' : '/vendas?ocultar=1'}
+          data-testid="ocultar"
+          href={oculto ? `/vendas?dia=${dia}` : `/vendas?dia=${dia}&ocultar=1`}
           className="rounded-lg border border-slate-300 px-5 py-3 text-base font-medium text-slate-700 hover:bg-slate-100"
         >
           {oculto ? 'Mostrar valores' : 'Ocultar valores'}
         </Link>
       </div>
 
+      <nav className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
+        <Link
+          data-testid="dia-anterior"
+          href={comOcultar(`/vendas?dia=${diaAnterior(dia)}`)}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-base font-medium text-slate-700 hover:bg-slate-100"
+        >
+          ‹ Dia anterior
+        </Link>
+        <Link
+          data-testid="dia-hoje"
+          href={comOcultar('/vendas')}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-base font-medium text-slate-700 hover:bg-slate-100"
+        >
+          Hoje
+        </Link>
+        <Link
+          data-testid="dia-seguinte"
+          href={comOcultar(`/vendas?dia=${diaSeguinte(dia)}`)}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-base font-medium text-slate-700 hover:bg-slate-100"
+        >
+          Dia seguinte ›
+        </Link>
+
+        <form method="get" className="ml-auto flex flex-wrap items-end gap-2">
+          <label className="text-sm font-medium text-slate-700">
+            Ver outro dia
+            {/* `key={dia}`: sem ele o campo (nao controlado) continuaria mostrando
+                o dia anterior depois de navegar pelas setas. */}
+            <input
+              key={dia}
+              type="date"
+              name="dia"
+              defaultValue={dia}
+              className="mt-1 block rounded-lg border border-slate-300 bg-white px-4 py-2 text-base text-slate-900"
+            />
+          </label>
+          <input type="hidden" name="ocultar" value={oculto ? '1' : ''} />
+          <button
+            type="submit"
+            className="rounded-lg bg-slate-100 px-5 py-2 text-base font-medium text-slate-700 hover:bg-slate-200"
+          >
+            Ver
+          </button>
+        </form>
+      </nav>
+
+      {aviso ? (
+        <p
+          data-testid="aviso-dia"
+          className="mt-4 rounded-2xl bg-amber-50 p-4 text-base text-amber-800"
+        >
+          Data inválida no endereço. Mostrando hoje.
+        </p>
+      ) : null}
+
       <section className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl bg-white p-6 shadow-sm">
           <p className="text-sm text-slate-500">Vendas</p>
-          <p className="text-3xl font-semibold text-slate-800">{dia?.quantidade ?? 0}</p>
+          <p className="text-3xl font-semibold text-slate-800">{resumo?.quantidade ?? 0}</p>
         </div>
         <div className="rounded-2xl bg-white p-6 shadow-sm">
           <p className="text-sm text-slate-500">Total do dia</p>
-          <p className="text-3xl font-semibold text-slate-800">{valor(dia?.total ?? 0)}</p>
+          <p className="text-3xl font-semibold text-slate-800">{valor(resumo?.total ?? 0)}</p>
         </div>
         <div className="rounded-2xl bg-white p-6 shadow-sm">
           <p className="text-sm text-slate-500">Ticket médio</p>
+          {/* A view ja devolve o ticket medio em centavos e ja arredondado: aqui
+              so resta formatar (a versao anterior multiplicava por 100 e mostrava
+              o ticket medio cem vezes maior). */}
           <p className="text-3xl font-semibold text-slate-800">
-            {valor(Math.round(Number(dia?.ticket_medio ?? 0) * 100))}
+            {valor(Math.round(Number(resumo?.ticket_medio ?? 0)))}
           </p>
         </div>
       </section>
 
+      {canceladas.quantidade > 0 ? (
+        <p data-testid="resumo-canceladas" className="mt-4 text-base text-slate-600">
+          Canceladas: {canceladas.quantidade} · {valor(canceladas.total)}
+        </p>
+      ) : null}
+
       {vendas.length === 0 ? (
         <p className="mt-6 rounded-2xl bg-white p-8 text-lg text-slate-600 shadow-sm">
-          Nenhuma venda hoje ainda. Use <span className="font-medium">Nova venda</span> (F3).
+          Nenhuma venda em {rotulo}.
         </p>
       ) : (
         <ul className="mt-6 space-y-3">
-          {vendas.map((v) => (
-            <li
-              key={v.venda_id}
-              data-testid="linha-venda"
-              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white p-6 shadow-sm"
-            >
-              <div>
-                <p className="text-lg text-slate-800">
-                  Venda {v.numero} · {hora(v.criado_em)}
-                </p>
-                <p className="mt-1 text-base text-slate-500">
-                  {v.cliente_nome ?? 'sem cliente'}
-                  {v.itens ? ` · ${v.itens}` : ''}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xl font-semibold text-slate-800">{valor(v.total)}</p>
-                <p className="mt-1 text-sm text-slate-400">Detalhe na próxima etapa</p>
-              </div>
-            </li>
-          ))}
+          {vendas.map((venda) => {
+            const cancelada = venda.status === 'cancelada'
+            return (
+              <li key={venda.venda_id}>
+                {/* A cancelada e a MESMA linha, so marcada: o e2e a procura por
+                    `linha-venda` e por `data-cancelada` (um elemento nao pode ter
+                    dois `data-testid`). */}
+                <Link
+                  data-testid="linha-venda"
+                  {...(cancelada ? { 'data-cancelada': '1' } : {})}
+                  href={comOcultar(`/vendas/${venda.venda_id}?dia=${dia}`)}
+                  className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl p-6 shadow-sm ${
+                    cancelada ? 'bg-slate-100 text-slate-400' : 'bg-white text-slate-800'
+                  }`}
+                >
+                  <div>
+                    <p className={`text-lg ${cancelada ? 'line-through' : ''}`}>
+                      Venda {venda.numero} · {horaDe(venda.criado_em)}
+                    </p>
+                    <p className={`mt-1 text-base ${cancelada ? 'line-through' : 'text-slate-500'}`}>
+                      {venda.cliente_nome ?? 'sem cliente'}
+                      {venda.itens ? ` · ${venda.itens}` : ''}
+                    </p>
+                    {cancelada ? (
+                      <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+                        <span className="rounded bg-slate-300 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
+                          Cancelada
+                        </span>
+                        {venda.motivo_cancelamento ? <span>{venda.motivo_cancelamento}</span> : null}
+                      </p>
+                    ) : null}
+                  </div>
+                  <p className={`text-xl font-semibold ${cancelada ? 'line-through' : ''}`}>
+                    {valor(venda.total)}
+                  </p>
+                </Link>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>
