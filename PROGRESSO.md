@@ -11,13 +11,14 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 # ⏸ ONDE PARAMOS — 07/10/2026
 
 **Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD = **o commit de fechamento desta etapa**
-(`etapa-5: historico de vendas fechado, com a evidencia colada`, que só toca este arquivo; o
-último commit de **código** da etapa é `4931f80`). O plano da etapa está em
-`docs/superpowers/plans/2026-10-07-historico-vendas.md`.
-**Etapas 0, 1, 2, 3, 4 e 5 fechadas.** A **Etapa 5 (histórico de vendas) virou ✅ em 07/10/2026**,
-com a evidência colada na tabela de Etapas. A **Etapa 6 (clientes e crediário) é a próxima**:
-saldo importado aparece, pagamento parcial atualiza, WhatsApp abre (spec §13, decisão B2 —
-a importação de cliente **com saldo devedor inicial** passou a fazer parte dela).
+(`etapa-6: clientes e crediario fechados, com a evidencia colada`, que só toca este arquivo; o
+último commit de **código** da etapa é `f7e93f3`). O plano da etapa está em
+`docs/superpowers/plans/2026-10-07-clientes-crediario.md`.
+**Etapas 0, 1, 2, 3, 4, 5 e 6 fechadas.** A **Etapa 6 (clientes e crediário) virou ✅ em 07/10/2026**,
+com a evidência colada na tabela de Etapas — e ela **fechou o item 8 da revisão do branch
+anterior** (o `<select>` dos 500 primeiros clientes do PDV). A **Etapa 7 (relatórios) é a
+próxima**: os números têm de bater com o PDV em **3 dias conferidos**, incluindo venda após as
+21h (spec §13).
 
 **A revisão final do branch da Etapa 5 achou um vazamento:** as 11 views de `public` nasceram
 sem `security_invoker`, então rodavam como o dono e ignoravam a RLS das tabelas — e o Supabase
@@ -139,7 +140,8 @@ por arquivo: `npm run test:sql -- 070_importacao.sql`.
 **As 15 tarefas do plano 2 (0 a 14) estão executadas** e a **revisão final do branch** (em
 contexto limpo, range `9f0c524..3165750`) apontou **1 Critical + 7 Important**, **todos os
 oito corrigidos**, cada um com teste que nasce vermelho. **`npm run lint` está exit 0.**
-**Falta só o item 8** (o seletor de cliente do PDV, que é mudança de tela no balcão).
+**O item 8** (o seletor de cliente do PDV) era o único em aberto e **foi fechado na Etapa 6**
+(`a4357b4` + `cb8e7f4` — ver a linha da Etapa 6 na tabela de Etapas).
 
 **O Critical e o que ele significava:** em `lib/tabela.ts`, `somaGravada` e a (então)
 `somaPlanilha` somavam a **mesma** variável pelo **mesmo** `parsearCentavos` — as duas somas
@@ -198,13 +200,17 @@ não traz a coluna (ver o item 9 na tabela abaixo).
 
 **O que falta, exatamente:**
 
-1. **O item 8 da revisão (o único que não foi corrigido)** — o seletor de cliente do PDV é
+1. ~~**O item 8 da revisão (o único que não foi corrigido)** — o seletor de cliente do PDV é
    um `<select>` com os **500 primeiros** clientes em ordem alfabética (`vendas/nova/page.tsx`),
    e o plano pedia **campo de busca**. Cliente fora do corte não consegue comprar no
    crediário. Os dois caminhos possíveis, para o Lucas escolher: (a) campo de busca com rota
    própria, como já é a busca de produto (`/api/clientes/busca`), ou (b) manter o `<select>` e
    só avisar quando a lista for cortada. **É mudança na tela do balcão, por isso não foi
-   feita sozinha.**
+   feita sozinha.**~~ ✅ **Fechado na Etapa 6 em 07/10/2026**, pelo caminho (a): `a4357b4`
+   trocou o `<select>` por busca com **rota própria e sem corte** (`/api/clientes/busca`, como
+   a de produtos) e `cb8e7f4` extraiu a fusão devedores+demais para função pura com teste,
+   limpou a lista obsoleta e devolveu o foco para a busca de produto depois de escolher o
+   cliente.
 2. ~~**Empurrar a branch** depois do commit do fechamento.~~ ✅ **Feito em 07/10/2026**:
    `git push origin etapa-3-4-produtos-estoque-pdv` → `06b0269..2f11075`, conferido hash a hash
    (local e remoto em `2f11075`), 125 arquivos no remoto, sem segredo no range.
@@ -225,7 +231,7 @@ não traz a coluna (ver o item 9 na tabela abaixo).
 | 5 | Important | Termo de busca interpolado **cru** no `.or()` do PostgREST: vírgula ou parêntese quebravam a busca | ✅ **`lib/postgrest.ts`** — valor entre aspas com escape; 7 testes de unidade + produto **com vírgula no nome** no cenário e2e, provado por mutação |
 | 6 | Important | O teste "venda só com teclado" clicava duas vezes (e o comentário prometia uma cobertura que não existia) | ✅ **`0821d0f`** — nenhum clique; `ArrowDown` + `Enter` na busca, `Tab` + `Enter` no "Lançar"; provado por mutação |
 | 7 | Important | `npm run lint` vermelho (2 erros + 3 avisos) | ✅ **`d2341bf`** — `useState` preguiçoso para a chave, `setResultados([])` saiu do corpo do efeito, `.superpowers/**` ignorado e `fs` não usado removido. **exit 0, zero problemas** |
-| 8 | Important | Cliente do PDV é `<select>` limitado aos **500 primeiros**; o plano pedia campo de busca | ⬜ **PENDENTE** — ver o item 1 de "O que falta" |
+| 8 | Important | Cliente do PDV é `<select>` limitado aos **500 primeiros**; o plano pedia campo de busca | ✅ **`a4357b4` + `cb8e7f4`** (Etapa 6) — a busca no lugar do `<select>`, com rota própria sem corte (`/api/clientes/busca`) e a fusão devedores+demais em função pura com teste; a lista obsoleta é limpa e o foco volta para a busca de produto |
 | 9 | Important | Reimportar planilha **sem coluna de preço** gravava `preco_venda = 0` nos produtos casados | ✅ **`3fc1559`** — migration **009**, `colunasPresentes` no `analisarTabela`, chave ausente também para preço, e a tela avisa. 3 casos SQL novos (nasceram **vermelhos** contra a 008) + 3 testes de unidade. O `test:sql` foi de 224 para **231 OK** |
 
 **Menores registrados pela revisão (não corrigidos):** `lib/pdf.ts` mistura linhas de páginas diferentes (y global); `lib/xlsx.ts:117` devolve o primeiro texto compartilhado quando `t="s"` vem sem `<v>`; `xlsx.ts:78-80` pode lançar `RangeError` em inglês; `/vendas` corta o dia em 50 linhas enquanto o cartão de resumo mostra o total certo; `lib/csv.ts:80` não trata quebra de linha dentro de aspas; o F3 dentro do próprio PDV não reposiciona o foco.
@@ -350,7 +356,7 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 3 | Produtos e estoque | ✅ | As 11 tarefas do plano 2 desta etapa (0–10 e 14) ✅: CLI do Supabase ligado (histórico `001`–`005` reparado), `produto_salvar` (`d998d92`), `produto_entrada`/`produto_ajuste` (`f96db63`), `importar_produtos` (`6b76b94`), os leitores `dinheiro`/`csv`/`xlsx`/`tabela` e as telas de importação, produtos e estoque. `npm run test:sql` → **231 OK, 0 FALHOU de 8 arquivos**; `npm test` → **151 passed**; `npm run build` exit 0 com `ƒ /produtos`, `ƒ /produtos/[id]`, `ƒ /produtos/novo`, `ƒ /produtos/importar` e `ƒ /estoque`. **A conferência "soma extraída × TOTAL impresso no arquivo" da spec §8.7 agora EXISTE e está testada** (`ced0a74`): ela era uma identidade matemática até a revisão final do branch apontar que os dois lados saíam da mesma variável; hoje o outro lado é o TOTAL impresso no rodapé, e o plano foi corrigido junto. A reimportação também deixou de zerar preço (`3fc1559`, migration `009`). **A etapa VIRA ✅ em 07/10/2026:** o catálogo **REAL** do sistema antigo entrou (5689 produtos, 21,1 s) pelo caminho real da tela — PostgREST com o papel `authenticated` — e a conferência soma extraída × soma gravada bateu em **R$ 121.142,60**. O critério original pedia "a planilha real", mas o arquivo real só existia em **PDF**, e o PDF foi medido e decidido fora da tela (o relatório do Nex não imprime TOTAL, então a conferência da §8.7 ficaria sem contra o que conferir). Busca e entrada de estoque conferidas em `75a5adc`, `09950c7` e `f96db63` | 07/10/2026 |
 | 4 | PDV | ✅ | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 21 testes das contas de pagamento (4 novos), provados por mutação. **Tarefa 13 fechada** e a revisão final corrigida: `npm run test:e2e` → **6 passed (41,9 s)**, exit 0 — venda só com teclado (**sem nenhum clique**, provado por mutação), clique duplo produzindo UMA venda (idempotência), desconto ilegível bloqueando a venda, produto com vírgula no nome sendo achado, F3 a partir de `/produtos` e limite de crediário. Commits `de84f3b`, `52f781b`, `0821d0f`, `5f44851`. **Pendência conhecida:** o seletor de cliente é um `<select>` com os 500 primeiros (item 8 da revisão) | 07/10/2026 |
 | 5 | Histórico de vendas | ✅ | As 6 tarefas deste plano ✅: a view `v_vendas_historico` (`bbdbad7` + `24d19d0`, migration `012`) que **NÃO filtra status** e entrega o `dia` no fuso de São Paulo, as contas de data puras em `app/(app)/vendas/dia.ts` (`b0f6539`), `/vendas` com o **dia no endereço** (`?dia=`), setas, seletor de data, resumo e linha de canceladas (`f5b3140`), o detalhe `/vendas/[id]` com o cancelamento do dono pela RPC `cancelar_venda` e motivo obrigatório (`46ac185`) e o e2e (`4931f80`). **Evidência colada em 07/10/2026, medida nesta ordem, sem nada em paralelo:** `npm test` → **210 passed (14 arquivos)**; `npm run test:sql` → **246 OK, 0 FALHOU de 9 arquivos** (eram 237 de 8; entrou `tests/sql/casos/080_historico.sql`); `npm run lint` exit 0; `npm run build` exit 0 com `ƒ /vendas` e `ƒ /vendas/[id]`; `npm run test:e2e` → **14 passed (1,5 m)**, 6 deles do histórico. **O critério da etapa está provado pelo navegador:** "vejo o dia, abro uma venda, cancelo, o estoque volta" e "a venda noturna cai no dia certo" (a venda das 22h de ontem aparecendo em ONTEM, não em hoje). **Bug corrigido no caminho (`f5b3140`): o ticket médio aparecia 100× maior** — a view devolve **centavos** e a tela **multiplicava por 100** (`Math.round(Number(dia?.ticket_medio ?? 0) * 100)`), como se a view devolvesse reais; era a **multiplicação**, não uma divisão, que inflava o número. **Não virou teste:** o líquido zero do estoque é **inferido** (o caso 3 do e2e lê o estoque antes da venda e confere que o mesmo número voltou depois do cancelamento, mas **nunca observa o saldo entre a venda e o cancelamento** — venda que não baixasse e cancelamento que não devolvesse passariam); a navegação de dia com `?ocultar=1` **não é exercida** (o e2e cobre lista → detalhe, não dia anterior/seguinte oculto); a asserção de que não há "R$" na lista oculta olha **só a primeira linha**; a **volta** do detalhe não é exercida — o e2e vai de lista → detalhe e nunca clica em **"Voltar para o dia"**, que é justamente o link que repassa o `ocultar` (ida e volta do item 3 do Review Focus, só a ida está provada); e o item 2 do Review Focus — um dia em que **todas** as vendas foram canceladas **não pode dizer "nenhuma venda"** — só tem teste da função pura `resumirCanceladas`, **não da regra da tela** (`vendas.length === 0` sobre a lista do histórico) | 07/10/2026 |
-| 6 | Clientes e crediário | ⬜ | — | — |
+| 6 | Clientes e crediário | ✅ | As 9 tarefas deste plano ✅. **Banco — migrations `014` e `015`, as RPCs novas:** `receber_pagamento` (`ac819f6`, `3de9735`, `c37d210`) com **20 asserções** em `tests/sql/casos/090_crediario.sql`, e `cliente_salvar` + `importar_clientes` (`71067ba`, `cb743e2`) com **55 asserções** em `tests/sql/casos/100_clientes.sql`. **A guarda contra dobrar a dívida é do banco e está provada:** reimportar o mesmo arquivo deixa **um** lançamento marcado (casos 6 e 7 de `100_clientes.sql`) e o pagamento acima da dívida é recusado — **nunca gera saldo credor**. **Telas:** `/clientes` com busca, cadastro e detalhe com extrato (`e3b7831`), `/crediario` com devedores, total a receber e receber na lista (`6840741`, `9798986`), `/clientes/importar` com análise pura, prévia com conferência de saldos e o teto do `integer` reusando `LIMITE_DE_CENTAVOS` (`2f8d305`, `c0d6afa`), a validação pura do cadastro, do recebimento e do link do WhatsApp (`2df284b`, `27399c1`) e a busca de cliente do PDV no lugar do `<select>` (`a4357b4`, `cb8e7f4`). **Evidência colada em 07/10/2026, medida nesta ordem, sem nada em paralelo:** `npm test` → **276 passed (17 arquivos)**, exit 0; `npm run test:sql` → **325 OK, 0 FALHOU de 11 arquivos** (eram 246 de 9 — entraram `090_crediario.sql` e `100_clientes.sql`), exit 0; `npm run lint` exit 0; `npm run build` exit 0 com `ƒ /clientes`, `ƒ /clientes/[id]`, `ƒ /clientes/novo`, `ƒ /clientes/importar`, `ƒ /crediario` e `ƒ /api/clientes/busca`; `npm run test:e2e` → **20 passed (2,7 m)**, 6 deles em `tests/e2e/crediario.spec.ts` (`f7e93f3`). **O critério da spec §13 está provado pelo navegador:** "saldo importado aparece, pagamento parcial atualiza, WhatsApp abre" — o e2e cadastra o cliente, vende no crediário, o devedor aparece com o saldo, o recebimento parcial baixa pelo valor exato, receber acima da dívida é recusado sem virar crédito, e o link abre o `wa.me` com o `55` e a mensagem com o saldo. **A etapa fechou o item 8 da revisão do branch anterior** (o `<select>` dos 500 primeiros clientes do PDV virou busca sem corte). **Não virou teste:** a importação de clientes foi provada **contra a fixture** `tests/fixtures/clientes.xlsx`, **não contra o arquivo real do Nex — que ainda não existe** (o mesmo tipo de lacuna que travou a Etapa 3 até o catálogo real entrar); a tela do **atendente** não é provável no e2e (só há um usuário **dono** em `perfis`), e a cobertura por papel é dos casos SQL de `100_clientes.sql`; o **ramo dos devedores** da busca de cliente do PDV não é exercitado pelo e2e (a base está **sem devedores**), só por teste de unidade. **Diferidos que o próximo leitor precisa saber** (lista completa no ledger): **dois `importar_clientes` realmente simultâneos seguem sem teste** — o runner manda `begin/rollback` por requisição, sem barreira entre sessões, então duas abas do dono ainda podem dobrar uma dívida; o **segundo clique em Salvar com CPF vazio cria cliente duplicado**; e o mesmo defeito de `searchParams` como `string[]` que a Etapa 6 corrigiu em `/clientes` e `/crediario` **continua em `/produtos`** (`?busca=a&busca=b` derruba a tela) | 07/10/2026 |
 | 7 | Relatórios | ⬜ | — | — |
 | 8 | Agente de IA | ⬜ | — | — |
 | 9 | Publicar na Vercel | ⬜ | — | — |
