@@ -61,9 +61,8 @@ perform teste_ok(((receber_pagamento(v_c1, 2000, 'dinheiro'))->>'saldo_apos')::i
   'caso 1: a RPC devolve o saldo depois do pagamento');
 
 -- caso 2: acima da dívida e recusado (spec 8.4: nunca gerar saldo credor)
---   use a forma de assertar EXCECAO que tests/sql/_helper.sql ja oferece — leia o caso 2 de
---   020_cancelamento.sql (o helper compara a mensagem esperada) antes de escrever, e nao
---   invente uma forma nova
+perform teste_erro($$select receber_pagamento(v_c1, 900000, 'dinheiro')$$,
+  'O valor é maior que a dívida', 'caso 2: acima da divida e recusado sem gerar credito');
 
 -- caso 3: dinheiro entra no esperado da gaveta; pix NAO
 perform teste_ok((select esperado_dinheiro = 10000 + 2000 from v_caixa_atual),
@@ -78,7 +77,11 @@ perform teste_ok((select esperado_dinheiro = 10000 + 2000 from v_caixa_atual),
 -- caso 8: o pagamento vira uma linha em crediario_lancamentos com forma e usuario
 ```
 
-**Antes de escrever:** leia `tests/sql/_helper.sql` e o caso 2 de `tests/sql/casos/020_cancelamento.sql` para usar a forma **existente** de assertar exceção (não invente uma nova; o helper tem o padrão de mensagem esperada).
+**Antes de escrever:** leia `tests/sql/_helper.sql`. O helper de recusa é
+`teste_erro(p_sql text, p_trecho text, p_nome text)` — ele **exige** que a exceção venha e que a
+mensagem contenha o trecho (comparação sem maiúscula/minúscula). Use-o nos casos de recusa
+(acima da dívida, valor zero, forma `crediario`, sem caixa aberto, atendente sem permissão), com
+o trecho da mensagem da spec §9. Não invente outra forma.
 
 - [ ] **Step 2: Rodar e ver falhar**
 
@@ -244,7 +247,11 @@ git commit -m "clientes: validacao pura do cadastro, do recebimento e do link do
 - **Consumes:** `cliente_salvar`, `receber_pagamento` (T1/T2); `validarCliente`, `validarRecebimento`, `linkWhatsApp` (T3); `v_clientes_devedores`; `perfilAtual`; `formatarMoeda`, `formatarDataHora`.
 - **Produces:** `salvarCliente(_anterior, formData)` com `Resultado = { ok: true; mensagem: string } | { ok: false; mensagem: string }` (o mesmo tipo de `caixa/actions.ts`); rotas `/clientes`, `/clientes/novo`, `/clientes/[id]?editar=1`; `data-testid` = `busca-cliente`, `linha-cliente`, `saldo-cliente`, `ok`, `erro`.
 
-- [ ] **Step 1: A lista e a busca.** `/clientes` lê `clientes` (`id, nome, telefone, cpf, limite_credito, bloqueado`) com um filtro montado por **`filtroDeBuscaDeCliente(termo)`, uma função nova em `lib/postgrest.ts` no mesmo formato da `filtroDeBuscaDeProduto`** (ela cobre nome, telefone e CPF; a de produto não serve, porque casa código de barras). O termo **nunca** entra cru no `.or()` — é a regra que `lib/postgrest.ts` existe para garantir. O saldo de cada um vem de `v_clientes_devedores` numa consulta só, casada por `cliente_id` no servidor (não faça N consultas).
+- [ ] **Step 1: A lista e a busca.** `/clientes` lê `clientes` (`id, nome, telefone, cpf, limite_credito, bloqueado`) com um filtro montado por **`filtroDeBuscaDeCliente(termo)`, uma função nova em `lib/postgrest.ts`**. A `filtroDeBuscaDeProduto` que existe lá casa `codigo_barras.eq` + `nome.ilike` — não serve. A nova monta as cláusulas **condicionalmente**, sempre passando por `valorDeFiltro` (o termo nunca entra cru no `.or()`; é a regra que `lib/postgrest.ts` existe para garantir):
+  - `nome.ilike."%termo%"` sempre;
+  - `telefone.ilike."%digitos%"` e `cpf.ilike."%digitos%"` **só quando o termo tiver dígitos** (`digitos = termo.replace(/\D/g, '')`), senão um termo só com letras viraria `%%` e a busca devolveria a lista inteira.
+  Com teste de unidade em `lib/postgrest.test.ts` (o arquivo já existe) para os dois casos: termo com dígitos e termo só com letras.
+  O saldo de cada um vem de `v_clientes_devedores` numa consulta só, casada por `cliente_id` no servidor (não faça N consultas).
 - [ ] **Step 2: O formulário.** `formulario.tsx` é client component com `useActionState` (espelhe `caixa/tela.tsx`): nome, telefone, CPF, observação sempre visíveis; **limite de crédito, "bloqueado" e "saldo devedor inicial" só aparecem quando `ehDono`** — para o atendente a tela mostra `Limite e bloqueio são do dono.` em vez dos campos. O erro do banco vai cru para o recado (já é português).
 - [ ] **Step 3: O detalhe.** `/clientes/[id]`: dados, saldo devedor grande no topo, extrato de `crediario_lancamentos` (data, tipo, valor, forma, observação — mais recente primeiro, limite 50), botão **Editar**, o formulário de receber (T5) embutido e o link do WhatsApp (com a mensagem pronta; sem telefone, o link não aparece e a tela diz `Cliente sem telefone cadastrado.`).
 - [ ] **Step 4: Verificar.** `npm run build` exit 0 com `ƒ /clientes`, `ƒ /clientes/novo`, `ƒ /clientes/[id]`; `npm run lint` exit 0.
@@ -296,7 +303,7 @@ git commit -m "tela de crediario: quem deve, quanto e o recebimento sem sair da 
 
 - [ ] **Step 1: Testes da análise que falham.** `analise.test.ts` com uma tabela montada à mão (sem arquivo): colunas reconhecidas com acento e sem; `saldo` lido por `parsearCentavos`; **linha sem CPF conta em `semCpf` e é inválida**; soma lida × soma gravada; rodapé com TOTAL quando existir.
 - [ ] **Step 2: Ver falhar e implementar `analise.ts`** (mesma forma de `lib/tabela.ts`: `analisarClientes` puro, sem I/O). Rodar até passar.
-- [ ] **Step 3: A fixture.** Gere `tests/fixtures/clientes.xlsx` com openpyxl (Python do projeto): 4 clientes, um deles com CPF repetido do anterior e um sem CPF, saldo com vírgula decimal pt-BR e um rodapé `TOTAL` com a soma. O script vai em `.superpowers/` (não versionado), como nas fixtures anteriores.
+- [ ] **Step 3: A fixture.** Gere `tests/fixtures/clientes.xlsx` com openpyxl usando o Python do harness — `C:\Users\lucas\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe` (**openpyxl 3.1.5** está nesse ambiente; **não instale nada**): 4 clientes, um deles com o CPF repetido do anterior e um sem CPF, saldo com vírgula decimal pt-BR e um rodapé `TOTAL` com a soma. O script vai em `.superpowers/` (não versionado), como nas fixtures anteriores.
 - [ ] **Step 4: As actions e a tela.** Duas viagens como em produtos (analisar sem gravar → conferência na tela → confirmar com o JSON no campo escondido): prévia com as 8 primeiras linhas, `Soma lida` × `Soma que será gravada` × `TOTAL impresso no arquivo` (quando houver), aviso destacado de **quantos clientes já têm saldo lançado** e serão ignorados, a contagem de `sem CPF`, e o checkbox "atualizar clientes que já existem" **viajando no estado** (o defeito `f120328` não pode se repetir). `/clientes/importar` é acessível pelo botão **Importar** em `/clientes`, visível só para o dono.
 - [ ] **Step 5: Verificar.** `npm test` verde; `npm run build` exit 0 com `ƒ /clientes/importar`; `npm run lint` exit 0.
 - [ ] **Step 6: Commit**
