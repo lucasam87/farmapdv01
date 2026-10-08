@@ -15,7 +15,10 @@ describe('validarCliente', () => {
       ok: false,
       mensagem: 'Escreva o nome do cliente.',
     })
-    expect(validarCliente({ ...vazio, nome: '' }, true).ok).toBe(false)
+    expect(validarCliente({ ...vazio, nome: '' }, true)).toEqual({
+      ok: false,
+      mensagem: 'Escreva o nome do cliente.',
+    })
   })
 
   it('o limite le reais de verdade: "10.00" e DEZ REAIS, nao mil', () => {
@@ -132,18 +135,24 @@ describe('validarRecebimento', () => {
       ok: false,
       mensagem: 'Valor inválido. Use, por exemplo, 20,00.',
     })
-    expect(validarRecebimento('', 5000).ok).toBe(false)
-    expect(validarRecebimento('20,0,0', 5000).ok).toBe(false)
+    expect(validarRecebimento('', 5000)).toEqual({
+      ok: false,
+      mensagem: 'Valor inválido. Use, por exemplo, 20,00.',
+    })
+    expect(validarRecebimento('20,0,0', 5000)).toEqual({
+      ok: false,
+      mensagem: 'Valor inválido. Use, por exemplo, 20,00.',
+    })
   })
 
-  it('valor zero ou negativo e recusado', () => {
+  it('valor zero ou negativo e recusado com a mensagem da RPC', () => {
     expect(validarRecebimento('0', 5000)).toEqual({
       ok: false,
-      mensagem: 'O valor precisa ser maior que zero.',
+      mensagem: 'O valor do recebimento precisa ser maior que zero.',
     })
     expect(validarRecebimento('-10', 5000)).toEqual({
       ok: false,
-      mensagem: 'O valor precisa ser maior que zero.',
+      mensagem: 'O valor do recebimento precisa ser maior que zero.',
     })
   })
 
@@ -168,6 +177,8 @@ describe('validarRecebimento', () => {
   it('pagamento parcial e pagamento exato passam', () => {
     expect(validarRecebimento('20,00', 5000)).toEqual({ ok: true, centavos: 2000 })
     expect(validarRecebimento('50,00', 5000)).toEqual({ ok: true, centavos: 5000 })
+    // Um digito depois do ponto e decimo, nao centavo nem milhar: "1.5" = R$ 1,50.
+    expect(validarRecebimento('1.5', 5000)).toEqual({ ok: true, centavos: 150 })
   })
 
   it('o ponto decimal nao e milhar: "10.00" e DEZ REAIS', () => {
@@ -214,10 +225,17 @@ describe('linkWhatsApp', () => {
     )
   })
 
-  it('a mensagem leva o saldo formatado em reais', () => {
+  it('a mensagem leva o saldo formatado em reais, inclusive saldo credor anomalo', () => {
     expect(linkWhatsApp('11912345678', 'ANA', 123456)).toBe(
       'https://wa.me/5511912345678?text=' +
         encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 1.234,56. Podemos acertar?'),
+    )
+    // Saldo credor e anomalia (o estorno do cancelamento pode deixar um gravado),
+    // mas a cobranca nao pode virar "R$ NaN" nem perder o sinal: o numero sai
+    // formatado como qualquer outro. O sinal fica antes do "R$" (Intl).
+    expect(linkWhatsApp('11912345678', 'ANA', -2000)).toBe(
+      'https://wa.me/5511912345678?text=' +
+        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é -R$ 20,00. Podemos acertar?'),
     )
   })
 

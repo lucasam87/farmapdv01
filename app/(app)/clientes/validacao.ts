@@ -15,6 +15,7 @@
 //   'O limite de crédito não pode ser negativo.'        (015)
 //   'O saldo inicial não pode ser negativo.'            (015)
 //   'Só o dono pode lançar saldo devedor.'              (015)
+//   'O valor do recebimento precisa ser maior que zero.' (014)
 //   'O valor é maior que a dívida (R$ X).'              (014, via centavos_em_reais)
 //
 // DINHEIRO
@@ -154,8 +155,10 @@ export function validarRecebimento(valor: string, divida: number): ResultadoRece
   if (centavos === null) {
     return { ok: false, mensagem: 'Valor inválido. Use, por exemplo, 20,00.' }
   }
+  // O texto e o da RPC (`014_receber_pagamento.sql:56`), nao uma versao curta: ha
+  // caminhos que chegam ao banco e mostrariam o outro texto para o mesmo fato.
   if (centavos <= 0) {
-    return { ok: false, mensagem: 'O valor precisa ser maior que zero.' }
+    return { ok: false, mensagem: 'O valor do recebimento precisa ser maior que zero.' }
   }
 
   // Nunca gerar saldo credor (spec 8.4): um centavo acima da divida e recusado, e
