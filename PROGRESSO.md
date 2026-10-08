@@ -11,7 +11,8 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 # ⏸ ONDE PARAMOS — 07/10/2026
 
 **Branch:** `etapa-3-4-produtos-estoque-pdv`, HEAD = **o commit de fechamento desta etapa**
-(`etapa-6: clientes e crediario fechados, com a evidencia colada`, que só toca este arquivo; o
+(`etapa-6: clientes e crediario fechados, com a evidencia colada`, seguido da rodada de precisão
+`docs: o como retomar aponta a etapa 7 e os numeros de hoje` — os dois só tocam este arquivo; o
 último commit de **código** da etapa é `f7e93f3`). O plano da etapa está em
 `docs/superpowers/plans/2026-10-07-clientes-crediario.md`.
 **Etapas 0, 1, 2, 3, 4, 5 e 6 fechadas.** A **Etapa 6 (clientes e crediário) virou ✅ em 07/10/2026**,
@@ -170,7 +171,9 @@ sistemático dentro do próprio `parsearCentavos` (aí os dois lados deslocam ju
   não tem contra o que conferir. Sem conferência não se importa preço de medicamento
   (spec §1). A tela continua aceitando só `.xlsx` e `.csv`.
 
-**Estado verificado no fim da sessão (tudo rodado em sequência, sem nada em paralelo):**
+**Estado verificado no fim da sessão do plano 2 (instantâneo daquele momento — não é o número
+de hoje; os atuais estão na linha da Etapa 6: `npm test` **276 passed (17 arquivos)**,
+`npm run test:sql` **325 OK de 11 arquivos**, `npm run test:e2e` **20 passed**):**
 
 | Comando | Resultado |
 |---|---|
@@ -194,9 +197,10 @@ recusada — nenhuma excecao foi levantada" em `010_venda`. Agora existe
 Conferido no banco depois da suíte: `caixas_abertos = 0`, `produtos_e2e = 0`,
 `clientes_e2e = 0`, `vendas = 0`.
 
-**Migrations aplicadas:** `001` a `009`. A **`009_importacao_precos.sql`** é desta sessão:
-ela faz a RPC `importar_produtos` parar de gravar zero por cima do preço quando a planilha
-não traz a coluna (ver o item 9 na tabela abaixo).
+**Migrations aplicadas:** `001` a `015` — as duas últimas são da Etapa 6
+(`014_receber_pagamento.sql` e `015_clientes.sql`). A **`009_importacao_precos.sql`** foi da
+sessão do plano 2: ela faz a RPC `importar_produtos` parar de gravar zero por cima do preço
+quando a planilha não traz a coluna (ver o item 9 na tabela abaixo).
 
 **O que falta, exatamente:**
 
@@ -262,20 +266,24 @@ auditadas: nenhum segredo subiu. Detalhes na seção "Publicado no GitHub".
 Diga ao agente, nesta ordem:
 
 1. **"Leia o `PROGRESSO.md` e o ledger em
-   `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md`. Estamos na branch
-   `etapa-3-4-produtos-estoque-pdv`, com as 15 tarefas do plano 2 executadas e 8 dos 9
-   defeitos da revisão final já corrigidos. Falta o item 8 (o seletor de cliente do PDV) e
-   passar uma planilha real pela importação."** O ledger é o registro detalhado de **todas**
-   as decisões (rulings) e do que já foi verificado. Ele é ignorado pelo git de propósito
-   (é rascunho do processo), mas está no disco. O ledger do plano 1 está em
+   `.superpowers/sdd/2026-10-07-clientes-crediario/progress.md`. Estamos na branch
+   `etapa-3-4-produtos-estoque-pdv`, com as **Etapas 0 a 6 fechadas**.
+   ~~Falta o item 8 (o seletor de cliente do PDV) e passar uma planilha real pela
+   importação.~~ **O item 8 foi fechado na Etapa 6** (`a4357b4` + `cb8e7f4`) e **a planilha
+   real foi resolvida na Etapa 3** — **nenhuma pendência do branch anterior ficou em aberto**.
+   O próximo passo é a **Etapa 7 (relatórios)**, que ainda não tem plano escrito."** O ledger é
+   o registro detalhado de **todas** as decisões (rulings) e do que já foi verificado. Ele é
+   ignorado pelo git de propósito (é rascunho do processo), mas está no disco. Os ledgers
+   anteriores estão em `.superpowers/sdd/2026-10-07-historico-vendas/progress.md`,
+   `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md` e
    `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`.
 
 2. Confirmar a branch e rodar as suítes (**em sequência, nunca em paralelo**):
    - `git branch --show-current` → `etapa-3-4-produtos-estoque-pdv`
-   - `npm test` → **151 passed** (11 arquivos)
-   - `npm run test:sql` → **231 OK, 0 FALHOU de 8 arquivos**
+   - `npm test` → **276 passed** (17 arquivos)
+   - `npm run test:sql` → **325 OK, 0 FALHOU de 11 arquivos**
    - `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**
-   - `npm run test:e2e` → **6 passed**
+   - `npm run test:e2e` → **20 passed**
    - `npm run build` → exit 0
    - `npm run lint` → **exit 0** (zero problemas)
 
@@ -283,27 +291,33 @@ Diga ao agente, nesta ordem:
    os três mexem no mesmo banco e o resultado vira falso negativo (já aconteceu: 126 OK /
    4 FALHOU por causa disso).
 
-3. **O que sobrou: decidir o item 8 e rodar a planilha real.**
-   - **Item 8:** o seletor de cliente do PDV (`app/(app)/vendas/nova/page.tsx`) é um
+3. ~~**O que sobrou: decidir o item 8 e rodar a planilha real.**~~
+   - ~~**Item 8:** o seletor de cliente do PDV (`app/(app)/vendas/nova/page.tsx`) é um
      `<select>` com os 500 primeiros clientes; cliente fora do corte não consegue comprar no
      crediário. Ou vira campo de busca (rota própria, como `/api/produtos/busca`), ou fica
-     como está com aviso de corte. **É decisão da tela do balcão.**
-   - **Planilha real:** pegue um arquivo de verdade do sistema antigo, abra
+     como está com aviso de corte. **É decisão da tela do balcão.**~~ ✅ **Fechado na Etapa 6 em
+     07/10/2026** (`a4357b4` + `cb8e7f4`) — o `<select>` **não existe mais**: o PDV só tem a
+     busca, sem corte.
+   - ~~**Planilha real:** pegue um arquivo de verdade do sistema antigo, abra
      `http://localhost:3000/produtos/importar`, e confira na prévia se "Total impresso na
      planilha" bate com "Soma que será gravada". Se a planilha não tiver rodapé TOTAL, a tela
-     avisa que não há contra o que conferir.
+     avisa que não há contra o que conferir.~~ ✅ **Não se aplica mais** — resolvida na Etapa 3
+     (o arquivo real do Nex era **PDF** e a §8.7 exige um TOTAL impresso, que ele não traz).
+     Ver o item 3 de "O que falta, exatamente".
+   - **O próximo passo é a Etapa 7 (relatórios)** — o plano ainda não está escrito; o critério
+     da spec §13 é "números batem com o PDV em 3 dias conferidos, incluindo venda após as 21h".
 
 4. Para ver a interface: `npm run dev` e abrir http://localhost:3000. **As telas do plano
-   2 ainda não foram olhadas por olho humano** — vale conferir, é a lacuna que deixou passar
-   o bug de contraste da Etapa 1.
+   2 (e as das Etapas 5 e 6) ainda não foram olhadas por olho humano** — vale conferir, é a
+   lacuna que deixou passar o bug de contraste da Etapa 1.
 
 **Sobre as migrations:** continuam por `npm run migrar` (o banco não aceita conexão `pg`).
-As `006_produtos`, `007_estoque`, `008_importacao` e **`009_importacao_precos`** já estão
-aplicadas. **Não** rodar `supabase db push`.
+As migrations **`001` a `015`** já estão aplicadas — as duas últimas são
+`014_receber_pagamento` e `015_clientes`, da Etapa 6. **Não** rodar `supabase db push`.
 
 **Não é preciso refazer nada das Etapas 0, 1 e 2.** Estão commitadas e verificadas.
-Da Etapa 3, as tarefas estão feitas — o que falta é passar uma planilha real. Não apague a
-branch nem o `.superpowers/`.
+Da Etapa 3, as tarefas estão feitas **e o catálogo real entrou** (5689 produtos) — não falta
+nada dela. Não apague a branch nem o `.superpowers/`.
 
 **Como as migrations são aplicadas (importante):** o banco **não** aceita conexão `pg`
 (a senha nunca autenticou), então `supabase db push` e `psql` não servem. O caminho é o
@@ -354,9 +368,9 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 1 | Base + login | ✅ | `npm test` **12/12**; `npm run build` exit 0 com `ƒ /`, `ƒ /login` e `ƒ Proxy (Middleware)`; `npm run lint` exit 0; HTTP: `/login` 200 e `/vendas`, `/produtos`, `/`, `/logins` → **307 → /login**; login pela API de Auth **HTTP 200 com access_token**; logs do dev server: `POST /login 200` → `GET / 200` (menu) → `POST / sair()` → `GET /login`; `GET /vendas 404` prova sessão válida em requisição nova; bug de contraste corrigido em `8ffbbf7` | 06/10/2026 |
 | 2 | Banco + funções | ✅ | Migrations 001–005 aplicadas e verificadas: **10 tabelas, 10 com RLS, 10 políticas, `pg_trgm`**, índice único parcial de caixa, e as funções `registrar_venda`, `cancelar_venda`, `abrir_caixa`, `caixa_movimento`, `fechar_caixa` + as 10 views. `npm run test:sql` → **119 OK, 0 FALHOU de 6 arquivos**; `npm run test:sql:concorrencia` → **17 OK, 0 FALHOU**; `npm test` → 12/12. Revisão final em contexto limpo apontou 1 Critical + 4 Important, todos corrigidos com teste que nasceu vermelho: `anon` perdeu o EXECUTE das RPCs de escrita (`050_permissoes.sql`), o limite de crediário ganhou `for update` no cliente (cenário 2 da concorrência), o termo "cancelamentos em dinheiro" da §8.3 ganhou teste, RLS passou a ser exercitada de verdade, e `npm run migrar` passou a ser o caminho versionado de aplicar migration | 06/10/2026 |
 | 3 | Produtos e estoque | ✅ | As 11 tarefas do plano 2 desta etapa (0–10 e 14) ✅: CLI do Supabase ligado (histórico `001`–`005` reparado), `produto_salvar` (`d998d92`), `produto_entrada`/`produto_ajuste` (`f96db63`), `importar_produtos` (`6b76b94`), os leitores `dinheiro`/`csv`/`xlsx`/`tabela` e as telas de importação, produtos e estoque. `npm run test:sql` → **231 OK, 0 FALHOU de 8 arquivos**; `npm test` → **151 passed**; `npm run build` exit 0 com `ƒ /produtos`, `ƒ /produtos/[id]`, `ƒ /produtos/novo`, `ƒ /produtos/importar` e `ƒ /estoque`. **A conferência "soma extraída × TOTAL impresso no arquivo" da spec §8.7 agora EXISTE e está testada** (`ced0a74`): ela era uma identidade matemática até a revisão final do branch apontar que os dois lados saíam da mesma variável; hoje o outro lado é o TOTAL impresso no rodapé, e o plano foi corrigido junto. A reimportação também deixou de zerar preço (`3fc1559`, migration `009`). **A etapa VIRA ✅ em 07/10/2026:** o catálogo **REAL** do sistema antigo entrou (5689 produtos, 21,1 s) pelo caminho real da tela — PostgREST com o papel `authenticated` — e a conferência soma extraída × soma gravada bateu em **R$ 121.142,60**. O critério original pedia "a planilha real", mas o arquivo real só existia em **PDF**, e o PDF foi medido e decidido fora da tela (o relatório do Nex não imprime TOTAL, então a conferência da §8.7 ficaria sem contra o que conferir). Busca e entrada de estoque conferidas em `75a5adc`, `09950c7` e `f96db63` | 07/10/2026 |
-| 4 | PDV | ✅ | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 21 testes das contas de pagamento (4 novos), provados por mutação. **Tarefa 13 fechada** e a revisão final corrigida: `npm run test:e2e` → **6 passed (41,9 s)**, exit 0 — venda só com teclado (**sem nenhum clique**, provado por mutação), clique duplo produzindo UMA venda (idempotência), desconto ilegível bloqueando a venda, produto com vírgula no nome sendo achado, F3 a partir de `/produtos` e limite de crediário. Commits `de84f3b`, `52f781b`, `0821d0f`, `5f44851`. **Pendência conhecida:** o seletor de cliente é um `<select>` com os 500 primeiros (item 8 da revisão) | 07/10/2026 |
+| 4 | PDV | ✅ | `/vendas/nova` (`751e3da`) com teclado, pagamento dividido e idempotência, e `/vendas` (`15198f6`) com valores ocultáveis; 21 testes das contas de pagamento (4 novos), provados por mutação. **Tarefa 13 fechada** e a revisão final corrigida: `npm run test:e2e` → **6 passed (41,9 s)**, exit 0 — venda só com teclado (**sem nenhum clique**, provado por mutação), clique duplo produzindo UMA venda (idempotência), desconto ilegível bloqueando a venda, produto com vírgula no nome sendo achado, F3 a partir de `/produtos` e limite de crediário. Commits `de84f3b`, `52f781b`, `0821d0f`, `5f44851`. **Pendência conhecida:** o seletor de cliente é um `<select>` com os 500 primeiros (item 8 da revisão) — **fechado na Etapa 6** (`a4357b4` + `cb8e7f4`) | 07/10/2026 |
 | 5 | Histórico de vendas | ✅ | As 6 tarefas deste plano ✅: a view `v_vendas_historico` (`bbdbad7` + `24d19d0`, migration `012`) que **NÃO filtra status** e entrega o `dia` no fuso de São Paulo, as contas de data puras em `app/(app)/vendas/dia.ts` (`b0f6539`), `/vendas` com o **dia no endereço** (`?dia=`), setas, seletor de data, resumo e linha de canceladas (`f5b3140`), o detalhe `/vendas/[id]` com o cancelamento do dono pela RPC `cancelar_venda` e motivo obrigatório (`46ac185`) e o e2e (`4931f80`). **Evidência colada em 07/10/2026, medida nesta ordem, sem nada em paralelo:** `npm test` → **210 passed (14 arquivos)**; `npm run test:sql` → **246 OK, 0 FALHOU de 9 arquivos** (eram 237 de 8; entrou `tests/sql/casos/080_historico.sql`); `npm run lint` exit 0; `npm run build` exit 0 com `ƒ /vendas` e `ƒ /vendas/[id]`; `npm run test:e2e` → **14 passed (1,5 m)**, 6 deles do histórico. **O critério da etapa está provado pelo navegador:** "vejo o dia, abro uma venda, cancelo, o estoque volta" e "a venda noturna cai no dia certo" (a venda das 22h de ontem aparecendo em ONTEM, não em hoje). **Bug corrigido no caminho (`f5b3140`): o ticket médio aparecia 100× maior** — a view devolve **centavos** e a tela **multiplicava por 100** (`Math.round(Number(dia?.ticket_medio ?? 0) * 100)`), como se a view devolvesse reais; era a **multiplicação**, não uma divisão, que inflava o número. **Não virou teste:** o líquido zero do estoque é **inferido** (o caso 3 do e2e lê o estoque antes da venda e confere que o mesmo número voltou depois do cancelamento, mas **nunca observa o saldo entre a venda e o cancelamento** — venda que não baixasse e cancelamento que não devolvesse passariam); a navegação de dia com `?ocultar=1` **não é exercida** (o e2e cobre lista → detalhe, não dia anterior/seguinte oculto); a asserção de que não há "R$" na lista oculta olha **só a primeira linha**; a **volta** do detalhe não é exercida — o e2e vai de lista → detalhe e nunca clica em **"Voltar para o dia"**, que é justamente o link que repassa o `ocultar` (ida e volta do item 3 do Review Focus, só a ida está provada); e o item 2 do Review Focus — um dia em que **todas** as vendas foram canceladas **não pode dizer "nenhuma venda"** — só tem teste da função pura `resumirCanceladas`, **não da regra da tela** (`vendas.length === 0` sobre a lista do histórico) | 07/10/2026 |
-| 6 | Clientes e crediário | ✅ | As 9 tarefas deste plano ✅. **Banco — migrations `014` e `015`, as RPCs novas:** `receber_pagamento` (`ac819f6`, `3de9735`, `c37d210`) com **20 asserções** em `tests/sql/casos/090_crediario.sql`, e `cliente_salvar` + `importar_clientes` (`71067ba`, `cb743e2`) com **55 asserções** em `tests/sql/casos/100_clientes.sql`. **A guarda contra dobrar a dívida é do banco e está provada:** reimportar o mesmo arquivo deixa **um** lançamento marcado (casos 6 e 7 de `100_clientes.sql`) e o pagamento acima da dívida é recusado — **nunca gera saldo credor**. **Telas:** `/clientes` com busca, cadastro e detalhe com extrato (`e3b7831`), `/crediario` com devedores, total a receber e receber na lista (`6840741`, `9798986`), `/clientes/importar` com análise pura, prévia com conferência de saldos e o teto do `integer` reusando `LIMITE_DE_CENTAVOS` (`2f8d305`, `c0d6afa`), a validação pura do cadastro, do recebimento e do link do WhatsApp (`2df284b`, `27399c1`) e a busca de cliente do PDV no lugar do `<select>` (`a4357b4`, `cb8e7f4`). **Evidência colada em 07/10/2026, medida nesta ordem, sem nada em paralelo:** `npm test` → **276 passed (17 arquivos)**, exit 0; `npm run test:sql` → **325 OK, 0 FALHOU de 11 arquivos** (eram 246 de 9 — entraram `090_crediario.sql` e `100_clientes.sql`), exit 0; `npm run lint` exit 0; `npm run build` exit 0 com `ƒ /clientes`, `ƒ /clientes/[id]`, `ƒ /clientes/novo`, `ƒ /clientes/importar`, `ƒ /crediario` e `ƒ /api/clientes/busca`; `npm run test:e2e` → **20 passed (2,7 m)**, 6 deles em `tests/e2e/crediario.spec.ts` (`f7e93f3`). **O critério da spec §13 está provado pelo navegador:** "saldo importado aparece, pagamento parcial atualiza, WhatsApp abre" — o e2e cadastra o cliente, vende no crediário, o devedor aparece com o saldo, o recebimento parcial baixa pelo valor exato, receber acima da dívida é recusado sem virar crédito, e o link abre o `wa.me` com o `55` e a mensagem com o saldo. **A etapa fechou o item 8 da revisão do branch anterior** (o `<select>` dos 500 primeiros clientes do PDV virou busca sem corte). **Não virou teste:** a importação de clientes foi provada **contra a fixture** `tests/fixtures/clientes.xlsx`, **não contra o arquivo real do Nex — que ainda não existe** (o mesmo tipo de lacuna que travou a Etapa 3 até o catálogo real entrar); a tela do **atendente** não é provável no e2e (só há um usuário **dono** em `perfis`), e a cobertura por papel é dos casos SQL de `100_clientes.sql`; o **ramo dos devedores** da busca de cliente do PDV não é exercitado pelo e2e (a base está **sem devedores**), só por teste de unidade. **Diferidos que o próximo leitor precisa saber** (lista completa no ledger): **dois `importar_clientes` realmente simultâneos seguem sem teste** — o runner manda `begin/rollback` por requisição, sem barreira entre sessões, então duas abas do dono ainda podem dobrar uma dívida; o **segundo clique em Salvar com CPF vazio cria cliente duplicado**; e o mesmo defeito de `searchParams` como `string[]` que a Etapa 6 corrigiu em `/clientes` e `/crediario` **continua em `/produtos`** (`?busca=a&busca=b` derruba a tela) | 07/10/2026 |
+| 6 | Clientes e crediário | ✅ | As 9 tarefas deste plano ✅. **Banco — migrations `014` e `015`, as RPCs novas:** `receber_pagamento` (`ac819f6`, `3de9735`, `c37d210`) com **20 asserções** em `tests/sql/casos/090_crediario.sql`, e `cliente_salvar` + `importar_clientes` (`71067ba`, `cb743e2`) com **55 asserções** em `tests/sql/casos/100_clientes.sql`. **A guarda contra dobrar a dívida é do banco e está provada:** reimportar o mesmo arquivo deixa **um** lançamento marcado (casos 6 e 7 de `100_clientes.sql`) e o pagamento acima da dívida é recusado — **nunca gera saldo credor**. **Telas:** `/clientes` com busca, cadastro e detalhe com extrato (`e3b7831`), `/crediario` com devedores, total a receber e receber na lista (`6840741`, `9798986`), `/clientes/importar` com análise pura, prévia com conferência de saldos e o teto do `integer` reusando `LIMITE_DE_CENTAVOS` (`2f8d305`, `c0d6afa`), a validação pura do cadastro, do recebimento e do link do WhatsApp (`2df284b`, `27399c1`) e a busca de cliente do PDV no lugar do `<select>` (`a4357b4`, `cb8e7f4`). **Evidência colada em 07/10/2026, medida nesta ordem, sem nada em paralelo:** `npm test` → **276 passed (17 arquivos)**, exit 0; `npm run test:sql` → **325 OK, 0 FALHOU de 11 arquivos** (eram **250 de 9** — 250 + 20 de `090_crediario.sql` + 55 de `100_clientes.sql` = 325), exit 0; `npm run lint` exit 0; `npm run build` exit 0 com `ƒ /clientes`, `ƒ /clientes/[id]`, `ƒ /clientes/novo`, `ƒ /clientes/importar`, `ƒ /crediario` e `ƒ /api/clientes/busca`; `npm run test:e2e` → **20 passed (2,7 m)**, 6 deles em `tests/e2e/crediario.spec.ts` (`f7e93f3`). **O critério da spec §13 ("saldo importado aparece, pagamento parcial atualiza, WhatsApp abre"):** a perna do **saldo importado** está provada pelos **casos 5, 6 e 7 de `100_clientes.sql`** — o saldo lançado pela importação **aparece no saldo devedor** do cliente, a reimportação **não o dobra** e o saldo da tela somado à importação deixa **um** lançamento só; **nenhum teste e2e toca `/clientes/importar`** (o saldo do e2e nasce da venda no crediário). As outras duas pernas são do **navegador**: o e2e cadastra o cliente, vende no crediário, o devedor aparece com o saldo, o recebimento parcial baixa pelo valor exato, receber acima da dívida é recusado sem virar crédito, e o link abre o `wa.me` com o `55` e a mensagem com o saldo. **A etapa fechou o item 8 da revisão do branch anterior** (o `<select>` dos 500 primeiros clientes do PDV virou busca sem corte). **Não virou teste:** a importação de clientes foi provada **contra a fixture** `tests/fixtures/clientes.xlsx`, **não contra o arquivo real do Nex — que ainda não existe** (o mesmo tipo de lacuna que travou a Etapa 3 até o catálogo real entrar); a tela do **atendente** não é provável no e2e (só há um usuário **dono** em `perfis`), e a cobertura por papel é dos casos SQL de `100_clientes.sql`; o **ramo dos devedores** da busca de cliente do PDV não é exercitado pelo e2e (a base está **sem devedores**), só por teste de unidade. **Diferidos que o próximo leitor precisa saber** (lista completa no ledger): **dois `importar_clientes` realmente simultâneos não têm teste** — o runner manda `begin/rollback` por requisição, sem barreira entre sessões; a prova existente é o **`for update`** do corpo implantado (`015_clientes.sql`) sob READ COMMITTED, em que a segunda transação relê e enxerga o lançamento, o **mesmo desenho já aceito em `002` e `014`**; o **segundo clique em Salvar com CPF vazio cria cliente duplicado**; e o mesmo defeito de `searchParams` como `string[]` que a Etapa 6 corrigiu em `/clientes` e `/crediario` **continua em `/produtos`** (`?busca=a&busca=b` derruba a tela) | 07/10/2026 |
 | 7 | Relatórios | ⬜ | — | — |
 | 8 | Agente de IA | ⬜ | — | — |
 | 9 | Publicar na Vercel | ⬜ | — | — |
