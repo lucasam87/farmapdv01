@@ -1,5 +1,6 @@
 -- 014_receber_pagamento.sql
 -- receber_pagamento: baixa (total ou parcial) da divida do crediario no balcao.
+-- Devolve {cliente_id, valor, saldo_apos}.
 --
 -- Decisoes que a assinatura nao decide:
 --
@@ -49,8 +50,7 @@ begin
     raise exception 'Só o dono ou o atendente podem receber pagamentos.';
   end if;
 
-  -- ---- 1. valor: inteiro positivo. Sem o teto de digitos, um valor enorme
-  -- viraria "integer out of range" na cara do atendente. ----
+  -- ---- 1. valor: inteiro positivo ----
   v_valor := p_valor;
   if v_valor is null or v_valor <= 0 then
     raise exception 'O valor do recebimento precisa ser maior que zero.';
