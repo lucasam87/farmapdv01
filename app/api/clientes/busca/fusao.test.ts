@@ -4,6 +4,7 @@ import {
   juntarClientes,
   type LinhaCliente,
   type LinhaDevedor,
+  type LinhaSaldo,
 } from './fusao'
 
 // A juncao das duas origens da busca de cliente. Tres regras que erram CALADO se
@@ -83,7 +84,61 @@ describe('juntarClientes', () => {
   })
 
   it('o limite e parametro: 1 devolve so o primeiro devedor', () => {
-    const lista = juntarClientes([devedor('d1', 'A', 1), devedor('d2', 'B', 2)], [cliente('c1', 'C')], 1)
+    const lista = juntarClientes(
+      [devedor('d1', 'A', 1), devedor('d2', 'B', 2)],
+      [cliente('c1', 'C')],
+      [],
+      1,
+    )
     expect(lista.map((c) => c.id)).toEqual(['d1'])
+  })
+})
+
+// O SALDO DE QUEM VEM DO SEGUNDO RAMO (Important 1 da revisao final do branch).
+//
+// A view nao expoe `cpf`, entao o cliente que o operador acha digitando o CPF chega
+// pelo segundo ramo — e o saldo dele nao esta entre as linhas que o primeiro ramo
+// devolveu. O PDV imprime "deve R$ <saldo> de R$ <limite>": gravar 0 aqui faz o
+// balcao LER uma divida menor do que a real. Estes casos provam a fusao; a terceira
+// consulta da rota (a que busca esses saldos) nao tem teste — o e2e do cenario nao
+// tem cliente devedor que case so por CPF.
+describe('juntarClientes com os saldos do segundo ramo', () => {
+  function saldo(id: string, valor: number | string): LinhaSaldo {
+    return { cliente_id: id, saldo: valor }
+  }
+
+  it('quem casa SO por CPF sai com o saldo da view, e nao com zero', () => {
+    const lista = juntarClientes(
+      [],
+      [cliente('c1', 'JOSE DA DIVIDA'), cliente('c2', 'ANA')],
+      [saldo('c1', '3000')],
+    )
+    // O devedor do segundo ramo com o valor certo, normalizado para numero (a view
+    // devolve bigint, que pode chegar como texto); quem nao deve continua em zero.
+    expect(lista.map((c) => c.saldo)).toEqual([3000, 0])
+    expect(lista.every((c) => typeof c.saldo === 'number')).toBe(true)
+  })
+
+  it('o saldo do DEVEDOR ja vindo da view vence o do terceiro argumento', () => {
+    // O id que aparece nas duas origens: o primeiro ramo ja trouxe o saldo certo e a
+    // linha dele e a que entra na lista (dedupe pela primeira ocorrencia).
+    const lista = juntarClientes([devedor('mesmo', 'MARIA', 500)], [], [saldo('mesmo', '999')])
+    expect(lista).toHaveLength(1)
+    expect(lista[0].saldo).toBe(500)
+  })
+
+  it('saldo zero da view e saldo ausente dao o mesmo resultado: zero', () => {
+    const lista = juntarClientes([], [cliente('c1', 'ANA'), cliente('c2', 'BRUNO')], [saldo('c1', 0)])
+    expect(lista.map((c) => c.saldo)).toEqual([0, 0])
+  })
+
+  it('o corte de 8 continua valendo com os saldos no meio', () => {
+    const demais = Array.from({ length: 10 }, (_, i) => cliente(`c${i}`, `CLIENTE ${i}`))
+    const saldos = demais.map((c) => saldo(c.id, 100))
+    const lista = juntarClientes([], demais, saldos)
+    expect(lista).toHaveLength(LIMITE_DA_BUSCA)
+    // O corte tira do FIM: os 8 primeiros, todos com o saldo real.
+    expect(lista.map((c) => c.id)).toEqual(['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'])
+    expect(lista.every((c) => c.saldo === 100)).toBe(true)
   })
 })

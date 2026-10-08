@@ -7,6 +7,7 @@ import {
   juntarClientes,
   type LinhaCliente,
   type LinhaDevedor,
+  type LinhaSaldo,
 } from './fusao'
 
 // Busca de cliente do PDV (item 8 da revisao da etapa 6).
@@ -27,9 +28,11 @@ import {
 // MESMA view do crediario: recalcular "compra − pagamento" aqui seria uma segunda
 // definicao de divida, livre para divergir da primeira.
 //
-// A rota so CONSULTA: juntar as duas origens (devedores primeiro, sem repetir,
-// cortando em 8) e a funcao PURA `juntarClientes`, em ./fusao.ts, com teste de
-// unidade — e onde as regras que erram calado ficam de fato provadas.
+// A rota so CONSULTA, em tres idas ao banco: os devedores (a view), o resto (a
+// tabela) e os saldos dos ids que vieram do resto (a view de novo — ver o
+// comentario da terceira consulta). Juntar as origens (devedores primeiro, sem
+// repetir, cortando em 8) e a funcao PURA `juntarClientes`, em ./fusao.ts, com teste
+// de unidade — e onde as regras que erram calado ficam de fato provadas.
 
 export async function GET(request: Request) {
   const perfil = await perfilAtual()
@@ -93,5 +96,36 @@ export async function GET(request: Request) {
     linhasDemais = (data ?? []) as LinhaCliente[]
   }
 
-  return NextResponse.json({ clientes: juntarClientes(linhasDevedor, linhasDemais) })
+  // O SALDO DE QUEM VEIO DE BAIXO, e esta consulta existe por causa do CPF: a view
+  // nao expoe `cpf` (005_views.sql), entao o cliente que o operador acha digitando o
+  // CPF chega pelo ramo de CIMA — e o saldo dele nao esta entre as linhas que o
+  // primeiro ramo devolveu. Sem esta consulta, `juntarClientes` gravaria 0 (o que
+  // era o defeito do Important 1 da revisao final do branch) e o PDV imprimiria
+  // "deve R$ 0,00" para quem deve: o operador fecharia um crediario que o banco vai
+  // recusar, em cima de uma informacao de dinheiro errada. A view e a MESMA do
+  // crediario — nada de recalcular divida aqui.
+  //
+  // Falha na consulta NAO vira saldo zero: seria trocar o erro pelo mesmo defeito
+  // (o cliente que deve voltando a aparecer quitado). A rota devolve 500 e o PDV
+  // diz "Não foi possível buscar. Tente de novo." (M3 da mesma revisao).
+  let saldosDosDemais: LinhaSaldo[] = []
+  if (linhasDemais.length > 0) {
+    const { data, error } = await supabase
+      .from('v_clientes_devedores')
+      .select('cliente_id, saldo')
+      .in(
+        'cliente_id',
+        linhasDemais.map((c) => c.id),
+      )
+
+    if (error) {
+      return NextResponse.json({ erro: 'não foi possível buscar' }, { status: 500 })
+    }
+
+    saldosDosDemais = (data ?? []) as LinhaSaldo[]
+  }
+
+  return NextResponse.json({
+    clientes: juntarClientes(linhasDevedor, linhasDemais, saldosDosDemais),
+  })
 }
