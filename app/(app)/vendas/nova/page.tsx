@@ -1,42 +1,19 @@
-import { criarClienteServidor } from '@/lib/supabase/server'
 import { Pdv } from './pdv'
 
-type LinhaDevedor = {
-  cliente_id: string
-  nome: string
-  limite_credito: number
-  saldo: number
-}
-
-// O PDV carrega junto a lista de clientes (com o saldo devedor) porque a escolha
-// do cliente acontece no meio da venda e nao pode esperar uma ida ao servidor.
-// A view ja traz quem deve e o limite; quem nao deve nao aparece nela, entao a
-// lista e completada com os demais clientes ativos.
-export default async function NovaVendaPage() {
-  const supabase = await criarClienteServidor()
-
-  const { data: devedores } = await supabase
-    .from('v_clientes_devedores')
-    .select('cliente_id, nome, telefone, limite_credito, saldo')
-    .order('saldo', { ascending: false })
-    .limit(200)
-
-  const { data: todos } = await supabase
-    .from('clientes')
-    .select('id, nome, limite_credito')
-    .order('nome')
-    .limit(500)
-
-  const saldoPorCliente = new Map<string, number>(
-    ((devedores ?? []) as LinhaDevedor[]).map((d) => [d.cliente_id, d.saldo]),
-  )
-
-  const clientes = ((todos ?? []) as { id: string; nome: string; limite_credito: number }[]).map((c) => ({
-    id: c.id,
-    nome: c.nome,
-    limite_credito: c.limite_credito,
-    saldo: saldoPorCliente.get(c.id) ?? 0,
-  }))
-
-  return <Pdv clientes={clientes} />
+// A PAGINA NAO CARREGA MAIS CLIENTE NENHUM.
+//
+// Ate a Task 6 ela trazia os 500 primeiros clientes em ordem alfabetica (mais os
+// 200 maiores devedores, so para casar o saldo) e entregava tudo ao `Pdv`, que
+// montava um `<select>`. Alem de carregar centenas de linhas em toda venda, isso
+// tinha um defeito de balcao: cliente fora do corte — e a base veio inteira do
+// sistema antigo — nao conseguia comprar no crediario, porque nao existia opcao
+// para ele no seletor.
+//
+// Agora quem serve a lista e `GET /api/clientes/busca`, chamada pelo `Pdv` a cada
+// tecla, com a mesma espera curta da busca de produto. O `Pdv` nao recebe mais
+// nada na primeira renderizacao: o campo de cliente nasce vazio e nada na tela
+// depende de uma lista previa — se a rota falhar, a venda em dinheiro continua
+// acontecendo (o crediario e que exige cliente escolhido, como sempre).
+export default function NovaVendaPage() {
+  return <Pdv />
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatarMoeda } from '@/lib/format'
 import { parsearCentavos } from '@/lib/dinheiro'
+import { formatarTelefone } from '../../clientes/validacao'
 import { finalizarVenda, type VendaRegistrada } from './actions'
 import {
   FORMAS,
@@ -24,7 +25,13 @@ type ProdutoBusca = {
   estoque_atual: number
 }
 
-type Cliente = { id: string; nome: string; limite_credito: number; saldo: number }
+type ClienteBusca = {
+  id: string
+  nome: string
+  telefone: string | null
+  limite_credito: number
+  saldo: number
+}
 
 const CAMPO =
   'rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-slate-500'
@@ -37,13 +44,28 @@ const CAMPO =
  *     venda confirmada — e isso que faz clique/tecla dupla devolver a mesma
  *     venda em vez de criar duas (spec 8.1 passo 1);
  *   - o total mostrado e so para o atendente: quem decide e o banco.
+ *
+ * O CLIENTE E ESCOLHIDO POR BUSCA, e nao por um `<select>` com os 500 primeiros
+ * nomes: o seletor deixava de fora todo cliente depois do corte alfabetico — e
+ * cliente fora do seletor nao conseguia comprar no crediario. A busca acha
+ * qualquer um, por nome, telefone ou CPF, pela mesma rota que o crediario usa.
+ *
+ * O `Pdv` nao recebe mais a lista de clientes do servidor: quem serve e a rota
+ * `GET /api/clientes/busca` (a pagina so o renderiza).
  */
-export function Pdv({ clientes }: { clientes: Cliente[] }) {
+export function Pdv() {
   const [termo, setTermo] = useState('')
   const [resultados, setResultados] = useState<ProdutoBusca[]>([])
   const [destaque, setDestaque] = useState(0)
   const [itens, setItens] = useState<ItemCarrinho[]>([])
-  const [clienteId, setClienteId] = useState('')
+  const [termoCliente, setTermoCliente] = useState('')
+  const [clientesEncontrados, setClientesEncontrados] = useState<ClienteBusca[]>([])
+  const [clienteDestaque, setClienteDestaque] = useState(0)
+  // O cliente ESCOLHIDO, com o saldo e o limite que a busca devolveu. Guardar o
+  // objeto inteiro (e nao so o id) e o que permite mostrar nome, limite e saldo
+  // sem uma segunda ida ao servidor — e o crediario, que exige cliente escolhido,
+  // le o id daqui.
+  const [cliente, setCliente] = useState<ClienteBusca | null>(null)
   const [descontoTexto, setDescontoTexto] = useState('')
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
   const [formaAtual, setFormaAtual] = useState<FormaPagamento>('dinheiro')
@@ -59,6 +81,7 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
   const [chave, setChave] = useState(() => crypto.randomUUID())
 
   const buscaRef = useRef<HTMLInputElement>(null)
+  const clienteRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     buscaRef.current?.focus()
@@ -94,6 +117,33 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
     }
   }, [termo])
 
+  // A busca de cliente, gemea da de produto: espera curta, `AbortController` (a
+  // resposta de um termo antigo nao pode sobrescrever a do termo atual) e a mesma
+  // regra de nao mexer no estado dentro do corpo do efeito — quem limpa a lista do
+  // termo curto e o onChange do campo.
+  useEffect(() => {
+    const alvo = termoCliente.trim()
+    if (alvo.length < 2) return
+    const controle = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const resposta = await fetch(`/api/clientes/busca?termo=${encodeURIComponent(alvo)}`, {
+          signal: controle.signal,
+        })
+        if (!resposta.ok) return
+        const dados = (await resposta.json()) as { clientes: ClienteBusca[] }
+        setClientesEncontrados(dados.clientes ?? [])
+        setClienteDestaque(0)
+      } catch {
+        // Abortar por nova digitacao nao e erro.
+      }
+    }, 150)
+    return () => {
+      clearTimeout(timer)
+      controle.abort()
+    }
+  }, [termoCliente])
+
   const subtotal = itens.reduce((s, i) => s + i.preco_unitario * i.quantidade, 0)
   // `null` = desconto ILEGIVEL (nao e "sem desconto": vazio ja vira 0 dentro do
   // lerDesconto). Somar com null daria zero calado, entao o valor so entra na
@@ -120,6 +170,22 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
     buscaRef.current?.focus()
   }
 
+  function escolherCliente(escolhido: ClienteBusca) {
+    setCliente(escolhido)
+    setTermoCliente('')
+    setClientesEncontrados([])
+  }
+
+  // "Sem cliente" continua existindo: o `<select>` tinha essa opcao, e uma venda
+  // comecada com o cliente errado precisa poder voltar atras sem recarregar a
+  // tela. O foco volta para o campo para o operador digitar o outro nome.
+  function tirarCliente() {
+    setCliente(null)
+    setTermoCliente('')
+    setClientesEncontrados([])
+    clienteRef.current?.focus()
+  }
+
   function escolherForma(forma: FormaPagamento) {
     setFormaAtual(forma)
     // O valor ja digitado vale para a forma escolhida: o atendente digita o
@@ -142,7 +208,9 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
   function limpar() {
     setItens([])
     setPagamentos([])
-    setClienteId('')
+    setCliente(null)
+    setTermoCliente('')
+    setClientesEncontrados([])
     setDescontoTexto('')
     setValorTexto('')
     setErro(null)
@@ -175,7 +243,9 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
     setEnviando(true)
     const resultado = await finalizarVenda({
       chave,
-      cliente_id: clienteId === '' ? null : clienteId,
+      // O crediario exige cliente ESCOLHIDO (quem recusa e a RPC, com a mensagem da
+      // spec 9). Sem escolha a venda vai sem cliente — como ia com "Sem cliente".
+      cliente_id: cliente?.id ?? null,
       itens: itens.map((i) => ({ produto_id: i.produto_id, quantidade: i.quantidade })),
       pagamentos,
       desconto,
@@ -191,7 +261,9 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
     setConfirmacao(resultado.venda)
     setItens([])
     setPagamentos([])
-    setClienteId('')
+    setCliente(null)
+    setTermoCliente('')
+    setClientesEncontrados([])
     setDescontoTexto('')
     setValorTexto('')
     setChave(crypto.randomUUID())
@@ -210,6 +282,24 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
       if (resultados[destaque]) adicionar(resultados[destaque])
     } else if (evento.key === 'Escape') {
       setResultados([])
+    }
+  }
+
+  // Mesmo teclado do produto: setas escolhem, Enter pega o destacado, Escape fecha
+  // a lista. O `preventDefault` no Enter importa mais aqui do que la: este campo
+  // esta dentro do `<form>`, e sem ele o Enter submeteraria o formulario.
+  function teclaCliente(evento: React.KeyboardEvent<HTMLInputElement>) {
+    if (evento.key === 'ArrowDown') {
+      evento.preventDefault()
+      setClienteDestaque((d) => Math.min(d + 1, Math.max(0, clientesEncontrados.length - 1)))
+    } else if (evento.key === 'ArrowUp') {
+      evento.preventDefault()
+      setClienteDestaque((d) => Math.max(0, d - 1))
+    } else if (evento.key === 'Enter') {
+      evento.preventDefault()
+      if (clientesEncontrados[clienteDestaque]) escolherCliente(clientesEncontrados[clienteDestaque])
+    } else if (evento.key === 'Escape') {
+      setClientesEncontrados([])
     }
   }
 
@@ -372,20 +462,79 @@ export function Pdv({ clientes }: { clientes: Cliente[] }) {
           <label htmlFor="cliente" className="mt-4 block text-sm font-medium text-slate-700">
             Cliente (obrigatório no crediário)
           </label>
-          <select
+          {/* O rotulo, o `id` e o lugar na tela sao os MESMOS de antes: o que mudou
+              foi o controle. Era um `<select>` com os 500 primeiros nomes em ordem
+              alfabetica — e quem estava fora do corte nao tinha opcao para marcar,
+              ou seja, nao conseguia comprar no crediario. Agora e busca, igual a de
+              produto: setas escolhem, Enter pega o destacado, Esc fecha a lista. */}
+          <input
             id="cliente"
-            value={clienteId}
-            onChange={(e) => setClienteId(e.target.value)}
+            ref={clienteRef}
+            value={termoCliente}
+            onChange={(e) => {
+              setTermoCliente(e.target.value)
+              // Termo curto demais para buscar: a lista some AQUI, no evento que
+              // mudou o termo, e nao dentro do efeito (mesma razao da busca de
+              // produto: setState sincrono no corpo do efeito rende em cascata).
+              if (e.target.value.trim().length < 2) setClientesEncontrados([])
+            }}
+            onKeyDown={teclaCliente}
+            placeholder="Digite o nome, o telefone ou o CPF"
+            data-testid="busca-cliente"
             className={`${CAMPO} mt-1 w-full`}
-          >
-            <option value="">Sem cliente</option>
-            {clientes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}
-                {c.limite_credito > 0 ? ` — deve ${formatarMoeda(c.saldo)} de ${formatarMoeda(c.limite_credito)}` : ' — sem crediário'}
-              </option>
-            ))}
-          </select>
+          />
+
+          {clientesEncontrados.length > 0 ? (
+            <ul
+              data-testid="resultados-cliente"
+              className="mt-1 rounded-lg border border-slate-200 bg-white shadow-sm"
+            >
+              {clientesEncontrados.map((c, i) => {
+                // O telefone desempata HOMONIMO — a base veio inteira do sistema
+                // antigo e "MARIA SILVA" nao e caso unico. Formatado como no resto
+                // do sistema; numero torto aparece como esta gravado, em vez de
+                // sumir (mesma escolha de /crediario).
+                const telefone = formatarTelefone(c.telefone ?? '')
+                const contato = telefone ?? (c.telefone?.trim() ? c.telefone : null)
+                return (
+                  <li
+                    key={c.id}
+                    className={`cursor-pointer px-4 py-3 text-base ${i === clienteDestaque ? 'bg-slate-100' : ''}`}
+                    onMouseEnter={() => setClienteDestaque(i)}
+                    onClick={() => escolherCliente(c)}
+                  >
+                    <span className="font-medium text-slate-800">{c.nome}</span>
+                    {contato ? <span className="ml-3 text-sm text-slate-400">{contato}</span> : null}
+                    <span className="ml-3 text-slate-500">
+                      {/* `limite_credito = 0` e "nao faz crediario", NUNCA
+                          ilimitado (spec 8.4): o texto e o mesmo que o `<select>`
+                          mostrava. */}
+                      {c.limite_credito > 0
+                        ? `deve ${formatarMoeda(c.saldo)} de ${formatarMoeda(c.limite_credito)}`
+                        : 'sem crediário'}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+
+          {cliente ? (
+            <p data-testid="cliente-escolhido" className="mt-2 text-sm text-slate-700">
+              <span className="font-medium text-slate-800">{cliente.nome}</span>
+              {cliente.limite_credito > 0
+                ? ` — deve ${formatarMoeda(cliente.saldo)} de ${formatarMoeda(cliente.limite_credito)}`
+                : ' — sem crediário'}{' '}
+              <button
+                type="button"
+                onClick={tirarCliente}
+                aria-label="Remover o cliente escolhido"
+                className="text-slate-500 underline"
+              >
+                remover
+              </button>
+            </p>
+          ) : null}
         </div>
 
         <div>

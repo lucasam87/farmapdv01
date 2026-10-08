@@ -178,19 +178,30 @@ test('crediario acima do limite mostra a mensagem em portugues', async ({ page }
   await page.goto('/vendas/nova')
   await adicionarProduto(page, PRODUTO_CARO_E2E)
 
-  // O cliente com limite baixo precisa estar selecionado: o crediario exige
-  // cliente. `selectOption` com label exige STRING exata e nao aceita regex, e o
-  // texto da opcao muda com o saldo ("— deve R$ 0,00 de R$ 30,00", ou "— sem
-  // crediario" quando o limite e zero), entao o caminho estavel e pegar o VALUE
-  // da opcao cujo texto comeca com o nome e selecionar por ele.
-  const seletor = page.getByLabel(/Cliente/)
-  const valorDoCliente = await seletor
-    .locator('option')
-    .filter({ hasText: CLIENTE_E2E })
-    .first()
-    .getAttribute('value')
-  expect(valorDoCliente).toBeTruthy()
-  await seletor.selectOption(valorDoCliente!)
+  // O cliente com limite baixo precisa estar ESCOLHIDO: o crediario exige cliente.
+  //
+  // Ate a Task 7 isto era `getByLabel(/Cliente/)` + `selectOption(value)`, lendo o
+  // VALUE da `<option>` — o texto da opcao muda com o saldo ("— deve R$ 0,00 de
+  // R$ 30,00", ou "— sem crediario" quando o limite e zero), entao o caminho
+  // estavel era o value. O `<select>` dos 500 primeiros clientes SAIU (quem estava
+  // fora do corte nao conseguia comprar no crediario) e o `selectOption` nao existe
+  // mais; o cliente agora se escolhe pela busca, como o produto.
+  //
+  // Setas + Enter de proposito: e o caminho de teclado do campo novo, e aqui ele
+  // nao depende da POSICAO da lista como dependeria na busca de produto. O termo
+  // pedido e o NOME INTEIRO do cenario (`ilike %termo%`), e o globalSetup apaga os
+  // restos antes de criar: a lista traz esse cliente e mais ninguem. Escolher pela
+  // lista (como faz o adicionarProduto) seria possivel, mas deixaria o teclado do
+  // cliente sem nenhuma prova.
+  await page.getByTestId('busca-cliente').pressSequentially(CLIENTE_E2E)
+  await expect(page.getByTestId('resultados-cliente')).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+
+  // O escolhido aparece com nome, limite e saldo: e o que o operador confere antes
+  // de fechar no crediario. O limite do cenario e R$ 30,00 e o saldo, zero.
+  await expect(page.getByTestId('cliente-escolhido')).toContainText(CLIENTE_E2E)
+  await expect(page.getByTestId('cliente-escolhido')).toContainText('R$ 30,00')
 
   await page.keyboard.press('F10') // crediario
   await page.getByLabel('Valor do pagamento').fill('45,00')
