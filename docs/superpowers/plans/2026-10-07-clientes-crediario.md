@@ -211,7 +211,7 @@ expect(validarCliente({ ...vazio, nome: 'ANA', telefone: '(11) 91234-5678' }, tr
 
 // recebimento: valor ilegivel, zero, negativo e acima da divida
 expect(validarRecebimento('abc', 5000)).toEqual({ ok: false, mensagem: 'Valor inválido. Use, por exemplo, 20,00.' })
-expect(validarRecebimento('0', 5000)).toEqual({ ok: false, mensagem: 'O valor precisa ser maior que zero.' })
+expect(validarRecebimento('0', 5000)).toEqual({ ok: false, mensagem: 'O valor do recebimento precisa ser maior que zero.' })
 expect(validarRecebimento('60,00', 5000)).toEqual({ ok: false, mensagem: 'O valor é maior que a dívida (R$ 50,00).' })
 expect(validarRecebimento('20,00', 5000)).toEqual({ ok: true, centavos: 2000 })
 
