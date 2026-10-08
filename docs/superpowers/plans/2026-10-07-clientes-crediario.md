@@ -242,10 +242,12 @@ git commit -m "clientes: validacao pura do cadastro, do recebimento e do link do
 - Create: `app/(app)/clientes/formulario.tsx` (client, `useActionState`)
 - Create: `app/(app)/clientes/novo/page.tsx`
 - Create: `app/(app)/clientes/[id]/page.tsx` (dados, saldo, extrato, receber, WhatsApp)
+- Create: `app/(app)/crediario/receber.tsx` (client, `useActionState`) — **criado aqui** e só consumido pela Task 5
+- Create: `app/(app)/crediario/actions.ts` (`receberDoCliente`) — **criado aqui**; a regra de ordem: o detalhe do cliente já recebe pagamento, então o formulário nasce nesta tarefa e a Task 5 apenas o embute na lista
 
 **Interfaces:**
 - **Consumes:** `cliente_salvar`, `receber_pagamento` (T1/T2); `validarCliente`, `validarRecebimento`, `linkWhatsApp` (T3); `v_clientes_devedores`; `perfilAtual`; `formatarMoeda`, `formatarDataHora`.
-- **Produces:** `salvarCliente(_anterior, formData)` com `Resultado = { ok: true; mensagem: string } | { ok: false; mensagem: string }` (o mesmo tipo de `caixa/actions.ts`); rotas `/clientes`, `/clientes/novo`, `/clientes/[id]?editar=1`; `data-testid` = `busca-cliente`, `linha-cliente`, `saldo-cliente`, `ok`, `erro`.
+- **Produces:** `salvarCliente(_anterior, formData)` **e** `receberDoCliente(_anterior, formData)`, ambos com `Resultado = { ok: true; mensagem: string } | { ok: false; mensagem: string }` (o mesmo tipo de `caixa/actions.ts`); o componente `Receber({ clienteId, nome, saldo })` com `data-testid="receber-<cliente_id>"`; rotas `/clientes`, `/clientes/novo`, `/clientes/[id]?editar=1`; `data-testid` = `busca-cliente`, `linha-cliente`, `saldo-cliente`, `ok`, `erro`.
 
 - [ ] **Step 1: A lista e a busca.** `/clientes` lê `clientes` (`id, nome, telefone, cpf, limite_credito, bloqueado`) com um filtro montado por **`filtroDeBuscaDeCliente(termo)`, uma função nova em `lib/postgrest.ts`**. A `filtroDeBuscaDeProduto` que existe lá casa `codigo_barras.eq` + `nome.ilike` — não serve. A nova monta as cláusulas **condicionalmente**, sempre passando por `valorDeFiltro` (o termo nunca entra cru no `.or()`; é a regra que `lib/postgrest.ts` existe para garantir):
   - `nome.ilike."%termo%"` sempre;
@@ -253,12 +255,13 @@ git commit -m "clientes: validacao pura do cadastro, do recebimento e do link do
   Com teste de unidade em `lib/postgrest.test.ts` (o arquivo já existe) para os dois casos: termo com dígitos e termo só com letras.
   O saldo de cada um vem de `v_clientes_devedores` numa consulta só, casada por `cliente_id` no servidor (não faça N consultas).
 - [ ] **Step 2: O formulário.** `formulario.tsx` é client component com `useActionState` (espelhe `caixa/tela.tsx`): nome, telefone, CPF, observação sempre visíveis; **limite de crédito, "bloqueado" e "saldo devedor inicial" só aparecem quando `ehDono`** — para o atendente a tela mostra `Limite e bloqueio são do dono.` em vez dos campos. O erro do banco vai cru para o recado (já é português).
-- [ ] **Step 3: O detalhe.** `/clientes/[id]`: dados, saldo devedor grande no topo, extrato de `crediario_lancamentos` (data, tipo, valor, forma, observação — mais recente primeiro, limite 50), botão **Editar**, o formulário de receber (T5) embutido e o link do WhatsApp (com a mensagem pronta; sem telefone, o link não aparece e a tela diz `Cliente sem telefone cadastrado.`).
-- [ ] **Step 4: Verificar.** `npm run build` exit 0 com `ƒ /clientes`, `ƒ /clientes/novo`, `ƒ /clientes/[id]`; `npm run lint` exit 0.
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: A action e o formulário de receber** (é aqui, não na Task 5 — o detalhe do cliente já recebe pagamento). `app/(app)/crediario/actions.ts` → `receberDoCliente`: `perfilAtual()` → sem perfil, `Usuário sem perfil cadastrado. Fale com o responsável.`; lê `saldo` do campo escondido **para validar o teto antes de ir ao banco** e `valor` do campo de texto; `validarRecebimento`; `supabase.rpc('receber_pagamento', { p_cliente_id, p_valor, p_forma })`; erro → mensagem crua; sucesso → `revalidatePath('/crediario')`, `revalidatePath('/clientes')`, `revalidatePath(\`/clientes/${id}\`)` e `{ ok: true, mensagem: 'Recebimento registrado.' }`. O saldo escondido vem da view e serve só para a validação da tela: **o teto de verdade é checado dentro da RPC** (T1). `app/(app)/crediario/receber.tsx` é o client component com `useActionState`, exposto como `Receber({ clienteId, nome, saldo })`.
+- [ ] **Step 4: O detalhe.** `/clientes/[id]`: dados, saldo devedor grande no topo, extrato de `crediario_lancamentos` (data, tipo, valor, forma, observação — mais recente primeiro, limite 50), botão **Editar**, o `Receber` embutido e o link do WhatsApp (com a mensagem pronta; sem telefone, o link não aparece e a tela diz `Cliente sem telefone cadastrado.`).
+- [ ] **Step 5: Verificar.** `npm run build` exit 0 com `ƒ /clientes`, `ƒ /clientes/novo`, `ƒ /clientes/[id]`; `npm run lint` exit 0.
+- [ ] **Step 6: Commit**
 
 ```bash
-git add "app/(app)/clientes"
+git add "app/(app)/clientes" "app/(app)/crediario"
 git commit -m "tela de clientes: busca, cadastro, detalhe com extrato e o limite protegido"
 ```
 
@@ -267,18 +270,15 @@ git commit -m "tela de clientes: busca, cadastro, detalhe com extrato e o limite
 ### Task 5: `/crediario` — quem deve, quanto e o recebimento no balcão
 
 **Files:**
-- Create: `app/(app)/crediario/page.tsx`
-- Create: `app/(app)/crediario/actions.ts` (`receberDoCliente`)
-- Create: `app/(app)/crediario/receber.tsx` (client, `useActionState`) — **reusado** pela Task 4
+- Create: `app/(app)/crediario/page.tsx` (lista de devedores) — **só isto**: o formulário e a action de receber nascem na Task 4, porque o detalhe do cliente já precisa deles
 
 **Interfaces:**
-- **Consumes:** `receber_pagamento` (T1); `validarRecebimento`, `linkWhatsApp` (T3); `v_clientes_devedores` (`cliente_id, nome, telefone, limite_credito, saldo`).
-- **Produces:** `receberDoCliente(_anterior, formData)`; rota `/crediario?busca=<termo>`; `data-testid` = `linha-devedor`, `total-a-receber`, `ok`, `erro`, `receber-<cliente_id>`; o componente `Receber` recebe `{clienteId, nome, saldo}` e é o mesmo embutido em `/clientes/[id]`.
+- **Consumes:** `receber_pagamento` (T1) via a action `receberDoCliente` **da Task 4**; `validarRecebimento`, `linkWhatsApp` (T3); `filtroDeBuscaDeCliente` (T4, em `lib/postgrest.ts`); o componente `Receber` (T4); `v_clientes_devedores` (`cliente_id, nome, telefone, limite_credito, saldo`).
+- **Produces:** rota `/crediario?busca=<termo>`; `data-testid` = `linha-devedor`, `total-a-receber`; o mesmo `Receber` da Task 4 embutido em cada linha.
 
 - [ ] **Step 1: A página.** Lista `v_clientes_devedores` (maior saldo primeiro, `limit 200`), filtro por nome/telefone dentro da própria view com `.or()` (mesmo helper da Task 4), o **total a receber** no topo (soma dos saldos listados) e, em cada linha, o saldo, o limite, o link do WhatsApp e o formulário de receber com o valor já focado.
-- [ ] **Step 2: A action.** `receberDoCliente`: `perfilAtual()` → sem perfil, `Usuário sem perfil cadastrado. Fale com o responsável.`; lê `saldo` do campo escondido **para validar o teto antes de ir ao banco** e `valor` do campo de texto; `validarRecebimento`; `supabase.rpc('receber_pagamento', { p_cliente_id, p_valor, p_forma })`; erro → mensagem crua; sucesso → `revalidatePath('/crediario')`, `revalidatePath('/clientes')`, `revalidatePath(\`/clientes/${id}\`)` e `{ ok: true, mensagem: 'Recebimento registrado.' }`. O saldo escondido vem da view e serve só para a validação da tela: **o teto de verdade é checado dentro da RPC** (T1).
-- [ ] **Step 3: Verificar.** `npm run build` exit 0 com `ƒ /crediario`; `npm run lint` exit 0.
-- [ ] **Step 4: Commit**
+- [ ] **Step 2: Verificar.** `npm run build` exit 0 com `ƒ /crediario`; `npm run lint` exit 0.
+- [ ] **Step 3: Commit**
 
 ```bash
 git add "app/(app)/crediario"
