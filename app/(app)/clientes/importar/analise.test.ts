@@ -3,6 +3,7 @@ import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { analisarClientes, MARCA_SALDO_IMPORTADO } from './analise'
 import { lerXlsx } from '@/lib/xlsx'
+import { LIMITE_DE_CENTAVOS } from '@/lib/tabela'
 import type { Tabela } from '@/lib/csv'
 
 // Testes da ANALISE da planilha de clientes — a parte pura, sem I/O e sem
@@ -241,6 +242,89 @@ describe('analisarClientes', () => {
   // silencio: o teste existe para a mudanca ser barulhenta.
   it('a marca do saldo importado é o literal da RPC', () => {
     expect(MARCA_SALDO_IMPORTADO).toBe('Saldo importado do sistema antigo')
+  })
+
+  // Important 1 da revisao: `limite_credito` e `saldo` sao `integer` no banco, e a
+  // RPC faz `::integer` (015:289, 304). Um valor acima do teto estourava o cast e
+  // abortava a importacao INTEIRA com erro cru em ingles — e a previa dizia que
+  // estava tudo certo. O teto e o MESMO de lib/tabela.ts (nao um numero novo).
+  it('recusa valor acima do teto do integer, nomeando o campo', () => {
+    const r = analisarClientes(
+      tabela(
+        ['nome', 'cpf', 'limite', 'saldo'],
+        [
+          ['A', '11144477735', '21474836,48', '100,00'],
+          ['B', '22255588846', '100,00', '21474836,48'],
+          // A linha real do catalogo legado: R$ 7,9 bilhoes.
+          ['C', '33366699957', '100,00', '7896714283,00'],
+        ],
+      ),
+    )
+
+    expect(r.linhas[0].erros).toContain(
+      'Limite de crédito acima do máximo que o sistema aceita (R$ 21.474.836,47).',
+    )
+    for (const i of [1, 2]) {
+      expect(r.linhas[i].erros).toContain(
+        'Saldo devedor acima do máximo que o sistema aceita (R$ 21.474.836,47).',
+      )
+    }
+    expect(JSON.parse(r.json)).toHaveLength(0)
+    // NAO ZERA: a divida absurda continua na soma LIDA — zerar sumiria com ela.
+    expect(r.linhas[1].saldo).toBe(LIMITE_DE_CENTAVOS + 1)
+    expect(r.linhas[2].saldo).toBe(789671428300)
+    expect(r.somaLida).toBe(10000 + (LIMITE_DE_CENTAVOS + 1) + 789671428300)
+    expect(r.somaGravada).toBe(0)
+  })
+
+  it('aceita exatamente o teto do integer (é o limite do banco, não um a menos)', () => {
+    const r = analisarClientes(
+      tabela(['nome', 'cpf', 'limite', 'saldo'], [['A', '11144477735', '21474836,47', '21474836,47']]),
+    )
+
+    expect(r.linhas[0].erros).toEqual([])
+    expect(r.linhas[0].limite_credito).toBe(LIMITE_DE_CENTAVOS)
+    expect(r.linhas[0].saldo).toBe(LIMITE_DE_CENTAVOS)
+  })
+
+  // Minor da revisao: "valor invalido" e "nao pode ser negativo" sao dois fatos
+  // diferentes (a mesma distincao que `clientes/validacao.ts` faz com
+  // `parsearComSinal`).
+  it('separa valor negativo de valor ilegível', () => {
+    const r = analisarClientes(
+      tabela(
+        ['nome', 'cpf', 'limite', 'saldo'],
+        [
+          ['A', '11144477735', '-10,00', '-50,00'],
+          ['B', '22255588846', 'abc', 'abc'],
+        ],
+      ),
+    )
+
+    expect(r.linhas[0].erros).toEqual([
+      'O limite de crédito não pode ser negativo.',
+      'O saldo devedor não pode ser negativo.',
+    ])
+    expect(r.linhas[1].erros).toEqual([
+      'Limite de crédito inválido. Digite em reais, como 100,00.',
+      'Saldo devedor inválido. Digite em reais, como 50,00.',
+    ])
+  })
+
+  // Minor da revisao: sem a coluna de saldo, o arquivo importa clientes e nao
+  // lanca divida nenhuma — numa importacao que existe para trazer os saldos, isso
+  // nao pode passar em silencio (e nao e erro: cadastrar a lista e uso legitimo).
+  it('avisa quando a planilha não trouxe a coluna de saldo', () => {
+    const semSaldo = analisarClientes(tabela(['nome', 'cpf'], [['A', '11144477735']]))
+    expect(semSaldo.avisos).toEqual([
+      'Esta planilha não trouxe a coluna de saldo devedor: nenhum saldo será lançado — o arquivo só cadastra e atualiza clientes.',
+    ])
+    expect(semSaldo.faltando).toEqual([])
+    expect(semSaldo.linhas[0].saldo).toBe(0)
+
+    expect(analisarClientes(tabela(['nome', 'cpf', 'saldo'], [['A', '11144477735', '']])).avisos).toEqual(
+      [],
+    )
   })
 })
 

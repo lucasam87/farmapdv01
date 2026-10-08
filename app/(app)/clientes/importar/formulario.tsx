@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useActionState } from 'react'
+import { useActionState, useCallback, useState } from 'react'
 import { formatarMoeda } from '@/lib/format'
 import {
   analisarClientesArquivo,
@@ -18,19 +18,36 @@ export function FormularioImportacaoClientes() {
     analisarClientesArquivo,
     null,
   )
-  const [importacao, acaoImportar, importando] = useActionState<
-    ResultadoImportacao | null,
-    FormData
-  >(confirmarImportacaoClientes, null)
+
+  /*
+   * Qual previa ja foi confirmada — o proprio JSON que viajou no campo oculto.
+   *
+   * A importacao pertence a UMA previa: sem esta amarracao, o `ok` de uma
+   * importacao antiga bloqueava o botao para sempre e analisar OUTRO arquivo na
+   * mesma pagina deixava o Confirmar morto, sem uma palavra de explicacao. Agora o
+   * botao (e a tarja de sucesso) valem para a previa que esta na tela.
+   */
+  const [jsonConfirmado, setJsonConfirmado] = useState<string | null>(null)
+
+  const [importacao, acaoImportar, importando] = useActionState<ResultadoImportacao | null, FormData>(
+    // `useCallback`: a acao embrulhada nao pode trocar de identidade a cada
+    // render (so depende do setter, que o React mantem estavel).
+    useCallback(async (anterior: ResultadoImportacao | null, formData: FormData) => {
+      const resultado = await confirmarImportacaoClientes(anterior, formData)
+      setJsonConfirmado(resultado.ok ? String(formData.get('linhas') ?? '') : null)
+      return resultado
+    }, []),
+    null,
+  )
 
   const previa = analise?.ok ? analise.previa : null
+  const jaImportada = previa !== null && jsonConfirmado === previa.json
   // Divergencia so existe quando ha o que comparar: sem linha de TOTAL no arquivo,
   // nao se afirma que conferiu (nem se acusa).
   const semTotalImpresso = previa !== null && previa.totalImpresso === null
   const somasDivergem = previa !== null && previa.totalImpresso !== null && !previa.somaConferida
   const contagemFalhou = previa !== null && (previa.existentes === null || previa.comSaldoLancado === null)
-  const podeConfirmar =
-    previa !== null && previa.faltando.length === 0 && previa.validas > 0 && importacao?.ok !== true
+  const podeConfirmar = previa !== null && previa.faltando.length === 0 && previa.validas > 0 && !jaImportada
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -195,8 +212,9 @@ export function FormularioImportacaoClientes() {
           {previa.primeiras.length > 0 ? (
             <div className="mt-6 overflow-x-auto">
               <p className="mb-2 text-sm text-slate-500">
-                Amostra: as {previa.primeiras.length} primeiras linhas de {previa.totalLinhas} que
-                serão gravadas. Confira nome, CPF e saldo de cada uma:
+                Amostra: as {previa.primeiras.length} primeiras das {previa.validas} linha(s) que
+                serão gravadas (de {previa.totalLinhas} lidas no arquivo). Confira nome, CPF e saldo
+                de cada uma:
               </p>
               <table className="w-full text-left text-sm">
                 <thead>
@@ -258,7 +276,11 @@ export function FormularioImportacaoClientes() {
             >
               {importando ? 'Importando…' : 'Confirmar importação'}
             </button>
-            {!podeConfirmar && importacao?.ok !== true ? (
+            {jaImportada ? (
+              <p className="mt-2 text-sm text-slate-500">
+                Esta prévia já foi importada. Analise outro arquivo para importar mais clientes.
+              </p>
+            ) : !podeConfirmar ? (
               <p className="mt-2 text-sm text-slate-500">
                 {previa.faltando.length > 0 || previa.validas === 0
                   ? 'Nada para importar: corrija a planilha e analise de novo.'
@@ -275,7 +297,9 @@ export function FormularioImportacaoClientes() {
         </p>
       ) : null}
 
-      {importacao?.ok ? (
+      {/* A tarja de sucesso e da previa que foi confirmada: analisar outro arquivo
+          esconde o resumo antigo em vez de deixá-lo ao lado de uma previa nova. */}
+      {importacao?.ok && jaImportada ? (
         <section className="mt-6 rounded-2xl bg-emerald-50 p-6">
           <p className="text-lg text-emerald-900">
             Clientes: {importacao.resumo.criados} novo(s), {importacao.resumo.atualizados}{' '}

@@ -147,8 +147,13 @@ const OBRIGATORIO = 'nome'
  *
  * Decisao do Lucas: o produto NAO pode sumir do catalogo. Preco de venda acima
  * do limite entra com ZERO e a previa lista, para ele precificar depois.
+ *
+ * EXPORTADA porque a importacao de clientes (Task 6 da Etapa 6) esbarra no MESMO
+ * teto: `limite_credito` e `saldo` sao `integer` e a RPC faz `::integer` (015:289,
+ * 304) — um valor acima disto aborta a importacao INTEIRA com erro cru do
+ * Postgres. Inventar um segundo numero aqui seria pior que compartilhar o do banco.
  */
-const LIMITE_DE_CENTAVOS = 2147483647
+export const LIMITE_DE_CENTAVOS = 2147483647
 
 export function normalizarCabecalho(texto: string): string {
   return texto

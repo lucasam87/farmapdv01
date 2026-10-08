@@ -78,8 +78,12 @@ function normalizarDigitos(bruto: string): string | null {
  * com a mesma mensagem: "Digite em reais" e um erro de digitacao, "nao pode ser
  * negativo" e uma regra. O sinal e lido aqui e o valor absoluto vai ao parser.
  * "-abc" continua invalido (o parser recusa "abc").
+ *
+ * EXPORTADA porque a leitura da planilha de importacao (`importar/analise.ts`)
+ * precisa da MESMA distincao: sem ela, o dono leria "valor invalido" para uma
+ * divida negativa que o banco recusa justamente por ser negativa.
  */
-function parsearComSinal(texto: string): number | null {
+export function parsearComSinal(texto: string): number | null {
   const semEspaco = (texto ?? '').replace(/R\$/gi, '').replace(/[\s\u00A0]/g, '')
   const negativo = semEspaco.startsWith('-')
   const centavos = parsearCentavos(negativo ? semEspaco.slice(1) : texto)

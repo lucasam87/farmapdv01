@@ -97,20 +97,23 @@ const SO_O_DONO = 'Só o dono pode importar clientes.'
 async function contarExistentes(
   supabase: Awaited<ReturnType<typeof criarClienteServidor>>,
   cpfs: string[],
-): Promise<{ existentes: number; ids: string[] } | null> {
+): Promise<Map<string, string> | null> {
   const LOTE = 200
-  const ids: string[] = []
+  // Mapa cpf -> id: quem chama precisa dos ids so das linhas com saldo > 0 (a
+  // contagem de saldos ignorados), e uma segunda consulta por CPF seria uma ida ao
+  // banco a mais para a mesma pergunta.
+  const porCpf = new Map<string, string>()
 
   for (let i = 0; i < cpfs.length; i += LOTE) {
     const { data, error } = await supabase
       .from('clientes')
-      .select('id')
+      .select('id, cpf')
       .in('cpf', cpfs.slice(i, i + LOTE))
     if (error) return null
-    for (const c of (data ?? []) as { id: string }[]) ids.push(c.id)
+    for (const c of (data ?? []) as { id: string; cpf: string }[]) porCpf.set(c.cpf, c.id)
   }
 
-  return { existentes: ids.length, ids }
+  return porCpf
 }
 
 /**
@@ -210,8 +213,27 @@ export async function analisarClientesArquivo(
         .map((l) => l.cpf as string),
     ),
   ]
-  const contagem = await contarExistentes(supabase, cpfs)
-  const comSaldoLancado = contagem === null ? null : await contarComSaldoLancado(supabase, contagem.ids)
+  const existentesPorCpf = await contarExistentes(supabase, cpfs)
+
+  /*
+   * A contagem de "saldos ignorados" so olha as linhas com saldo MAIOR que zero:
+   * a RPC so entra no bloco da guarda quando `(v_linha->>'saldo')::integer > 0`
+   * (015:368) — um cliente com saldo 0 na planilha nunca aparece em
+   * `saldos_ignorados`, e conta-lo aqui faria a previa superestimar o aviso.
+   */
+  const cpfsComSaldo = [
+    ...new Set(
+      analise.linhas
+        .filter((l) => l.erros.length === 0 && l.cpf !== null && l.saldo > 0)
+        .map((l) => l.cpf as string),
+    ),
+  ]
+  const idsComSaldo = cpfsComSaldo
+    .map((cpf) => existentesPorCpf?.get(cpf))
+    .filter((id): id is string => id !== undefined)
+
+  const comSaldoLancado =
+    existentesPorCpf === null ? null : await contarComSaldoLancado(supabase, idsComSaldo)
 
   const erros = analise.linhas
     .map((l, i) => ({ linha: i + 1, erros: l.erros }))
@@ -246,10 +268,12 @@ export async function analisarClientesArquivo(
     somaConferida: analise.totalImpresso !== null && analise.totalImpresso === analise.somaLida,
     semCpf: analise.semCpf,
     atualizar,
-    existentes: contagem === null ? null : contagem.existentes,
+    existentes: existentesPorCpf === null ? null : existentesPorCpf.size,
     comSaldoLancado,
     faltando: analise.faltando,
-    avisos,
+    // Os avisos do leitor do arquivo (Latin-1) e os da analise (ex.: planilha sem
+    // a coluna de saldo) chegam juntos na tela, como em produtos/importar.
+    avisos: [...avisos, ...analise.avisos],
     erros,
     json: analise.json,
   }
