@@ -205,12 +205,14 @@ não traz a coluna (ver o item 9 na tabela abaixo).
    própria, como já é a busca de produto (`/api/clientes/busca`), ou (b) manter o `<select>` e
    só avisar quando a lista for cortada. **É mudança na tela do balcão, por isso não foi
    feita sozinha.**
-2. **Empurrar a branch** depois do commit do fechamento:
-   `git push -u origin etapa-3-4-produtos-estoque-pdv`.
-3. **Passar uma planilha REAL do sistema antigo pela tela de importação.** É o único item que
-   impede a Etapa 3 de virar ✅: a conferência "soma extraída × TOTAL impresso no arquivo"
-   agora existe e está testada, mas nunca rodou contra um arquivo de verdade — só contra as
-   fixtures, que cobrem o formato.
+2. ~~**Empurrar a branch** depois do commit do fechamento.~~ ✅ **Feito em 07/10/2026**:
+   `git push origin etapa-3-4-produtos-estoque-pdv` → `06b0269..2f11075`, conferido hash a hash
+   (local e remoto em `2f11075`), 125 arquivos no remoto, sem segredo no range.
+3. ~~**Passar uma planilha REAL do sistema antigo pela tela de importação.**~~ ✅ **Não se aplica
+   mais:** a Etapa 3 fechou em 07/10/2026 com o **catálogo real** importado pelo caminho da tela
+   (5689 produtos, soma extraída × soma gravada em R$ 121.142,60). O arquivo real era **PDF**, não
+   planilha, e a spec §13 registra o critério reescrito — o PDF continua fora da tela (§8.7 exige
+   TOTAL impresso, que o relatório do Nex não tem).
 
 **Os defeitos da revisão, com o que foi feito em cada um:**
 
