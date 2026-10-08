@@ -19,6 +19,13 @@ com a evidência colada na tabela de Etapas. A **Etapa 6 (clientes e crediário)
 saldo importado aparece, pagamento parcial atualiza, WhatsApp abre (spec §13, decisão B2 —
 a importação de cliente **com saldo devedor inicial** passou a fazer parte dela).
 
+**A revisão final do branch da Etapa 5 achou um vazamento:** as 11 views de `public` nasceram
+sem `security_invoker`, então rodavam como o dono e ignoravam a RLS das tabelas — e o Supabase
+concede `SELECT` a `anon` por *default privileges*. A chave pública (a do bundle do navegador)
+lia `v_estoque_baixo` com produto real, sem login. A **migration `013_seguranca_views.sql`**
+fechou isso nas 11 views (`alter view ... set (security_invoker = true)`), com sonda pela chave
+pública e 4 asserções novas em `tests/sql/casos/050_permissoes.sql`.
+
 ## ✅ O CATÁLOGO REAL FOI IMPORTADO (07/10/2026)
 
 O PDF do sistema antigo entrou: **5689 produtos**, todos ativos, nenhum sem código de barras.
