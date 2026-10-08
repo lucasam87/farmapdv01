@@ -326,12 +326,20 @@ begin
   loop
     v_cliente := null;
     -- `for update` pela MESMA razao de receber_pagamento: a checagem da guarda
-    -- abaixo e check-then-act. Sem o lock, dois imports simultaneos do mesmo
-    -- arquivo leem "nao existe lancamento marcado", os dois passam e a divida
-    -- dobra — que e exatamente o dano que esta tarefa existe para impedir. Com o
-    -- lock, a segunda transacao espera e, depois do commit da primeira, enxerga
-    -- (snapshot novo) o lancamento que ela gravou. A linha do cliente sempre
-    -- existe aqui: foi criada/atualizada logo abaixo, no ramo acima.
+    -- abaixo e check-then-act. O LOCK COBRE O CLIENTE EXISTENTE: dois imports
+    -- simultaneos do mesmo arquivo disputam a linha dele, a segunda transacao
+    -- espera, e depois do commit da primeira enxerga (snapshot novo) o lancamento
+    -- que a outra gravou — o saldo nao dobra.
+    --
+    -- Para o cliente NOVO o lock e NO-OP, e nao adianta fingir que nao: este
+    -- `select` roda ANTES do `insert` do ramo de baixo, entao nao existe linha para
+    -- trancar e as duas transacoes chegam ao `insert`. Quem impede a divida dobrada
+    -- ali e o `unique` de `clientes.cpf` (001_base.sql): a segunda recebe
+    -- `unique_violation`, o import ABORTA INTEIRO e o dono ve o erro cru do
+    -- Postgres — nunca um saldo lancado duas vezes. Fazer o lock valer tambem para o
+    -- cliente novo (lock de transacao por CPF, ex.: pg_advisory_xact_lock) trocaria
+    -- esse aborto por "a segunda espera e conta em saldos_ignorados"; nao foi feito
+    -- nesta rodada (ruling do controlador na revisao final do branch).
     select c.id into v_cliente from clientes c where c.cpf = v_linha->>'cpf' for update;
 
     if v_cliente is not null and not coalesce(p_atualizar_existentes, false) then

@@ -203,10 +203,18 @@ begin
 
   -- A 2a importacao do MESMO arquivo: aqui a guarda tem de aparecer. Agora os
   -- TRES CPFs existem (o 44444444444 nasceu na 1a), entao sao 3 atualizados; e a
-  -- guarda segura os TRES saldos — nenhum vira segundo lancamento. O `for update`
-  -- na leitura do cliente e o que faz a guarda valer tambem com dois imports
-  -- simultaneos: o lock serializa, e a segunda transacao (snapshot novo, depois
-  -- do commit da primeira) enxerga o lancamento gravado.
+  -- guarda segura os TRES saldos — nenhum vira segundo lancamento. Os tres sao
+  -- clientes EXISTENTES, que e o ramo que o `for update` da 015 cobre: com dois
+  -- imports simultaneos a segunda transacao esperaria na linha do cliente e, com
+  -- snapshot novo, contaria o saldo em `saldos_ignorados`.
+  --
+  -- ATENCAO AO QUE ESTE CASO NAO PROVA: os dois imports daqui rodam EM SERIE, entao
+  -- o que ele prova e a GUARDA (nao relancar o saldo ja marcado), nao a concorrencia
+  -- — dois imports realmente simultaneos exigiriam duas sessoes escrevendo no banco
+  -- de producao, e nao tem teste (residual aceito no ledger). E no ramo de cliente
+  -- NOVO o lock e NO-OP (o `select ... for update` roda antes do `insert`): ali quem
+  -- impede a divida dobrada e o `unique` de `clientes.cpf`, ao custo de o segundo
+  -- import abortar inteiro com `unique_violation`.
   v_resumo := importar_clientes(v_linhas, true);
   perform teste_ok((v_resumo->>'criados')::int = 0 and (v_resumo->>'atualizados')::int = 3,
     'caso 6: reimportar nao cria ninguem de novo');
