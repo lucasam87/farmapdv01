@@ -6,7 +6,8 @@ import { test, expect, type Page } from '@playwright/test'
 //   - a venda do PDV aparece na lista do dia e o detalhe conta o que foi vendido;
 //   - cancelar com motivo marca a lista, aparece no detalhe E devolve o estoque;
 //   - cancelar sem motivo e recusado e nao toca no banco;
-//   - `?ocultar=1` sobrevive a lista e ao detalhe;
+//   - `?ocultar=1` sobrevive a lista, ao detalhe, a volta ("Voltar para o dia")
+//     e a troca de dia pelas setas;
 //   - a venda das 22h de ontem (fuso de Sao Paulo) cai em ONTEM, nao em hoje.
 //
 // O cenario (produto com estoque e caixa aberto no terminal 'e2e') e preparado
@@ -32,8 +33,15 @@ const SENHA = process.env.USUARIO_SENHA
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN
 const URL_PROJETO = process.env.NEXT_PUBLIC_SUPABASE_URL
 
+// Mesma guarda do global-setup.mjs: sem ela, uma variavel faltando no .env.local
+// apareceria como "Cannot read properties of undefined" decorando a URL, que nao
+// diz a ninguem o que arrumar.
+if (!TOKEN || !URL_PROJETO) {
+  throw new Error('Faltam SUPABASE_ACCESS_TOKEN ou NEXT_PUBLIC_SUPABASE_URL no .env.local')
+}
+
 // O ref do projeto sai da propria URL do Supabase, como no global-setup.mjs.
-const ref = new URL(URL_PROJETO!).hostname.split('.')[0]
+const ref = new URL(URL_PROJETO).hostname.split('.')[0]
 
 /**
  * Copia local do transporte do `global-setup.mjs` (o `import` nao e possivel:
@@ -196,7 +204,7 @@ test('cancelar sem motivo e recusado e nao muda a venda no banco', async ({ page
   expect(linha.cancelado_em).toBeNull()
 })
 
-test('ocultar valores sobrevive a lista e ao detalhe', async ({ page }) => {
+test('ocultar valores sobrevive a lista, ao detalhe, a volta e a troca de dia', async ({ page }) => {
   // Venda propria: a lista de hoje nao pode depender do que outro arquivo deixou.
   await venderProdutoE2E(page)
 
@@ -210,6 +218,18 @@ test('ocultar valores sobrevive a lista e ao detalhe', async ({ page }) => {
   await primeira.click()
   await expect(page).toHaveURL(/ocultar=1/)
   await expect(page.getByTestId('itens')).toContainText('••••')
+  await expect(page.locator('body')).not.toContainText('R$')
+
+  // A VOLTA: o unico link que sai do detalhe nao pode perder a marca, senao a
+  // lista reabriria com os valores de volta.
+  await page.getByRole('link', { name: 'Voltar para o dia' }).click()
+  await expect(page).toHaveURL(/ocultar=1/)
+  await expect(page.locator('body')).not.toContainText('R$')
+
+  // E a troca de dia: as setas tambem carregam a marca. Sem isso, navegar para
+  // ontem mostraria os valores que o balcao escondeu em hoje.
+  await page.getByTestId('dia-anterior').click()
+  await expect(page).toHaveURL(/ocultar=1/)
   await expect(page.locator('body')).not.toContainText('R$')
 })
 
@@ -240,7 +260,10 @@ test('a venda das 22h de ontem aparece em ONTEM e nao em HOJE', async ({ page })
                at time zone 'America/Sao_Paulo'))
     returning numero
   `)
-  const numeroNoturno = linhas[0].numero
+  const numeroNoturno = linhas[0]?.numero
+  // Guarda legivel: sem ela, um insert que nao devolvesse linha estouraria com
+  // "Cannot read properties of undefined (reading 'numero')".
+  expect(numeroNoturno, 'o insert da venda noturna tem de devolver o numero').toBeTruthy()
   const linhaNoturna = page.getByTestId('linha-venda').filter({ hasText: `Venda ${numeroNoturno} ·` })
 
   // Em HOJE ela nao pode estar. `numero` e unico, entao o filtro so casa ela.
