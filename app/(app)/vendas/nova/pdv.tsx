@@ -120,7 +120,7 @@ export function Pdv() {
   // A busca de cliente, gemea da de produto: espera curta, `AbortController` (a
   // resposta de um termo antigo nao pode sobrescrever a do termo atual) e a mesma
   // regra de nao mexer no estado dentro do corpo do efeito — quem limpa a lista do
-  // termo curto e o onChange do campo.
+  // termo curto e o onChange do campo, e o guarda de `aborted` fecha o resto.
   useEffect(() => {
     const alvo = termoCliente.trim()
     if (alvo.length < 2) return
@@ -130,12 +130,27 @@ export function Pdv() {
         const resposta = await fetch(`/api/clientes/busca?termo=${encodeURIComponent(alvo)}`, {
           signal: controle.signal,
         })
-        if (!resposta.ok) return
+        // LISTA VELHA NAO PODE FICAR NA TELA: ela e de OUTRO termo, e escolher dela
+        // anexa o cliente errado — numa venda em dinheiro a RPC nao tem como
+        // recusar. Rota fora do ar (401/500) limpa; a resposta boa e a unica que
+        // preenche.
+        if (!resposta.ok) {
+          setClientesEncontrados([])
+          return
+        }
         const dados = (await resposta.json()) as { clientes: ClienteBusca[] }
+        // O termo pode ter mudado enquanto o corpo da resposta era lido: se o
+        // cleanup ja abortou este efeito, a resposta e de OUTRO termo e nao volta
+        // para a tela. E o que fecha o caso do termo que cai para menos de 2
+        // caracteres mesmo quando o corpo chegou inteiro a tempo.
+        if (controle.signal.aborted) return
         setClientesEncontrados(dados.clientes ?? [])
         setClienteDestaque(0)
       } catch {
-        // Abortar por nova digitacao nao e erro.
+        // Abortar por nova digitacao NAO e erro (e nao pode limpar a lista: o efeito
+        // seguinte ja esta buscando o termo novo). Falha de rede e outra coisa: a
+        // lista do termo anterior sai da tela pelo mesmo motivo do `!resposta.ok`.
+        if (!controle.signal.aborted) setClientesEncontrados([])
       }
     }, 150)
     return () => {
@@ -174,6 +189,11 @@ export function Pdv() {
     setCliente(escolhido)
     setTermoCliente('')
     setClientesEncontrados([])
+    // O FOCO VOLTA PARA A BUSCA DE PRODUTO: a spec 10 pede "busca sempre focada", e
+    // o proximo bipe do leitor tem de virar produto — se o foco ficasse no campo do
+    // cliente, o codigo de barras viraria uma busca de cliente que nao acha nada.
+    // E o mesmo que o `adicionar()` faz depois de por um produto no carrinho.
+    buscaRef.current?.focus()
   }
 
   // "Sem cliente" continua existindo: o `<select>` tinha essa opcao, e uma venda

@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server'
 import { criarClienteServidor } from '@/lib/supabase/server'
 import { perfilAtual } from '@/lib/auth/perfil'
 import { filtroDeBuscaDeCliente, filtroDeBuscaDeDevedor } from '@/lib/postgrest'
+import {
+  LIMITE_DA_BUSCA,
+  juntarClientes,
+  type LinhaCliente,
+  type LinhaDevedor,
+} from './fusao'
 
 // Busca de cliente do PDV (item 8 da revisao da etapa 6).
 //
@@ -20,28 +26,10 @@ import { filtroDeBuscaDeCliente, filtroDeBuscaDeDevedor } from '@/lib/postgrest'
 // usado antes de fechar no crediario. O saldo vem de `v_clientes_devedores`, a
 // MESMA view do crediario: recalcular "compra − pagamento" aqui seria uma segunda
 // definicao de divida, livre para divergir da primeira.
-
-const LIMITE = 8
-
-type LinhaDevedor = {
-  cliente_id: string
-  nome: string
-  telefone: string | null
-  limite_credito: number
-  // A view devolve `bigint` (a soma). O `number | string` e de proposito: /crediario
-  // ja registra a armadilha — se o saldo da view chegar como TEXTO, somar sem
-  // normalizar concatena em vez de somar, e `formatarMoeda` nao estoura com texto,
-  // ele mostra o valor errado calado. A normalizacao e UMA, aqui na leitura, para
-  // nenhuma tela a jusante ter de lembrar disso.
-  saldo: number | string
-}
-
-type LinhaCliente = {
-  id: string
-  nome: string
-  telefone: string | null
-  limite_credito: number
-}
+//
+// A rota so CONSULTA: juntar as duas origens (devedores primeiro, sem repetir,
+// cortando em 8) e a funcao PURA `juntarClientes`, em ./fusao.ts, com teste de
+// unidade — e onde as regras que erram calado ficam de fato provadas.
 
 export async function GET(request: Request) {
   const perfil = await perfilAtual()
@@ -71,54 +59,39 @@ export async function GET(request: Request) {
     .select('cliente_id, nome, telefone, limite_credito, saldo')
     .or(filtroDeBuscaDeDevedor(termo))
     .order('saldo', { ascending: false })
-    .limit(LIMITE)
+    .limit(LIMITE_DA_BUSCA)
 
   if (erroDevedores) {
     return NextResponse.json({ erro: 'não foi possível buscar' }, { status: 500 })
   }
 
-  const clientes = ((devedores ?? []) as LinhaDevedor[]).map((d) => ({
-    id: d.cliente_id,
-    nome: d.nome,
-    telefone: d.telefone,
-    limite_credito: d.limite_credito,
-    saldo: Number(d.saldo),
-  }))
+  const linhasDevedor = (devedores ?? []) as LinhaDevedor[]
 
   // Quem nao deve NAO APARECE na view, e mesmo assim precisa poder ser escolhido:
   // o cliente que paga em dinheiro entra na venda do mesmo jeito (e o crediario
   // dele quem recusa, na RPC, com a mensagem da spec 9). A tabela tem o CPF que a
   // view nao tem, entao aqui vale o filtro de cliente completo.
-  if (clientes.length < LIMITE) {
-    const { data: demais, error: erroDemais } = await supabase
+  //
+  // Esta consulta so acontece se ainda faltar gente para os 8, e pede 8 linhas DE
+  // PROPOSITO: um devedor pode estar entre elas (a busca por nome casa os dois
+  // lados), e o dedupe e o corte sao da `juntarClientes` — com o corte aplicado em
+  // cada consulta, a lista fecharia com menos de 8 clientes sem haver menos de 8
+  // clientes.
+  let linhasDemais: LinhaCliente[] = []
+  if (linhasDevedor.length < LIMITE_DA_BUSCA) {
+    const { data, error } = await supabase
       .from('clientes')
       .select('id, nome, telefone, limite_credito')
       .or(filtroDeBuscaDeCliente(termo))
       .order('nome')
-      .limit(LIMITE)
+      .limit(LIMITE_DA_BUSCA)
 
-    if (erroDemais) {
+    if (error) {
       return NextResponse.json({ erro: 'não foi possível buscar' }, { status: 500 })
     }
 
-    // O corte de 8 e sobre a LISTA, nao sobre cada consulta: quem ja veio da view
-    // sai daqui, e a consulta pede 8 linhas de proposito — um devedor pode estar
-    // entre elas (a busca por nome casa os dois), e sem a folga a lista fecharia
-    // com menos de 8 clientes sem haver menos de 8 clientes.
-    const jaVistos = new Set(clientes.map((c) => c.id))
-    for (const c of (demais ?? []) as LinhaCliente[]) {
-      if (clientes.length === LIMITE) break
-      if (jaVistos.has(c.id)) continue
-      jaVistos.add(c.id)
-      clientes.push({
-        id: c.id,
-        nome: c.nome,
-        telefone: c.telefone,
-        limite_credito: c.limite_credito,
-        saldo: 0,
-      })
-    }
+    linhasDemais = (data ?? []) as LinhaCliente[]
   }
 
-  return NextResponse.json({ clientes })
+  return NextResponse.json({ clientes: juntarClientes(linhasDevedor, linhasDemais) })
 }
