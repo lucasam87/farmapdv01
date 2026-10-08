@@ -212,10 +212,14 @@ export function ehRodape(linha: string[]): boolean {
  * mesma direcao e nao seria acusada aqui. O que esta conferencia pega e o defeito
  * de SELECAO e de SOMATORIO: coluna trocada (somar preco de custo como venda),
  * linha perdida, linha contada duas vezes, rodape que discorda das linhas.
+ *
+ * EXPORTADA porque a importacao de clientes (Task 6 da Etapa 6) faz a MESMA
+ * conferencia com a coluna de saldo: duas copias desta regra divergiriam, e a
+ * regra decide se o dono ve "confere" ou "nao confere" antes de gravar dinheiro.
  */
-function totalDoRodape(linha: string[], indicePreco: number | undefined): number | null {
-  if (indicePreco !== undefined) {
-    return parsearCentavos((linha[indicePreco] ?? '').trim())
+export function totalDoRodape(linha: string[], indiceValor: number | undefined): number | null {
+  if (indiceValor !== undefined) {
+    return parsearCentavos((linha[indiceValor] ?? '').trim())
   }
 
   const dinheiro = linha

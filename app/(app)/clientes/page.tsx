@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { criarClienteServidor } from '@/lib/supabase/server'
+import { perfilAtual } from '@/lib/auth/perfil'
 import { formatarMoeda } from '@/lib/format'
 import { filtroDeBuscaDeCliente } from '@/lib/postgrest'
 import { formatarTelefone } from './validacao'
@@ -34,6 +35,11 @@ export default async function ClientesPage({
 }) {
   const { busca } = await searchParams
   const supabase = await criarClienteServidor()
+  const perfil = await perfilAtual()
+  // Importar clientes (e lancar saldo devedor) e ato de dono (spec 5): o botao so
+  // existe para ele. O atendente que digitar a URL na mao encontra a tela de
+  // /clientes/importar dizendo a mesma coisa — e a RPC recusa de novo (015:250).
+  const ehDono = perfil?.papel === 'dono'
   const termo = (Array.isArray(busca) ? (busca[0] ?? '') : (busca ?? '')).trim()
 
   let consulta = supabase
@@ -71,12 +77,22 @@ export default async function ClientesPage({
     <div className="mx-auto max-w-5xl">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-slate-800">Clientes</h1>
-        <Link
-          href="/clientes/novo"
-          className="rounded-lg bg-slate-800 px-5 py-3 text-base font-medium text-white hover:bg-slate-700"
-        >
-          Novo cliente
-        </Link>
+        <div className="flex gap-3">
+          {ehDono ? (
+            <Link
+              href="/clientes/importar"
+              className="rounded-lg border border-slate-300 px-5 py-3 text-base font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Importar
+            </Link>
+          ) : null}
+          <Link
+            href="/clientes/novo"
+            className="rounded-lg bg-slate-800 px-5 py-3 text-base font-medium text-white hover:bg-slate-700"
+          >
+            Novo cliente
+          </Link>
+        </div>
       </div>
 
       <form className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
