@@ -527,7 +527,7 @@ colada.** Cada etapa fechada = 1 commit `etapa-N: <descrição>`.
 | 0 | Decisões e ambiente | Versões fixadas, repositório iniciado, `PROGRESSO.md` criado | `git log`, arquivos |
 | 1 | Base + login | Logo, vejo o menu, sem login vou para `/login`, sessão sobrevive a refresh | print + teste de sessão |
 | 2 | Banco + funções | Tabelas com RLS ativo; `registrar_venda`, `cancelar_venda` e caixa funcionando | 15 testes do nível 1 passando |
-| 3 | Produtos e estoque | Importo a planilha real (soma confere), busco produto, dou entrada | soma planilha × soma gravada |
+| 3 | Produtos e estoque | Importo o catálogo **real** do sistema antigo (soma confere), busco produto, dou entrada | soma extraída × soma gravada |
 | 4 | PDV | Venda completa só com teclado; estoque cai; clique duplo não duplica | Playwright |
 | 5 | Histórico de vendas | Vejo o dia, abro uma venda, cancelo, estoque volta | venda noturna no dia certo |
 | 6 | Clientes e crediário | Saldo importado aparece, pagamento parcial atualiza, WhatsApp abre | testes do nível 1 |
@@ -540,6 +540,15 @@ colada.** Cada etapa fechada = 1 commit `etapa-N: <descrição>`.
 Etapa 10 e 11 vieram separadas da Etapa 9: migrar dados e operar em paralelo
 são trabalhos distintos, com riscos distintos.
 
+> **Critério da Etapa 3 reescrito em 07/10/2026.** Ele dizia "importo a planilha
+> real", e o arquivo real do sistema antigo só existia em **PDF** — que foi
+> medido e decidido fora da tela, porque §8.7 exige um TOTAL impresso para
+> conferir e o relatório do Nex não imprime nenhum. O que o critério exigia de
+> fato — o catálogo real entrar com a soma conferida — aconteceu: **5689
+> produtos** pelo caminho real da tela (PostgREST, papel `authenticated`), soma
+> extraída × soma gravada em **R$ 121.142,60**. A etapa virou ✅ com essa
+> evidência.
+
 ---
 
 ## 14. Riscos assumidos
@@ -549,7 +558,7 @@ são trabalhos distintos, com riscos distintos.
 | Sem NFC-e/SNGPC não substitui o Nex legalmente | Alta | Uso paralelo obrigatório; corte só com totais batendo |
 | Sem validade/lote pode vender vencido sem avisar | Média | Conferência física periódica; v2 aditiva (D7) |
 | Internet cai e não vende | Média | 4G no celular como rota alternativa; ou voltar ao Nex |
-| Estoque negativo bloqueado trava o balcão | Média | Fluxo de ajuste rápido e obrigatório |
+| ~~Estoque negativo bloqueado trava o balcão~~ | ~~Média~~ | **Resolvido em 07/10/2026 (migration `011_estoque_informativo`)**: o estoque é informativo, negativo é permitido e a venda não bloqueia. O ajuste continua recusando saldo negativo — ajuste é inventário. |
 | Backup pode não existir no Free | Alta | `pg_dump` agendado; backup só conta com restore testado |
 | Vercel Hobby não é para uso comercial | Média | Decidir antes da Etapa 9 |
 | Latência EUA × Brasil | Baixa | Região `gru1` |
