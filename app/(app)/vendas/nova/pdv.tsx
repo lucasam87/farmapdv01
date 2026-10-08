@@ -36,6 +36,14 @@ type ClienteBusca = {
 const CAMPO =
   'rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-slate-500'
 
+// Os recados da busca de CLIENTE (M3 da revisao final do branch). A lista sumir
+// sem explicacao deixa o operador sem saber se a busca nao achou ninguem ou se ela
+// caiu — e o campo sumir com o cliente que ele procura e o mesmo que dizer "nao
+// existe". Ficam aqui, fora do JSX, porque o mesmo texto aparece em dois pontos: no
+// evento que encurta o termo e no efeito que falha.
+const AVISO_TERMO_CURTO = 'Digite ao menos 2 letras.'
+const AVISO_FALHA_BUSCA = 'Não foi possível buscar. Tente de novo.'
+
 /**
  * O PDV. Regras que ele respeita:
  *   - so com teclado (spec 10): busca focada, setas escolhem, Enter adiciona,
@@ -61,6 +69,10 @@ export function Pdv() {
   const [termoCliente, setTermoCliente] = useState('')
   const [clientesEncontrados, setClientesEncontrados] = useState<ClienteBusca[]>([])
   const [clienteDestaque, setClienteDestaque] = useState(0)
+  // O recado da busca de cliente: `null` = nada a dizer. Com 1 caractere, ou com a
+  // rota fora do ar (401/500), a lista some — e o motivo tem de ficar escrito na
+  // tela (M3 da revisao final do branch).
+  const [avisoCliente, setAvisoCliente] = useState<string | null>(null)
   // O cliente ESCOLHIDO, com o saldo e o limite que a busca devolveu. Guardar o
   // objeto inteiro (e nao so o id) e o que permite mostrar nome, limite e saldo
   // sem uma segunda ida ao servidor — e o crediario, que exige cliente escolhido,
@@ -133,9 +145,11 @@ export function Pdv() {
         // LISTA VELHA NAO PODE FICAR NA TELA: ela e de OUTRO termo, e escolher dela
         // anexa o cliente errado — numa venda em dinheiro a RPC nao tem como
         // recusar. Rota fora do ar (401/500) limpa; a resposta boa e a unica que
-        // preenche.
+        // preenche. E o motivo da limpeza vai para a tela (M3): sem recado, o
+        // operador nao distingue "nao achou" de "a busca caiu".
         if (!resposta.ok) {
           setClientesEncontrados([])
+          setAvisoCliente(AVISO_FALHA_BUSCA)
           return
         }
         const dados = (await resposta.json()) as { clientes: ClienteBusca[] }
@@ -146,11 +160,17 @@ export function Pdv() {
         if (controle.signal.aborted) return
         setClientesEncontrados(dados.clientes ?? [])
         setClienteDestaque(0)
+        // Resposta boa = busca funcionando: o recado anterior (se havia) sai.
+        setAvisoCliente(null)
       } catch {
         // Abortar por nova digitacao NAO e erro (e nao pode limpar a lista: o efeito
         // seguinte ja esta buscando o termo novo). Falha de rede e outra coisa: a
-        // lista do termo anterior sai da tela pelo mesmo motivo do `!resposta.ok`.
-        if (!controle.signal.aborted) setClientesEncontrados([])
+        // lista do termo anterior sai da tela pelo mesmo motivo do `!resposta.ok`, e
+        // com o mesmo recado.
+        if (!controle.signal.aborted) {
+          setClientesEncontrados([])
+          setAvisoCliente(AVISO_FALHA_BUSCA)
+        }
       }
     }, 150)
     return () => {
@@ -189,6 +209,7 @@ export function Pdv() {
     setCliente(escolhido)
     setTermoCliente('')
     setClientesEncontrados([])
+    setAvisoCliente(null)
     // O FOCO VOLTA PARA A BUSCA DE PRODUTO: a spec 10 pede "busca sempre focada", e
     // o proximo bipe do leitor tem de virar produto — se o foco ficasse no campo do
     // cliente, o codigo de barras viraria uma busca de cliente que nao acha nada.
@@ -203,6 +224,7 @@ export function Pdv() {
     setCliente(null)
     setTermoCliente('')
     setClientesEncontrados([])
+    setAvisoCliente(null)
     clienteRef.current?.focus()
   }
 
@@ -231,6 +253,7 @@ export function Pdv() {
     setCliente(null)
     setTermoCliente('')
     setClientesEncontrados([])
+    setAvisoCliente(null)
     setDescontoTexto('')
     setValorTexto('')
     setErro(null)
@@ -284,6 +307,7 @@ export function Pdv() {
     setCliente(null)
     setTermoCliente('')
     setClientesEncontrados([])
+    setAvisoCliente(null)
     setDescontoTexto('')
     setValorTexto('')
     setChave(crypto.randomUUID())
@@ -496,13 +520,29 @@ export function Pdv() {
               // Termo curto demais para buscar: a lista some AQUI, no evento que
               // mudou o termo, e nao dentro do efeito (mesma razao da busca de
               // produto: setState sincrono no corpo do efeito rende em cascata).
-              if (e.target.value.trim().length < 2) setClientesEncontrados([])
+              // E aqui tambem nasce o RECADO (M3): 1 caractere nao busca nada, e
+              // sem dizer isso o operador le a lista vazia como "nao existe". Campo
+              // vazio nao leva aviso nenhum — ninguem digitou nada ainda.
+              if (e.target.value.trim().length < 2) {
+                setClientesEncontrados([])
+                setAvisoCliente(e.target.value.trim() === '' ? null : AVISO_TERMO_CURTO)
+              } else {
+                setAvisoCliente(null)
+              }
             }}
             onKeyDown={teclaCliente}
             placeholder="Digite o nome, o telefone ou o CPF"
             data-testid="busca-cliente"
             className={`${CAMPO} mt-1 w-full`}
           />
+
+          {/* O recado da busca, logo abaixo do campo: e onde o operador esta
+              olhando quando a lista nao aparece. */}
+          {avisoCliente ? (
+            <p data-testid="aviso-cliente" role="alert" className="mt-2 text-base text-red-700">
+              {avisoCliente}
+            </p>
+          ) : null}
 
           {clientesEncontrados.length > 0 ? (
             <ul

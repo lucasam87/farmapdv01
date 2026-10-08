@@ -55,7 +55,25 @@ export default async function ClientesPage({
     consulta = consulta.or(filtroDeBuscaDeCliente(termo))
   }
 
-  const { data, count } = await consulta
+  const { data, count, error } = await consulta
+
+  // CONSULTA QUE FALHOU NAO E "NENHUM CLIENTE ENCONTRADO" (M6 da revisao final do
+  // branch). Sem este ramo, um 4xx/5xx do PostgREST (coluna, RLS, rede) cai em
+  // `data = null` e a tela afirma que a base nao tem ninguem — o mesmo defeito que a
+  // T5 corrigiu em `/crediario`, e a mesma classe: silencio que engana. O `throw`
+  // esta fora de questao pelo mesmo motivo de la (o app nao tem `error.tsx`): aviso
+  // vermelho explicito, e NADA de estado vazio por cima dele.
+  if (error) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <h1 className="text-2xl font-semibold text-slate-800">Clientes</h1>
+        <p role="alert" className="mt-6 rounded-2xl bg-red-50 p-8 text-lg text-red-700 shadow-sm">
+          Não foi possível carregar a lista. Recarregue.
+        </p>
+      </div>
+    )
+  }
+
   const clientes = (data ?? []) as Cliente[]
   const total = count ?? clientes.length
 

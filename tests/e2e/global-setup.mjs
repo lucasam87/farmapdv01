@@ -55,6 +55,10 @@ export const CLIENTES_DOS_TESTES_E2E = [
   'CLIENTE E2E ACIMA',
   'CLIENTE E2E WHATSAPP',
   'CLIENTE E2E SEM TELEFONE',
+  // Da revisao final do branch (Important 1): o cliente com divida que casa SO por
+  // CPF. Cliente com divida que fica no banco e exatamente o que a rodada seguinte
+  // encontraria como cliente orfao — por isso ele entra aqui.
+  'CLIENTE E2E CPF DEVEDOR',
 ]
 
 async function consultar(query) {

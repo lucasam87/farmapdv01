@@ -15,6 +15,10 @@ import { test, expect, type Page } from '@playwright/test'
 //       gerar saldo credor;
 //   (6) o link do WhatsApp leva o 55 e a mensagem pronta com o saldo; cliente sem
 //       telefone nao tem link.
+//   (7) a busca de cliente do PDV (revisao final do branch): os recados do campo
+//       quando o termo tem 1 caractere e quando a rota cai (M3), e a DIVIDA REAL de
+//       quem casa so por CPF — o caso em que a view do crediario nao ajuda, porque
+//       ela nao expoe `cpf` (Important 1).
 //
 // O cenario (produtos, `CLIENTE E2E LIMITE BAIXO` e caixa aberto no terminal
 // 'e2e') vem do globalSetup. O `Receber` exige caixa aberto, e o cenario abre um.
@@ -43,6 +47,10 @@ const CLIENTE_PARCIAL = 'CLIENTE E2E PARCIAL'
 const CLIENTE_ACIMA = 'CLIENTE E2E ACIMA'
 const CLIENTE_WHATSAPP = 'CLIENTE E2E WHATSAPP'
 const CLIENTE_SEM_TELEFONE = 'CLIENTE E2E SEM TELEFONE'
+// Cliente do teste (7): quem casa SO por CPF. O nome esta repetido em
+// `global-setup.mjs` (CLIENTES_DOS_TESTES_E2E) pelo motivo do cabecalho.
+const CLIENTE_CPF_DEVEDOR = 'CLIENTE E2E CPF DEVEDOR'
+const CPF_DEVEDOR = '99911122244'
 // CPF do cliente de teste. A base esta com 0 clientes e o `limpar()` apaga este
 // por nome a cada rodada; um CPF repetido faria a RPC recusar o cadastro.
 const CPF_CADASTRO = '99988877766'
@@ -317,4 +325,58 @@ test('(6) o link do WhatsApp leva o numero com 55 e a mensagem com o saldo', asy
   await abrirCliente(page, CLIENTE_SEM_TELEFONE)
   await expect(page.getByText('Cliente sem telefone cadastrado.')).toBeVisible()
   await expect(page.locator('a[href^="https://wa.me/"]')).toHaveCount(0)
+})
+
+test('(7) a busca de cliente do PDV avisa o motivo e mostra a divida real de quem casa so por CPF', async ({
+  page,
+}) => {
+  // (a) OS RECADOS DO CAMPO (M3 da revisao final do branch). A lista some com 1
+  // caractere e some quando a rota cai — nos dois casos o operador ficava sem saber
+  // se a busca nao achou ou se ela nao funcionou, e o campo piscando vazio diz
+  // "esse cliente nao existe".
+  await page.goto('/vendas/nova')
+  const campoCliente = page.getByTestId('busca-cliente')
+
+  await campoCliente.fill('C')
+  await expect(page.getByTestId('aviso-cliente')).toHaveText('Digite ao menos 2 letras.')
+  // Campo VAZIO nao leva aviso: ninguem digitou nada ainda.
+  await campoCliente.fill('')
+  await expect(page.getByTestId('aviso-cliente')).toHaveCount(0)
+
+  // Rota fora do ar: a lista velha ja sai da tela (o comportamento provado na Task
+  // 7) e agora o motivo vai junto. O intercept e do navegador: nenhuma consulta
+  // real e estragada por isto.
+  await page.route('**/api/clientes/busca**', (rota) => rota.fulfill({ status: 500, body: '{}' }))
+  await campoCliente.pressSequentially('CLIENTE')
+  await expect(page.getByTestId('aviso-cliente')).toHaveText('Não foi possível buscar. Tente de novo.')
+  await page.unroute('**/api/clientes/busca**')
+
+  // O recado nao gruda: voltar o campo ao vazio ja limpa o aviso.
+  await campoCliente.fill('')
+  await expect(page.getByTestId('aviso-cliente')).toHaveCount(0)
+
+  // (b) A DIVIDA REAL DE QUEM CASA SO POR CPF (Important 1 da mesma revisao). A
+  // divida nasce do SALDO INICIAL do dono — o valor de partida e exato e nao depende
+  // de outra venda.
+  await criarCliente(page, {
+    nome: CLIENTE_CPF_DEVEDOR,
+    cpf: CPF_DEVEDOR,
+    limite: '100,00',
+    saldoInicial: '12,00',
+  })
+
+  await page.goto('/vendas/nova')
+  // SO os digitos do CPF: o nome nao casa o termo e o cliente nao tem telefone,
+  // entao ele so pode ser encontrado pela coluna `cpf` — o ramo que a view do
+  // crediario NAO cobre (ela nao expoe `cpf`). Buscar pelo nome nao provaria nada
+  // deste defeito: viria do primeiro ramo, que ja trazia o saldo certo.
+  await page.getByTestId('busca-cliente').fill(CPF_DEVEDOR)
+  const resultados = page.getByTestId('resultados-cliente')
+  await expect(resultados.locator('li')).toHaveCount(1)
+  await expect(resultados).toContainText(CLIENTE_CPF_DEVEDOR)
+  // O valor que o balcao le. Sem a consulta de saldos da rota, aqui sairia
+  // "deve R$ 0,00 de R$ 100,00" — divida menor que a real, em cima do balcao.
+  await expect(resultados).toContainText('deve R$ 12,00 de R$ 100,00')
+  // E a busca que funcionou nao deixa aviso nenhum na tela.
+  await expect(page.getByTestId('aviso-cliente')).toHaveCount(0)
 })
