@@ -45,3 +45,29 @@ export function filtroDeBuscaDeCliente(termo: string): string {
 
   return clausulas.join(',')
 }
+
+/**
+ * Busca na lista de DEVEDORES do crediario (`v_clientes_devedores`). Como usar:
+ * `or(filtroDeBuscaDeDevedor(termo))`.
+ *
+ * Por que nao e a mesma funcao de cima, se o assunto e o mesmo: a view do
+ * crediario NAO expoe `cpf` (005_views.sql:130-140 — `cliente_id, nome,
+ * telefone, limite_credito, saldo`). Um termo com digito — a busca por telefone,
+ * que e o caso comum no balcao — poria `cpf.ilike."%11%"` na consulta e o
+ * PostgREST recusaria a consulta INTEIRA (coluna inexistente): a tela diria
+ * "nenhum devedor" em vez de achar o cliente que o operador esta vendo na frente.
+ * As clausulas sao as de `filtroDeBuscaDeCliente`, menos o CPF.
+ *
+ * O telefone continua CONDICIONAL pelo mesmo motivo de la: sem digito no termo,
+ * `%%` casaria todo devedor gravado e a busca por nome devolveria a lista toda.
+ */
+export function filtroDeBuscaDeDevedor(termo: string): string {
+  const clausulas = [`nome.ilike.${valorDeFiltro(`%${termo}%`)}`]
+
+  const digitos = termo.replace(/\D/g, '')
+  if (digitos !== '') {
+    clausulas.push(`telefone.ilike.${valorDeFiltro(`%${digitos}%`)}`)
+  }
+
+  return clausulas.join(',')
+}

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { valorDeFiltro, filtroDeBuscaDeProduto, filtroDeBuscaDeCliente } from './postgrest'
+import {
+  valorDeFiltro,
+  filtroDeBuscaDeProduto,
+  filtroDeBuscaDeCliente,
+  filtroDeBuscaDeDevedor,
+} from './postgrest'
 
 // O filtro do PostgREST e uma string montada por concatenacao: virgula separa
 // condicoes e parentese abre/fecha grupo. Um termo do balcao com esses caracteres
@@ -67,5 +72,31 @@ describe('filtroDeBuscaDeCliente', () => {
 
   it('nome com virgula nao vira uma terceira condicao', () => {
     expect(filtroDeBuscaDeCliente('SILVA, MARIA')).toBe('nome.ilike."%SILVA, MARIA%"')
+  })
+})
+
+// A lista de devedores do crediario le `v_clientes_devedores`, que NAO tem a
+// coluna `cpf` (005:130-140). Reusar o filtro de cima poria `cpf.ilike` na
+// consulta e o PostgREST recusaria tudo — a busca por telefone, que e o caso do
+// balcao, devolveria "nenhum devedor". Por isso as clausulas sao nome + telefone.
+describe('filtroDeBuscaDeDevedor', () => {
+  it('termo com digitos casa nome OU telefone, e NUNCA menciona cpf', () => {
+    expect(filtroDeBuscaDeDevedor('11912345678')).toBe(
+      'nome.ilike."%11912345678%",telefone.ilike."%11912345678%"',
+    )
+  })
+
+  it('telefone pontuado vira digito puro no telefone e casamento cru no nome', () => {
+    expect(filtroDeBuscaDeDevedor('(11) 91234-5678')).toBe(
+      'nome.ilike."%(11) 91234-5678%",telefone.ilike."%11912345678%"',
+    )
+  })
+
+  it('termo so com letras NAO cria a clausula vazia de telefone', () => {
+    expect(filtroDeBuscaDeDevedor('ANA')).toBe('nome.ilike."%ANA%"')
+  })
+
+  it('nome com virgula nao vira uma terceira condicao', () => {
+    expect(filtroDeBuscaDeDevedor('SILVA, MARIA')).toBe('nome.ilike."%SILVA, MARIA%"')
   })
 })
