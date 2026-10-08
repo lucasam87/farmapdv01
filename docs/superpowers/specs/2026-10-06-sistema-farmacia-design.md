@@ -109,14 +109,17 @@ verificação de papel no início.
 
 ## 6. Views de leitura
 
-Todas já embutem `status = 'concluida'` e o fuso `America/Sao_Paulo`. Ninguém
-precisa lembrar dessas duas coisas ao escrever tela.
+As views já embutem o fuso `America/Sao_Paulo`. Todas as views de faturamento
+embutem também `status = 'concluida'` — a **exceção deliberada** é
+`v_vendas_historico` (nota abaixo). Ninguém precisa lembrar dessas duas coisas ao
+escrever tela.
 
 | View | Entrega |
 |---|---|
 | `v_caixa_atual` | Sessão aberta, valor inicial, vendas em dinheiro, sangrias, suprimentos, esperado até agora |
 | `v_vendas_dia` | Vendas por dia (fuso SP): total, quantidade, ticket médio |
 | `v_vendas_lista` | Histórico paginado com resumo dos itens e formas de pagamento |
+| `v_vendas_historico` | Lista do dia da tela de histórico: **não filtra status** de propósito (a cancelada aparece marcada, com motivo e quem cancelou) e entrega `dia` já no fuso SP; quem filtra o status é a tela |
 | `v_estoque_baixo` | `estoque_atual <= estoque_minimo` e `ativo` |
 | `v_estoque_zerado` | `estoque_atual <= 0` e `ativo` (inclui NEGATIVO desde a migration 011) |
 | `v_clientes_devedores` | Saldo por cliente (compra − pagamento), maior primeiro |
@@ -124,6 +127,18 @@ precisa lembrar dessas duas coisas ao escrever tela.
 | `v_lucro_periodo` | `(preco_unitario − preco_custo) × quantidade` |
 | `v_estoque_parado` | Ativos sem venda há 60 dias |
 | `v_formas_pagamento` | Totais por forma no período, a partir de `venda_pagamentos` |
+
+> **`v_vendas_historico` é a exceção deliberada do `status`** (acrescentada em
+> `012_historico_vendas`). Ela não filtra `status` porque a lista do dia precisa
+> **mostrar** a venda cancelada, marcada — e `v_vendas_lista` continua sendo o
+> contrato de faturamento, com o filtro intacto. Quem filtra é a tela, pelo `dia`.
+
+> **As views passam a rodar com `security_invoker` em 07/10/2026** (migration
+> `013_seguranca_views`). Sem esse atributo, a view roda com os privilégios do
+> dono e **a RLS das tabelas de base não é aplicada** — como o Supabase concede
+> `SELECT` a `anon` por *default privileges*, a chave pública lia essas views sem
+> login (medido: `v_estoque_baixo` devolvia produto real). Toda view nova precisa
+> do mesmo atributo.
 
 > A parcela lançada em `crediario` aparece em `venda_pagamentos` (composição do
 > pagamento) **e** em `crediario_lancamentos` (a dívida em si). São dois ângulos
