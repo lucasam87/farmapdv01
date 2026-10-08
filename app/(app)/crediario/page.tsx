@@ -36,10 +36,12 @@ type Devedor = {
 export default async function CrediarioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ busca?: string }>
+  // `string[]` e possivel: `?busca=a&busca=b` chega assim, e `trim` nao existe em
+  // array — sem a guarda abaixo a rota estoura (500) por causa da URL.
+  searchParams: Promise<{ busca?: string | string[] }>
 }) {
   const { busca } = await searchParams
-  const termo = (busca ?? '').trim()
+  const termo = (Array.isArray(busca) ? (busca[0] ?? '') : (busca ?? '')).trim()
   const supabase = await criarClienteServidor()
 
   // `count: 'exact'` junto do `limit` e o que permite dizer "mostrando 200 de N"
@@ -56,16 +58,39 @@ export default async function CrediarioPage({
     consulta = consulta.or(filtroDeBuscaDeDevedor(termo))
   }
 
-  const { data, count } = await consulta
-  const devedores = (data ?? []) as Devedor[]
+  const { data, count, error } = await consulta
+
+  // CONSULTA QUE FALHOU NAO E "NINGUEM DEVENDO". Sem este ramo, um 4xx/5xx do
+  // PostgREST (coluna, RLS, rede) cai em `data = null` e a tela afirmaria
+  // "Ninguém devendo no crediário" com "Total a receber R$ 0,00" — o pior recado
+  // possivel numa tela de dinheiro: a casa quitada quando na verdade a lista nem
+  // foi lida. Nada e renderizado como se fosse zero (nem o total), e o `throw`
+  // esta fora de questao porque o app nao tem `error.tsx`.
+  if (error) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <h1 className="text-2xl font-semibold text-slate-800">Crediário</h1>
+        <p
+          role="alert"
+          className="mt-6 rounded-2xl bg-red-50 p-8 text-lg text-red-700 shadow-sm"
+        >
+          Não foi possível carregar a lista. Recarregue.
+        </p>
+      </div>
+    )
+  }
+
+  // O saldo e normalizado UMA vez, aqui: a view devolve `bigint` e, se ele
+  // chegasse como texto, a soma concatenaria (total 100x menor) e a linha
+  // mostraria "R$ NaN" — o erro de fator 100 que a spec 11 B3 ja registrou duas
+  // vezes. Depois daqui ninguem mais precisa lembrar disso.
+  const devedores = ((data ?? []) as Devedor[]).map((d) => ({ ...d, saldo: Number(d.saldo) }))
   const total = count ?? devedores.length
   const cortou = total > devedores.length
 
   // Tudo em CENTAVOS, direto da view; a conversao para reais e so na exibicao
-  // (`formatarMoeda`, spec 11 B3). O `Number()` e explicito porque `soma + saldo`
-  // CONCATENARIA se a view devolvesse o bigint como texto — o total sairia 100x
-  // menor, que e exatamente o erro de fator 100 que ja apareceu duas vezes aqui.
-  const aReceber = devedores.reduce((soma, d) => soma + Number(d.saldo), 0)
+  // (`formatarMoeda`).
+  const aReceber = devedores.reduce((soma, d) => soma + d.saldo, 0)
 
   // A legenda diz DE QUE e a soma acima. Busca sem resultado nao e "ninguem
   // deve": os devedores existem, nenhum casa o termo — dizer a outra coisa faria
@@ -89,7 +114,11 @@ export default async function CrediarioPage({
       </p>
 
       <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Total a receber</p>
+        {/* Com busca ativa o numero e so dos casados: o rotulo diz isso, senao o
+            operador leria "Total a receber" como a divida inteira da farmacia. */}
+        <p className="text-sm text-slate-500">
+          {termo === '' ? 'Total a receber' : 'Total a receber (busca)'}
+        </p>
         {/* O testid carrega SO o valor: e ele que o teste le para conferir a soma
             dos saldos listados. */}
         <p data-testid="total-a-receber" className="mt-1 text-4xl font-semibold text-red-700">
@@ -133,7 +162,7 @@ export default async function CrediarioPage({
         </p>
       ) : (
         <ul className="mt-6 space-y-4">
-          {devedores.map((d) => {
+          {devedores.map((d, i) => {
             const telefone = formatarTelefone(d.telefone ?? '')
             // Telefone torto (nem 10 nem 11 digitos) nao ganha mascara, mas
             // tambem nao some: e o numero gravado, e o mesmo que o `linkWhatsApp`
@@ -172,11 +201,17 @@ export default async function CrediarioPage({
                 </div>
 
                 <div className="mt-4">
-                  {/* O valor ja focado e o pedido da tela: o operador abre o
-                      crediario e digita. Sao 200 campos com `autoFocus` no HTML,
-                      mas o navegador foca o PRIMEIRO em ordem de documento — o do
-                      maior saldo, que e o primeiro que a lista mostra. */}
-                  <Receber clienteId={d.cliente_id} nome={d.nome} saldo={d.saldo} focarInicial />
+                  {/* O valor ja focado e o pedido da tela — mas so na PRIMEIRA
+                      linha (o maior saldo, que a lista abre mostrando). Marcar as
+                      200 seria inutil: o navegador foca o primeiro `autoFocus` do
+                      documento de qualquer jeito, e ainda rolaria a pagina no
+                      carregamento, escondendo o titulo e o total. */}
+                  <Receber
+                    clienteId={d.cliente_id}
+                    nome={d.nome}
+                    saldo={d.saldo}
+                    focarInicial={i === 0}
+                  />
                 </div>
 
                 {link ? (

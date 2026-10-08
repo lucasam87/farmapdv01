@@ -22,28 +22,40 @@ export function filtroDeBuscaDeProduto(termo: string): string {
 }
 
 /**
- * Busca de cliente no balcao: nome, telefone ou CPF. Como usar:
- * `or(filtroDeBuscaDeCliente(termo))`.
+ * As clausulas de busca de PESSOA (nome/telefone — e CPF quando a coluna existir
+ * na origem), compartilhadas pelas duas funcoes publicas abaixo. PRIVADA de
+ * proposito: as assinaturas publicas sao consumidas por telas diferentes e nao
+ * podem mudar por causa de uma delas.
  *
- * As clausulas de telefone e CPF sao CONDICIONAIS, e nao uma lista fixa como no
- * produto: as duas colunas guardam DIGITO PURO (015:100-101), entao o termo
- * pontuado tem de virar digito antes de virar `ilike`. Sem a condicional, um
- * termo so com letras poria `telefone.ilike."%%"` na consulta — que casa
- * QUALQUER telefone gravado — e a busca por nome devolveria a lista inteira.
+ * Telefone e CPF sao CONDICIONAIS, e nao uma lista fixa como no produto: as duas
+ * colunas guardam DIGITO PURO (015:100-101), entao o termo pontuado tem de virar
+ * digito antes de virar `ilike`. Sem a condicional, um termo so com letras poria
+ * `telefone.ilike."%%"` na consulta — que casa QUALQUER telefone gravado — e a
+ * busca por nome devolveria a lista inteira.
  *
  * O nome continua casando o termo CRU (com pontuacao e tudo): quem digita
  * "SILVA, MARIA" ou "(11) 91234" espera achar o nome exatamente como o digitou.
  */
-export function filtroDeBuscaDeCliente(termo: string): string {
+function clausulasDeBuscaDePessoa(termo: string, incluirCpf: boolean): string {
   const clausulas = [`nome.ilike.${valorDeFiltro(`%${termo}%`)}`]
 
   const digitos = termo.replace(/\D/g, '')
   if (digitos !== '') {
     clausulas.push(`telefone.ilike.${valorDeFiltro(`%${digitos}%`)}`)
-    clausulas.push(`cpf.ilike.${valorDeFiltro(`%${digitos}%`)}`)
+    if (incluirCpf) {
+      clausulas.push(`cpf.ilike.${valorDeFiltro(`%${digitos}%`)}`)
+    }
   }
 
   return clausulas.join(',')
+}
+
+/**
+ * Busca de cliente no balcao: nome, telefone ou CPF. Como usar:
+ * `or(filtroDeBuscaDeCliente(termo))`.
+ */
+export function filtroDeBuscaDeCliente(termo: string): string {
+  return clausulasDeBuscaDePessoa(termo, true)
 }
 
 /**
@@ -51,23 +63,14 @@ export function filtroDeBuscaDeCliente(termo: string): string {
  * `or(filtroDeBuscaDeDevedor(termo))`.
  *
  * Por que nao e a mesma funcao de cima, se o assunto e o mesmo: a view do
- * crediario NAO expoe `cpf` (005_views.sql:130-140 — `cliente_id, nome,
- * telefone, limite_credito, saldo`). Um termo com digito — a busca por telefone,
- * que e o caso comum no balcao — poria `cpf.ilike."%11%"` na consulta e o
- * PostgREST recusaria a consulta INTEIRA (coluna inexistente): a tela diria
- * "nenhum devedor" em vez de achar o cliente que o operador esta vendo na frente.
- * As clausulas sao as de `filtroDeBuscaDeCliente`, menos o CPF.
- *
- * O telefone continua CONDICIONAL pelo mesmo motivo de la: sem digito no termo,
- * `%%` casaria todo devedor gravado e a busca por nome devolveria a lista toda.
+ * crediario NAO expoe `cpf` — `005_views.sql:130-140` define `cliente_id, nome,
+ * telefone, limite_credito, saldo`, e o catalogo do banco de producao confirma.
+ * Um termo com digito — a busca por telefone, que e o caso comum no balcao —
+ * poria `cpf.ilike."%11%"` na consulta e o PostgREST recusaria a consulta
+ * INTEIRA (coluna inexistente): a tela diria "nenhum devedor" em vez de achar o
+ * cliente que o operador esta vendo na frente. As clausulas sao as de
+ * `filtroDeBuscaDeCliente`, menos o CPF.
  */
 export function filtroDeBuscaDeDevedor(termo: string): string {
-  const clausulas = [`nome.ilike.${valorDeFiltro(`%${termo}%`)}`]
-
-  const digitos = termo.replace(/\D/g, '')
-  if (digitos !== '') {
-    clausulas.push(`telefone.ilike.${valorDeFiltro(`%${digitos}%`)}`)
-  }
-
-  return clausulas.join(',')
+  return clausulasDeBuscaDePessoa(termo, false)
 }

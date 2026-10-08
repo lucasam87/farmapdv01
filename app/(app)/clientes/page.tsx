@@ -28,11 +28,13 @@ type Cliente = {
 export default async function ClientesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ busca?: string }>
+  // `string[]` e possivel: `?busca=a&busca=b` chega assim, e `trim` nao existe em
+  // array — sem a guarda abaixo a rota estoura (500) por causa da URL.
+  searchParams: Promise<{ busca?: string | string[] }>
 }) {
   const { busca } = await searchParams
   const supabase = await criarClienteServidor()
-  const termo = (busca ?? '').trim()
+  const termo = (Array.isArray(busca) ? (busca[0] ?? '') : (busca ?? '')).trim()
 
   let consulta = supabase
     .from('clientes')
