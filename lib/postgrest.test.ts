@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { valorDeFiltro, filtroDeBuscaDeProduto } from './postgrest'
+import { valorDeFiltro, filtroDeBuscaDeProduto, filtroDeBuscaDeCliente } from './postgrest'
 
 // O filtro do PostgREST e uma string montada por concatenacao: virgula separa
 // condicoes e parentese abre/fecha grupo. Um termo do balcao com esses caracteres
@@ -41,5 +41,31 @@ describe('filtroDeBuscaDeProduto', () => {
     expect(filtroDeBuscaDeProduto('DIPIRONA, 20')).toBe(
       'codigo_barras.eq."DIPIRONA, 20",nome.ilike."%DIPIRONA, 20%"',
     )
+  })
+})
+
+// A busca de cliente NAO casa codigo de barras (nao existe): o balcao procura por
+// nome, telefone ou CPF. As clausulas de telefone/CPF sao CONDICIONAIS de
+// proposito: sem digitos no termo, `%%` casaria TODO cliente e a busca por nome
+// devolveria a lista inteira.
+describe('filtroDeBuscaDeCliente', () => {
+  it('termo com digitos casa nome OU telefone OU cpf, todos entre aspas', () => {
+    expect(filtroDeBuscaDeCliente('11912345678')).toBe(
+      'nome.ilike."%11912345678%",telefone.ilike."%11912345678%",cpf.ilike."%11912345678%"',
+    )
+  })
+
+  it('telefone pontuado e digitado pelo operador vira digito puro nas duas colunas', () => {
+    expect(filtroDeBuscaDeCliente('(11) 91234-5678')).toBe(
+      'nome.ilike."%(11) 91234-5678%",telefone.ilike."%11912345678%",cpf.ilike."%11912345678%"',
+    )
+  })
+
+  it('termo so com letras NAO cria as clausulas vazias (nem `%%` de telefone/CPF)', () => {
+    expect(filtroDeBuscaDeCliente('ANA')).toBe('nome.ilike."%ANA%"')
+  })
+
+  it('nome com virgula nao vira uma terceira condicao', () => {
+    expect(filtroDeBuscaDeCliente('SILVA, MARIA')).toBe('nome.ilike."%SILVA, MARIA%"')
   })
 })

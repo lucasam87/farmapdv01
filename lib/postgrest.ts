@@ -20,3 +20,28 @@ export function valorDeFiltro(texto: string): string {
 export function filtroDeBuscaDeProduto(termo: string): string {
   return `codigo_barras.eq.${valorDeFiltro(termo)},nome.ilike.${valorDeFiltro(`%${termo}%`)}`
 }
+
+/**
+ * Busca de cliente no balcao: nome, telefone ou CPF. Como usar:
+ * `or(filtroDeBuscaDeCliente(termo))`.
+ *
+ * As clausulas de telefone e CPF sao CONDICIONAIS, e nao uma lista fixa como no
+ * produto: as duas colunas guardam DIGITO PURO (015:100-101), entao o termo
+ * pontuado tem de virar digito antes de virar `ilike`. Sem a condicional, um
+ * termo so com letras poria `telefone.ilike."%%"` na consulta — que casa
+ * QUALQUER telefone gravado — e a busca por nome devolveria a lista inteira.
+ *
+ * O nome continua casando o termo CRU (com pontuacao e tudo): quem digita
+ * "SILVA, MARIA" ou "(11) 91234" espera achar o nome exatamente como o digitou.
+ */
+export function filtroDeBuscaDeCliente(termo: string): string {
+  const clausulas = [`nome.ilike.${valorDeFiltro(`%${termo}%`)}`]
+
+  const digitos = termo.replace(/\D/g, '')
+  if (digitos !== '') {
+    clausulas.push(`telefone.ilike.${valorDeFiltro(`%${digitos}%`)}`)
+    clausulas.push(`cpf.ilike.${valorDeFiltro(`%${digitos}%`)}`)
+  }
+
+  return clausulas.join(',')
+}
