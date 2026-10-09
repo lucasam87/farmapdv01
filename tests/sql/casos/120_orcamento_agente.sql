@@ -48,6 +48,7 @@ declare
   v_mes_lib    date := date '2099-09-01';  -- cenario da liberacao
   v_mes_estado date := date '2099-08-01';  -- cenario das transicoes de estado
   v_mes_limpo  date := date '2099-07-01';  -- cenario dos parametros tortos
+  v_mes_serv   date := date '2099-06-01';  -- cenario do service_role (e so ele)
   v_r1 uuid;
   v_r2 uuid;
 begin
@@ -56,7 +57,8 @@ begin
   -- `consumido_micros` do mes real e lido ou tocado em assercao nenhuma.
   insert into public.agente_orcamento_mensal (mes, consumido_micros)
   values (v_mes, 1000000), (v_mes_cheio, 0), (v_mes_recon, 1000),
-         (v_mes_lib, 4000000), (v_mes_estado, 500), (v_mes_limpo, 0);
+         (v_mes_lib, 4000000), (v_mes_estado, 500), (v_mes_limpo, 0),
+         (v_mes_serv, 0);
 
   -- ================= caso 1: a reserva ja consome =================
   -- Reserva de 1.373 µ$ (o valor que a Tarefa 2 usa por chamada) num mes que ja
@@ -326,13 +328,31 @@ begin
                    and not has_function_privilege('public', 'public.agente_orcamento_reconciliar(uuid,bigint)', 'execute')
                    and not has_function_privilege('public', 'public.agente_orcamento_liberar(uuid)', 'execute'),
     'permissoes: o papel PUBLIC NAO executa as tres funcoes');
-  -- `service_role` executa: e a unica porta. A tabela continua sem grant de tabela
-  -- para ela de proposito — as funcoes sao a porta (o `service_role` do Supabase
-  -- tem `bypassrls`, mas nao privilegio de tabela novo).
+  -- `service_role` executa: e a unica porta.
   perform teste_ok(has_function_privilege('service_role', 'public.agente_orcamento_reservar(date,bigint)', 'execute')
                    and has_function_privilege('service_role', 'public.agente_orcamento_reconciliar(uuid,bigint)', 'execute')
                    and has_function_privilege('service_role', 'public.agente_orcamento_liberar(uuid)', 'execute'),
     'permissoes: service_role executa reservar, reconciliar e liberar');
+  -- O grant de tabela e o MINIMO, e a prova e a entrada do ACL (e nao so o
+  -- `has_table_privilege`, que devolve true para DELETE tambem por heranca de
+  -- papel — medido com sonda: `service_role` e membro de `postgres` neste
+  -- projeto). O que a MIGRATION concede e `arw` = SELECT + INSERT + UPDATE; a
+  -- entrada exata e assertada, e nao um "contem".
+  perform teste_ok((select a::text from pg_class c, unnest(c.relacl) a
+                     where c.oid = 'public.agente_orcamento_mensal'::regclass
+                       and a::text like 'service_role=%') = 'service_role=arw/postgres',
+    'permissoes: o ACL do mes da a service_role exatamente SELECT+INSERT+UPDATE (arw)');
+  perform teste_ok((select a::text from pg_class c, unnest(c.relacl) a
+                     where c.oid = 'public.agente_orcamento_reservas'::regclass
+                       and a::text like 'service_role=%') = 'service_role=arw/postgres',
+    'permissoes: o ACL das reservas da a service_role exatamente SELECT+INSERT+UPDATE (arw)');
+  -- E o DELETE que o DEFAULT PRIVILEGES do Supabase punha no papel NAO esta mais
+  -- la (achado Important 1: e a migracao que concede, nao o ambiente).
+  perform teste_ok(not has_table_privilege('service_role', 'public.agente_orcamento_mensal', 'delete')
+                   and not has_table_privilege('service_role', 'public.agente_orcamento_reservas', 'delete')
+                   and not has_table_privilege('service_role', 'public.agente_orcamento_mensal', 'truncate')
+                   and not has_table_privilege('service_role', 'public.agente_orcamento_reservas', 'truncate'),
+    'permissoes: service_role NAO tem DELETE nem TRUNCATE no ledger (o revoke tirou o que o ambiente dava)');
 
   -- As tres sao `security invoker`: a funcao roda com os direitos de QUEM CHAMA.
   -- Com `security definer` ela rodaria como o dono do banco e a RLS do chamador
@@ -413,7 +433,82 @@ begin
   perform teste_ok(has_function_privilege('authenticated',
                      'public.registrar_venda(uuid,uuid,jsonb,jsonb,integer)', 'execute'),
     'authenticated continua com as RPCs dele (o fechamento foi so do orcamento)');
+
+  -- ================= service_role EXECUTA as tres, de verdade =================
+  -- Achado Important 1 da revisao: as assercoes de catalogo acima provam que a
+  -- `service_role` TEM o privilegio; nenhuma prova que a funcao FUNCIONA para
+  -- ela. E a diferenca importa porque as tres sao `security invoker`: o corpo roda
+  -- com os direitos do chamador, entao um grant de tabela faltando faz a funcao
+  -- morrer com "permission denied" exatamente para o unico chamador que a spec
+  -- manda usar — e o resto do arquivo (que roda na role do endpoint) seguia verde.
+  -- A spec §"Testes SQL" pede isto literalmente: "service_role consegue reservar,
+  -- reconciliar e liberar uma reserva".
+  --
+  -- MES DEDICADO `2099-06-01`, e nao um dos meses dos outros casos: este bloco
+  -- escreve pelo caminho de producao e nao pode encostar no cenario dos outros.
+  execute 'set local role service_role';
+
+  begin
+    v_r1 := public.agente_orcamento_reservar(v_mes_serv, 1373);
+    perform teste_ok(true, 'service_role: RESERVAR completa (reserva de 1.373 micros no mes dedicado)');
+  exception when others then
+    perform teste_ok(false, 'service_role: reservar falhou com "' || sqlerrm || '"');
+  end;
+
+  perform teste_ok((select consumido_micros = 1373
+                      from public.agente_orcamento_mensal where mes = v_mes_serv),
+    'service_role: a reserva que ELA criou somou no consumido (0 + 1.373)');
+
+  begin
+    perform public.agente_orcamento_reconciliar(v_r1, 1000);
+    perform teste_ok(true, 'service_role: RECONCILIAR completa (custo real de 1.000 micros)');
+  exception when others then
+    perform teste_ok(false, 'service_role: reconciliar falhou com "' || sqlerrm || '"');
+  end;
+
+  perform teste_ok((select consumido_micros = 1000
+                      from public.agente_orcamento_mensal where mes = v_mes_serv),
+    'service_role: a reconciliacao dela ajustou o consumido (1.373 - 373 = 1.000)');
+
+  -- Segunda reserva: e a que o `liberar` fecha (falha pre-envio).
+  begin
+    v_r2 := public.agente_orcamento_reservar(v_mes_serv, 1373);
+    perform teste_ok(true, 'service_role: RESERVAR de novo completa (segunda reserva, para liberar)');
+  exception when others then
+    perform teste_ok(false, 'service_role: a segunda reserva falhou com "' || sqlerrm || '"');
+  end;
+
+  begin
+    perform public.agente_orcamento_liberar(v_r2);
+    perform teste_ok(true, 'service_role: LIBERAR completa (falha anterior ao envio)');
+  exception when others then
+    perform teste_ok(false, 'service_role: liberar falhou com "' || sqlerrm || '"');
+  end;
+
+  perform teste_ok((select consumido_micros = 1000
+                      from public.agente_orcamento_mensal where mes = v_mes_serv)
+                   and (select count(*) = 2 from public.agente_orcamento_reservas
+                          where mes = v_mes_serv),
+    'service_role: o ciclo inteiro no mes dedicado (1.000 consumidos, duas reservas)');
+
+  -- A negativa que fecha o desenho: a `service_role` NAO apaga. Nao e decoracao —
+  -- `create table` no schema `public` nasce com `service_role=arwdDxtm` pelo
+  -- DEFAULT PRIVILEGES do Supabase (medido no banco de producao), e a migration
+  -- tira `delete` e `truncate` com o `revoke all` antes do grant. O bloco abaixo
+  -- e a prova de VERDADE (o catalogo acima prova o ACL; este prova o efeito).
+  begin
+    execute $sql$delete from public.agente_orcamento_mensal where mes = date '2099-06-01'$sql$;
+    perform teste_ok(false, 'service_role NAO apaga o ledger (o delete passou)');
+  exception when others then
+    perform teste_ok(position(lower('permission denied') in lower(sqlerrm)) > 0,
+      'service_role NAO apaga o ledger (a recusa e de permissao, veio: ' || sqlerrm || ')');
+  end;
+
   execute 'reset role';
+
+  -- A linha do mes dedicado sobreviveu a tentativa de delete.
+  perform teste_ok((select count(*) = 1 from public.agente_orcamento_mensal where mes = v_mes_serv),
+    'service_role: a linha do mes continua la depois da tentativa de delete');
 
   -- ================= a limpeza e do ROLLBACK =================
   -- Este arquivo nao apaga nada: o runner envolve o caso numa transacao que

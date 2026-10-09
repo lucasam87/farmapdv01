@@ -49,6 +49,26 @@
 -- `anon` nem `authenticated` passam, mesmo que um grant de tabela apareca por
 -- engano no futuro. O `service_role` do Supabase alcanca as tabelas por
 -- `bypassrls`; as funcoes sao a porta normal.
+--
+-- POR QUE A `service_role` RECEBE GRANT DE TABELA (achado Important 1 da revisao
+-- da Task 1): as tres funcoes sao `security invoker`, entao elas rodam com os
+-- direitos de QUEM CHAMA — o privilegio de tabela do chamador e parte do
+-- contrato, e nao um detalhe de ambiente. Sem estas linhas, o unico caminho que
+-- faz a funcao funcionar e o DEFAULT PRIVILEGES do Supabase (que nao tem
+-- `alter default privileges` em migration nenhuma deste repositorio): num projeto
+-- novo, ou num endurecimento de privilegios do schema, as tres funcoes morrem com
+-- `permission denied for table agente_orcamento_mensal` e a suite continua verde,
+-- porque o runner dos casos roda na role privilegiada do endpoint.
+--
+-- O `revoke all` ANTES do `grant` NAO e decoracao — foi medido no banco de
+-- producao e o ACL prova: `create table` no schema `public` nasce com
+-- `service_role=arwdDxtm` (o DEFAULT PRIVILEGES do Supabase da SELECT, INSERT,
+-- UPDATE, DELETE, TRUNCATE, REFERENCES e TRIGGER no papel). `delete` e `truncate`
+-- num ledger append-only nao tem uso NENHUM: nenhuma funcao apaga linha. Sem o
+-- `revoke all`, o `grant` seria um no-op (a entrada do ACL ja estaria la) e
+-- `service_role=arw/postgres` so aparece porque o revoke tira a entrada inteira e
+-- o grant a recria. E a UNICA linha desta migration que REDUZ o que o ambiente
+-- concede por padrao.
 
 -- ============================================================
 -- agente_orcamento_mensal — uma linha por mes, o contador consumido.
@@ -291,9 +311,24 @@ comment on function public.agente_orcamento_liberar(uuid) is
 -- rota nunca le o orcamento pelo cliente da sessao do usuario, so pela instancia
 -- privilegiada. E o EXECUTE sai de `public` E de `anon` (o grant chega a `anon`
 -- por DEFAULT PRIVILEGES no Supabase).
+--
+-- O grant explicito a `service_role` fecha o contrato das funcoes `security
+-- invoker` (ver o cabecalho). O `revoke all` que vem antes e o que tira `delete` e
+-- `truncate` que o DEFAULT PRIVILEGES do Supabase poe no papel: sem ele o grant
+-- seria no-op, e o ledger nasceria com duas operacoes destrutivas que funcao
+-- nenhuma usa.
 -- ============================================================
 revoke all on table public.agente_orcamento_mensal   from public, anon, authenticated;
 revoke all on table public.agente_orcamento_reservas from public, anon, authenticated;
+
+revoke all on table public.agente_orcamento_mensal   from service_role;
+revoke all on table public.agente_orcamento_reservas from service_role;
+
+-- `.` e nao `,` entre as linhas: e a lista de tabelas do MESMO grant.
+grant select, insert, update on table
+  public.agente_orcamento_mensal,
+  public.agente_orcamento_reservas
+  to service_role;
 
 revoke all on function public.agente_orcamento_reservar(date, bigint)      from public, anon, authenticated;
 revoke all on function public.agente_orcamento_reconciliar(uuid, bigint)   from public, anon, authenticated;

@@ -239,11 +239,16 @@ commit;
   //
   // POR QUE `set role service_role`: o cenario tem que entrar pela PORTA DA
   // PRODUCAO. `anon` e `authenticated` nao tem privilegio nenhum na tabela do
-  // ledger (migration 001), entao a unica role que alcanca o orcamento e
-  // `service_role` — e e ele que a Tarefa 3 vai usar. `grant ... to service_role`
-  // na tabela temporaria e obrigatorio: trocar de role tambem tira a escrita no
-  // `_conc_a` (o dono da temporaria e a role da sessao), e sem isso o proprio
-  // registro da saida falharia com "permission denied for table _conc_a".
+  // ledger (migrations 001 e 017), entao a unica role que alcanca o orcamento e
+  // `service_role` — e e ele que a Tarefa 3 vai usar.
+  //
+  // POR QUE O `grant` NA TEMPORARIA CONTINUA AQUI (tentado e revertido no fix
+  // round 1): trocar de role tambem troca quem escreve no `_conc_a`, e o grant de
+  // tabela que a 017 faz e do LEDGER (objeto permanente), nao de uma tabela
+  // temporaria da sessao. Removido, o lado A morre em "permission denied for table
+  // _conc_a" — medido, e a suite la ficou 20 OK / 8 FALHOU. O grant aqui NAO e o
+  // que sustenta a producao: e o minimo para o teste conseguir REGISTRAR a saida
+  // enquanto roda como a role de producao.
   function sqlReservaA(valorMicros) {
     return `
 begin;
@@ -286,9 +291,8 @@ commit;
   // O lado B do cenario do ORCAMENTO: tenta reservar e e cronometrado DENTRO do
   // banco (o endpoint leva ~1,5 s de overhead e mediria a rede, nao o lock).
   // `reserva_id` e `consumido` ficam na saida para o teste conferir o estado final
-  // pelo caminho de quem perdeu. O `insert` do `_conc_b` roda como `service_role`
-  // (por isso o `grant`), mas o select final sai como a role da sessao: quem le a
-  // resposta e o proprio teste.
+  // pelo caminho de quem perdeu. O `grant` na temporaria e pelo mesmo motivo do
+  // lado A (o `insert` do `_conc_b` roda como `service_role`).
   function sqlReservaB(valorMicros) {
     return `
 begin;
