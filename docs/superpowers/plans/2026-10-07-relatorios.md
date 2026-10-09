@@ -91,6 +91,15 @@ perform teste_ok((select nome = 'PRODUTO A' and quantidade = 4
   'caso 5: o ranking do periodo soma os dias (3 + 1 do mesmo produto)');
 perform teste_ok((select count(*) = 0 from relatorio_mais_vendidos(date '2026-01-17', date '2026-01-17', 10)),
   'caso 5: venda fora do periodo nao entra no ranking');
+
+-- caso 6: EQUIVALENCIA — o numero do relatorio e o mesmo que a soma das vendas do
+-- periodo, por outro caminho (e isto que o criterio da spec 13 pede: "batem com o PDV")
+perform teste_ok((
+  select (select faturamento from relatorio_resumo(date '2026-01-15', date '2026-01-16'))
+       = (select coalesce(sum(total), 0) from vendas
+            where status = 'concluida'
+              and (criado_em at time zone 'America/Sao_Paulo')::date between date '2026-01-15' and date '2026-01-16')
+), 'caso 6: o faturamento do periodo bate com a soma das vendas concluidas do periodo');
 ```
 
 **Antes de escrever:** leia `tests/sql/_helper.sql` (`teste_ok`, `teste_erro`) e `tests/sql/casos/040_views.sql` (o padrão de `criado_em` explícito e de `set_config` para trocar de papel). Os valores de `v_receita`/`v_custo` do caso 3 saem do `preco_custo` que você definir no cenário.
@@ -179,6 +188,7 @@ git commit -m "relatorios: o periodo e o ticket medio em modulo puro e testado"
 - **Produces:** a rota `/relatorios?de=YYYY-MM-DD&ate=YYYY-MM-DD`; `data-testid` = `periodo-de`, `periodo-ate`, `periodo-hoje`, `periodo-ontem`, `periodo-7dias`, `periodo-mes`, `aviso-periodo`, `card-faturamento`, `card-vendas`, `card-ticket`, `card-lucro`, `formas-pagamento`, `linha-forma`, `mais-vendidos`, `linha-vendido`, `erro-relatorio`.
 
 - [ ] **Step 1: A página.** Server Component com `searchParams: Promise<{ de?: string | string[]; ate?: string | string[] }>` (**com a guarda de `Array.isArray`, como `/clientes`**), `hoje` em São Paulo, `validarPeriodo`, e o form GET no topo (dois `<input type="date">` + botão **Ver**, mais os atalhos como links que preservam o período no endereço).
+  - **Formato do retorno das funções (decidido aqui, para as duas tarefas concordarem):** `relatorio_resumo` e `relatorio_lucro` são `returns table (...)`, e o PostgREST devolve um **array de linhas** — a página usa `const resumo = (data?.[0] ?? { faturamento: 0, vendas: 0, ticket_medio: 0 })`; `relatorio_formas_pagamento` e `relatorio_mais_vendidos` devolvem as listas e vão direto para a tela. `relatorio_lucro` **não é chamada** quando o usuário não é dono (e a função também recusaria).
   - **Erro de consulta nunca vira número**: se qualquer `rpc` devolver `error`, a tela mostra `Não foi possível carregar os relatórios. Recarregue.` em aviso vermelho (`role="alert"`, `data-testid="erro-relatorio"`) e **não desenha cartão nenhum** — a lição das Etapas 5 e 6.
   - **Lucro só para o dono:** `perfilAtual()` decide; para o atendente, o cartão de lucro **não existe na página** e a `rpc('relatorio_lucro')` **não é chamada** (a função também recusaria — defesa em profundidade, spec §7.4).
   - Cartões: faturamento (`formatarMoeda`), quantidade de vendas, ticket médio (use `ticketMedio` sobre o que veio da função, para os dois lados usarem a mesma conta) e lucro com a receita e o custo embaixo, menores.
