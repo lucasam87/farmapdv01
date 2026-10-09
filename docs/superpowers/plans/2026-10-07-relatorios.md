@@ -66,12 +66,12 @@ E as asserções (todas `perform teste_ok(...)`, com valores **calculados a part
 -- ticket medio: o cenario PRECISA de volumes diferentes por dia. Com UMA venda em cada
 -- dia, total/quantidade e a media das medias dao o MESMO numero e o caso nao discrimina
 -- (foi o defeito da primeira versao deste plano, pego na implementacao: 900 num dia e
--- 2500 no outro davam 1700 pelas duas contas). O caso implementado usa 3 vendas em 2
--- dias (3750 no total) e compara com a media das medias DIARIAS da propria `v_vendas_dia`,
--- exigindo que os dois numeros sejam diferentes:
-perform teste_ok((select faturamento = 3750 and vendas = 3 and ticket_medio = 1250
+-- 2500 no outro davam 1700 pelas duas contas). O caso implementado usa 5 vendas em 2
+-- dias (5750 no total, ticket 1150) e compara com a media das medias DIARIAS da propria
+-- `v_vendas_dia` (944), exigindo que os dois numeros sejam diferentes:
+perform teste_ok((select faturamento = 5750 and vendas = 5 and ticket_medio = 1150
                     from relatorio_resumo(date '2026-01-15', date '2026-01-16')),
-  'caso 1: ticket medio do periodo e total/quantidade (1250), nao a media dos dias');
+  'caso 1: ticket medio do periodo e total/quantidade (1150), nao a media dos dias (944)');
 perform teste_ok(
   (select ticket_medio from relatorio_resumo(date '2026-01-15', date '2026-01-16'))
   <> (select round(avg(ticket_medio)) from v_vendas_dia
