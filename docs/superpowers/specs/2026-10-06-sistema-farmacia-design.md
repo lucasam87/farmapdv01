@@ -123,10 +123,16 @@ escrever tela.
 | `v_estoque_baixo` | `estoque_atual <= estoque_minimo` e `ativo` |
 | `v_estoque_zerado` | `estoque_atual <= 0` e `ativo` (inclui NEGATIVO desde a migration 011) |
 | `v_clientes_devedores` | Saldo por cliente (compra − pagamento), maior primeiro |
-| `v_mais_vendidos` | Ranking por período |
+| `v_mais_vendidos` | Ranking histórico completo (all-time) |
 | `v_lucro_periodo` | `(preco_unitario − preco_custo) × quantidade` |
 | `v_estoque_parado` | Ativos sem venda há 60 dias |
-| `v_formas_pagamento` | Totais por forma no período, a partir de `venda_pagamentos` |
+| `v_formas_pagamento` | Totais por forma no histórico completo (all-time), a partir de `venda_pagamentos` |
+
+> **Relatórios por período (migration `016_relatorios`).** Os endpoints de relatório com datas
+> inicial e final são as funções `relatorio_resumo`, `relatorio_lucro`,
+> `relatorio_formas_pagamento` e `relatorio_mais_vendidos`. Elas agregam vendas concluídas no
+> período em fuso de São Paulo. As views `v_formas_pagamento` e `v_mais_vendidos` permanecem
+> históricas/all-time; não são as fontes dos relatórios por período.
 
 > **`v_vendas_historico` é a exceção deliberada do `status`** (acrescentada em
 > `012_historico_vendas`). Ela não filtra `status` porque a lista do dia precisa
@@ -429,6 +435,7 @@ Todas em português, sem termo técnico, dizendo o que fazer.
 | Pagamento acima da dívida | O valor é maior que a dívida (R$ 47,50). |
 | Cancelamento sem permissão | Só o dono pode cancelar vendas. |
 | Cancelamento tardio | Venda do dia 05/10 com caixa já fechado. Registre um estorno no caixa de hoje (sangria com motivo). |
+| Atendente tenta ver lucro | Só o dono vê o lucro. |
 
 ---
 
