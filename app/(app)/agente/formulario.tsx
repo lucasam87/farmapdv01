@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
+import { proximoEnvio, respostaAindaVale, type Envio } from './corrida'
 import { ERRO_REDE, lerRespostaAgente } from './resposta'
 
 // A tela do agente gerencial da etapa 8 (spec, "Fluxo e componentes" 1): UMA
@@ -16,7 +17,12 @@ import { ERRO_REDE, lerRespostaAgente } from './resposta'
 //     contrato, a tela diz apenas que algo saiu do esperado;
 //   - guardar historico: nao ha lista de perguntas anteriores, nao ha
 //     `localStorage` e a pergunta anterior nunca e reenviada (a spec proibe
-//     memoria persistida). Cada envio e independente.
+//     memoria persistida). Cada envio e independente;
+//   - deixar na tela a resposta de OUTRA pergunta: o campo e os exemplos seguem
+//     habilitados durante o carregamento (so o botao desabilita), entao a resposta
+//     de um envio antigo pode chegar depois de o texto mudar. Quem decide se ela
+//     pode escrever na tela e `corrida.ts` (com teste), e o invariante e: **a
+//     resposta visivel e sempre a resposta da pergunta que esta no campo**.
 //
 // A traducao da resposta HTTP para o que a tela mostra mora em `resposta.ts`
 // (modulo puro, testado por `resposta.test.ts`): assim a regra "nunca tela em
@@ -41,10 +47,23 @@ export function FormularioAgente({ limite }: { limite: number }) {
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
 
+  // O envio mais recente e o texto que esta no campo AGORA. Sao `ref` de
+  // proposito: quem os le e o callback assincrono do `fetch`, que enxerga o
+  // estado do render em que foi criado — a `pergunta` do `useState` ficaria
+  // congelada no texto do envio, e e justamente a diferenca entre "o que foi
+  // enviado" e "o que esta no campo" que o guarda de `corrida.ts` precisa ver.
+  const envioRef = useRef<Envio | null>(null)
+  const perguntaRef = useRef('')
+  // Um POST por vez: dois Enter antes do primeiro render nao podem gastar duas
+  // chamadas pagas no provedor.
+  const emVooRef = useRef(false)
+
   // A resposta/erro anterior sai da tela quando o TEXTO da pergunta muda: o que
-  // fica visivel tem de ser a resposta da pergunta que esta no campo. Sem isso, o
-  // atendente trocaria a pergunta e continuaria lendo a resposta da anterior.
+  // fica visivel tem de ser a resposta da pergunta que esta no campo. Isso sozinho
+  // nao bastava (Important 1): a resposta ja em voo ainda chegava depois — quem a
+  // descarta e o guarda de `enviar`.
   function mudarPergunta(texto: string) {
+    perguntaRef.current = texto
     setPergunta(texto)
     setResposta(null)
     setErro(null)
@@ -52,9 +71,13 @@ export function FormularioAgente({ limite }: { limite: number }) {
 
   async function enviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
-    // O botao ja fica desabilitado durante a consulta; a guarda fecha o caso de
-    // um segundo Enter antes do render do estado de carregamento.
-    if (carregando) return
+    if (emVooRef.current) return
+
+    emVooRef.current = true
+    // A pergunta que ESTE envio manda, numerada. O texto enviado e o mesmo que o
+    // guarda vai comparar depois, entao `envio.pergunta` e a fonte da verdade.
+    const envio = proximoEnvio(envioRef.current, pergunta)
+    envioRef.current = envio
 
     setCarregando(true)
     setResposta(null)
@@ -64,14 +87,20 @@ export function FormularioAgente({ limite }: { limite: number }) {
       const http = await fetch('/api/agente', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // O campo vai como esta: quem apara, limita e triagem e o servidor
+        // O texto vai como esta: quem apara, limita e faz a triagem e o servidor
         // (`validarPergunta`). O cliente nao tem uma segunda regra para divergir.
-        body: JSON.stringify({ pergunta }),
+        body: JSON.stringify({ pergunta: envio.pergunta }),
       })
 
       // Corpo que nao e JSON nao pode virar excecao: vira `null` e a leitura o
       // trata como corpo fora do contrato.
       const bruto: unknown = await http.json().catch(() => null)
+
+      // A corrida: se o campo ja mostra outra pergunta (o usuario digitou ou
+      // clicou num exemplo enquanto este POST estava em voo), a resposta NAO
+      // escreve nada. Resposta certa para pergunta errada e pior do que nenhuma.
+      if (!respostaAindaVale(envio, envioRef.current, perguntaRef.current)) return
+
       const resultado = lerRespostaAgente(http.ok, bruto)
 
       if (resultado.tipo === 'resposta') {
@@ -80,8 +109,10 @@ export function FormularioAgente({ limite }: { limite: number }) {
       }
       setErro(resultado.texto)
     } catch {
-      setErro(ERRO_REDE)
+      // Falha de rede do envio atual; a de um envio ja superado nao vira recado.
+      if (respostaAindaVale(envio, envioRef.current, perguntaRef.current)) setErro(ERRO_REDE)
     } finally {
+      emVooRef.current = false
       setCarregando(false)
     }
   }
