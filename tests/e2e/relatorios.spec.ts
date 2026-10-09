@@ -120,7 +120,7 @@ test('(4) Ontem conserva o faturamento anterior mesmo apos uma venda de hoje', a
 })
 
 test('(5) atalhos substituem as datas editadas nos campos', async ({ page }) => {
-  await page.goto('/relatorios?de=2024-01-02&ate=2024-01-04')
+  await page.goto('/relatorios')
   const hoje = hojeEmSaoPaulo()
 
   await page.getByTestId('periodo-de').fill('2025-02-03')
@@ -128,6 +128,13 @@ test('(5) atalhos substituem as datas editadas nos campos', async ({ page }) => 
   await page.getByTestId('periodo-hoje').click()
 
   await expect(page).toHaveURL(new RegExp(`/relatorios\\?de=${hoje}&ate=${hoje}$`))
+  await expect(page.getByTestId('periodo-de')).toHaveValue(hoje)
+  await expect(page.getByTestId('periodo-ate')).toHaveValue(hoje)
+
+  await page.getByTestId('periodo-de').fill('2025-02-03')
+  await page.getByTestId('periodo-ate').fill('2025-02-05')
+  await page.getByTestId('periodo-hoje').click()
+
   await expect(page.getByTestId('periodo-de')).toHaveValue(hoje)
   await expect(page.getByTestId('periodo-ate')).toHaveValue(hoje)
 })

@@ -1,8 +1,8 @@
-import Link from 'next/link'
 import { perfilAtual } from '@/lib/auth/perfil'
 import { formatarMoeda } from '@/lib/format'
 import { criarClienteServidor } from '@/lib/supabase/server'
 import { atalhos, diasDoPeriodo, formatarDataCivil, ticketMedio, validarPeriodo } from './periodo'
+import AtalhoPeriodo from './atalho-periodo'
 
 type ParametroPeriodo = string | string[] | undefined
 
@@ -63,7 +63,8 @@ export default async function RelatoriosPage({
       <h1 className="text-2xl font-semibold text-slate-800">Relatórios</h1>
 
       <form
-        key={`${periodo.de}:${periodo.ate}`}
+        id="filtro-periodo"
+        key={`${primeiro(params.de) ?? ''}:${primeiro(params.ate) ?? ''}`}
         method="get"
         className="mt-6 rounded-2xl bg-white p-5 shadow-sm"
       >
@@ -106,14 +107,13 @@ export default async function RelatoriosPage({
                     ? 'periodo-7dias'
                     : 'periodo-mes'
             return (
-              <Link
+              <AtalhoPeriodo
                 key={rotulo}
                 href={`/relatorios?de=${atalho.de}&ate=${atalho.ate}`}
-                data-testid={testId}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-base font-medium text-slate-700 hover:bg-slate-100"
+                testId={testId}
               >
                 {rotulo}
-              </Link>
+              </AtalhoPeriodo>
             )
           })}
         </nav>
