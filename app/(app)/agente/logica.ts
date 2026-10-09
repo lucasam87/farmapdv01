@@ -228,7 +228,7 @@ function semAcento(texto: string): string {
 // positivo que reprovou a primeira versao do filtro. `[^?]*` limita o salto a
 // mesma frase, entao "qual remedio vendeu? serve para X" nao casa por engano.
 const GATILHO_CLINICO_DIRETO =
-  /(qual a (dosagem|dose|posologia)|quanto (eu )?(posso|devo) tomar\b|quantas gotas|quantos comprimidos|o que (eu )?(posso |devo )?tomar\b|qual (o )?(melhor )?(remedio|medicamento|medicament|antibiotico|xarope|pomada|analgesico)[^?]*\b(e bom|serve|indica|posso|e melhor|melhor|pra|para)\b)/i
+  /(qual a (dosagem|dose|posologia)|quanto (eu )?(posso|devo) tomar\b|quantas gotas|quantos comprimidos|o que (eu )?(posso |devo )?tomar\b|o que (eu )?(posso|devo) dar\b|qual (o )?(melhor )?(remedio|medicamento|medicament|antibiotico|xarope|pomada|analgesico)[^?]*\b(e bom|serve|indica|posso|e melhor|melhor|pra|para)\b)/i
 
 // SITUACAO CLINICA: sintoma ou doenca. Usada para reconhecer a pergunta do tipo
 // "e bom para isso?" / "serve para isso?" sem exigir o nome do medicamento.
@@ -249,22 +249,92 @@ const ANCORA_CLINICA = new RegExp(`${SITUACAO_CLINICA.source}|${MEDICACAO.source
 // "posso dar desconto?" e "devo tomar cuidado com o estoque?" sao perguntas
 // gerenciais legitimas. A classe inteira e o Achado Important 1 da revisao.
 //
-// A palavra "medicamento" e PROIBIDA nas alternativas deste padrao: qualquer
-// `me ajuda` que a contivesse viraria recusa clinica (foi o defeito da versao
-// anterior). Quem cobre a variante "me ajuda a escolher um medicamento para
-// pressao alta" e o portao de ANCORA_CLINICA, e nao este padrao.
+// TOMAR/DAR NAO ESTAO AQUI de proposito: "posso dar uma olhada no relatorio" e
+// "devo tomar uma atitude" sao gerenciais, e quem decide se o pedido e clinico e
+// PEDIDO_DE_MEDICAR, que separa o verbo do OBJETO. Deixar "posso dar" aqui fazia
+// a primeira frase ser recusada sozinha.
+//
+// A palavra "medicamento" tambem e PROIBIDA nas alternativas deste padrao:
+// qualquer `me ajuda` que a contivesse viraria recusa clinica. Quem cobre a
+// variante "me ajuda a escolher um medicamento para pressao alta" e o portao de
+// ANCORA_CLINICA.
 const PEDIDO_DE_AJUDA =
-  /(o que (eu )?(posso|devo)( fazer)?|posso (da|tomo|tomar)\b|preciso (tomar|da)\b|devo (tomar|da)\b|me ajuda\b|o que eu faco|faz mal\b|pode (tomar|dar)\b|e grave\b|quem pode tomar\b)/i
+  /(o que (eu )?(posso|devo) (fazer|faco)\b|o que (eu )?(posso |devo )?tomar\b|me ajuda\b|o que eu faco|faz mal\b|e grave\b|quem pode tomar\b)/i
 
 // Pedido que so faz sentido medicando alguem: "posso dar dipirona para meu filho",
-// "preciso tomar antibiotico". Exige a ancora clinica e um complemento depois do
-// verbo — e isso que impede "posso dar baixa no estoque vencido" de casar.
+// "preciso tomar antibiotico". Exige a ancora clinica (o portao de cima) e nao
+// pode ser um pedido de NEGOCIO.
 //
-// A lista de exclusao e o que separa TOMAR/DAR medicamento de TOMAR/DAR decisao,
-// cuidado, baixa, desconto, entrada, uma olhada ou providencia: sem ela, a classe
-// gerencial inteira ("devo tomar cuidado com o estoque?") voltaria a ser recusada.
-const PEDIDO_DE_MEDICAR =
-  /((posso|devo) (tomar|dar)\s+(?!baixa\b|desconto\b|entrada\b|jeito\b|uma olhada\b|providencia|medida\b)\S|preciso (tomar|dar)\s+(?!baixa\b|desconto\b|entrada\b|decisao|providencia|medida\b|uma)\S|quem pode tomar\b)/i
+// A EXCLUSAO E POR OBJETO DE NEGOCIO, E SO QUANDO ELE E DE NEGOCIO MESMO.
+// A versao anterior excluia o verbo: bastava a palavra "baixa" depois de "dar"
+// para o pedido inteiro ser ignorado — e "Posso DAR BAIXA NA FEBRE do meu filho
+// com dipirona?" (consulta de saude) passava. Agora, depois do objeto excluido,
+// ainda se procura um complemento clinico: se houver, ele continua sendo recusa.
+// E o que faz as duas listas conviverem:
+//   "posso dar baixa no estoque vencido"          -> negocio, segue
+//   "posso dar baixa na febre do meu filho"       -> clinico, recusa
+//   "posso dar baixa na dipirona do meu filho"    -> clinico, recusa
+//   "posso dar entrada na nota fiscal hoje"       -> negocio, segue
+//   "posso dar entrada no hospital com dor"       -> clinico, recusa
+// Pedido que so faz sentido medicando alguem: "posso dar dipirona para meu filho",
+// "preciso tomar antibiotico". Exige a ancora clinica (o portao de cima).
+//
+// A EXCLUSAO E POR OBJETO DE NEGOCIO EXPLICITO, e nao por verbo nem por
+// complemento clinico. Duas tentativas anteriores erraram por isso:
+//   (1) excluir o VERBO ("dar") sempre que a palavra da lista aparecesse depois:
+//       "Posso DAR BAIXA NA FEBRE do meu filho com dipirona?" (saude) passava.
+//   (2) exigir que o objeto excluido nao tivesse complemento clinico depois: o
+//       lookahead acabava testando o RESTO DA FRASE e bloqueava o caso clinico
+//       ("dar baixa na febre" contem "febre").
+// Agora a lista de negacao tem so objetos de negocio, escritos por extenso. O que
+// nao esta na lista e medicamento, e ai o pedido e clinico:
+//   "posso dar baixa no estoque vencido"   -> "baixa" + "no estoque": negocio
+//   "posso dar entrada na nota fiscal"     -> "entrada" + "na nota": negocio
+//   "posso dar uma olhada no relatorio"    -> "olhada" + "no relatorio": negocio
+//   "posso dar baixa na febre do meu filho"-> "baixa" + "na febre": CLINICO
+//   "posso dar baixa na dipirona"          -> "baixa" + "na dipirona": CLINICO
+//   "posso dar entrada no hospital"        -> "entrada" + "no hospital": CLINICO
+const OBJETO_DE_NEGOCIO =
+  '(?:uma )?(?:baixa|entrada|jeito|olhada|providencia|medida|decisao|atitude|cuidado|' +
+  'vista|parte|suporte|feedback|atencao|jeitinho)\\s+' +
+  '(?:n[oa]s?\\s|em\\s|de\\s|da\\s|do\\s|das\\s|dos\\s|pela\\s|pelo\\s|com\\s|para\\s)?' +
+  '(?:estoque|nota|fiscal|mercadoria|produto|produtos|relatorio|vendas|sistema|caixa|pedido|' +
+  'compra|planilha|fornecedor|cliente|clientes|preco|margem|conta|contas|financeiro)'
+
+// Objeto de negocio + assunto CLINICO na sequencia: "uma olhada na dose da
+// amoxicilina", "uma medida para a dor", "a providencia para a dor de cabeca",
+// "uma decisao sobre o remedio", "dar entrada no hospital". Isso e consulta de
+// saude, nao de gestao.
+//
+// A lista de VERBOS aqui e mais larga que a de PEDIDO_DE_MEDICAR de proposito:
+// "preciso DE uma medida" e "quero uma olhada" nao tem "dar/tomar" na frase.
+//
+// A ponte entre o objeto e o assunto e uma lista FECHADA de preposicoes e
+// artigos, cada uma como token proprio (`\s+(?:na|no|...)`). O `{0,4}` cobre
+// "uma decisao sobre o remedio do meu filho" sem deixar "uma olhada no relatorio
+// de vendas" escorregar ate um assunto clinico que nao existe.
+const OBJETO_DE_NEGOCIO_SOBRE_SAUDE =
+  new RegExp(
+    `\\b(olhada|medida|decisao|providencia|avaliacao|checada|jeito|baixa|entrada)\\b` +
+      `(?:\\s+(?:em|no|na|nos|nas|de|do|da|dos|das|sobre|para|pra|com|pelo|pela|num|numa|a|o|as|os|um|uma|meu|minha|do|da)){0,4}` +
+      `\\s+(?:a |o |as |os |um |uma )?` +
+      `(?:dose|dosagem|posologia|remedio|medicamento|medicament|antibiotico|amoxicilina|dipirona|paracetamol|ibuprofeno|loratadina|analgesico|xarope|pomada|comprimido|capsula|gotas|dor|febre|tosse|gripe|infec[c]ao|inflamac[a]ao|alergia|hospital|emergencia|crianca|bebe|filho|filha|gestante)(?![a-z])`,
+    'i',
+  )
+
+const PEDIDO_DE_MEDICAR = new RegExp(
+  // Depois do verbo: uma janela de ate 8 palavras e, SO ENTAO, o teste do objeto
+  // de negocio. A janela existe porque o objeto pode vir alguns tokens depois do
+  // verbo ("dar uma olhada no relatorio") e porque o lookahead de objeto de
+  // negocio precisa enxergar o objeto INTEIRO — `(?!uma\b)` logo apos `\s+`
+  // bloqueia até "dar uma olhada" legitimo, ja que "uma" vem imediatamente depois
+  // do verbo. A janela pode pular o verbo a vontade: se o objeto de negocio nao
+  // estiver nela, o match vale (e medicamento).
+  `((posso|devo|preciso|poderia|consigo|da|daria) (tomar|dar|da)\\s+` +
+    `(?!\\S+(?:\\s+\\S+){0,7}(?:\\s${OBJETO_DE_NEGOCIO}\\b))\\S` +
+    `|quem pode tomar\\b)`,
+  'i',
+)
 
 // CPF com ou sem pontuacao (11 digitos). O `\b` no fim impede casar um numero
 // maior por acidente.
@@ -286,6 +356,15 @@ function recusaClinica(pergunta: string): boolean {
   // (a) dose ou escolha de medicamento: sozinho ja e conselho de saude.
   if (GATILHO_CLINICO_DIRETO.test(texto)) return true
 
+  // (a2) "dar entrada" SO tem leitura de negocio quando o destino e do sistema ou
+  // do estoque (nota, caixa, estoque, planilha). Destino hospitalar e saude, mesmo
+  // com palavras no meio ("entrada no hospital COM O bebe"). Fica ANTES do portao
+  // de ancora de proposito: "bebe" e "hospital" nao estao na ancora clinica, e
+  // depois do portao este caso nunca seria alcancado.
+  if (/\bentrada\b(?:\s+\S+){0,3}\s+(?:hospital|emergencia|pronto[- ]socorro|ubs|posto de saude|clinica|maternidade|upa)\b/i.test(texto)) {
+    return true
+  }
+
   // Sem ancora clinica nao ha conselho de saude nenhum: "me ajuda a ver as
   // vendas", "o que eu faco para repor o estoque?" e "posso dar desconto?" sao
   // gerenciais e SEGUEM. Este portao e o que corrige o Important 1.
@@ -294,13 +373,23 @@ function recusaClinica(pergunta: string): boolean {
   // (b) sintoma ou medicamento + pedido de conselho/ajuda.
   if (PEDIDO_DE_AJUDA.test(texto)) return true
 
-  // (c) sintoma ou medicamento + "e bom para isso?", "posso dar/tomar isso?".
+  // (c) a forma "posso dar/tomar <objeto>".
   // "meu filho" sozinho NAO recusa: pode ser nome de cadastro. O que recusa e o
   // preparo para medicar alguem, e e por isso que o pedido precisa de complemento.
   if (PEDIDO_DE_MEDICAR.test(texto)) return true
 
+  // (c2) objeto de negocio SOBRE assunto clinico: "uma olhada na dose da
+  // amoxicilina", "a providencia para a dor de cabeca", "uma decisao sobre o
+  // remedio", "dar entrada no hospital". O assunto e saude, entao nao ha leitura
+  // gerencial — e o par (objeto, assunto) e o que separa este caso do
+  // "uma olhada no relatorio de vendas".
+  if (OBJETO_DE_NEGOCIO_SOBRE_SAUDE.test(texto)) return true
+
+  // (d) ancora clinica + "e bom para isso?", "serve para isso?", "funciona?".
+  if (/(e bom\b|serve para\b|e indicado\b|funciona\b|posso usar\b|pode dar\b|pode tomar\b)/i.test(texto)) return true
+
   const temSintoma = SITUACAO_CLINICA.test(texto)
-  return temSintoma && /(e bom\b|serve para\b|e indicado\b|funciona\b|posso usar\b|pode dar\b|pode tomar\b)/i.test(texto)
+  return temSintoma && PEDIDO_DE_AJUDA.test(texto)
 }
 
 function recusaPessoal(pergunta: string): boolean {

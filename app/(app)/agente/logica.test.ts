@@ -235,6 +235,58 @@ describe('recusaLocal — clinica', () => {
     expect(recusaLocal('Qual a quantidade de amoxicilina em estoque?')).toBeNull()
     expect(recusaLocal('Como estão as vendas do remédio X?')).toBeNull()
   })
+
+  // Fix round 2: a lista de exclusao do PEDIDO_DE_MEDICAR excluia o VERBO, entao
+  // bastava a palavra da lista depois de "dar" para o pedido clinico inteiro ser
+  // ignorado. O modo de falha e o pior deste filtro: ACEITAR pergunta de saude.
+  it('recusa o pedido clinico que usa uma palavra da lista de negocio', () => {
+    expect(recusaLocal('Posso dar baixa na febre do meu filho com dipirona?')).toBe('clinica')
+    expect(recusaLocal('Posso dar baixa na dipirona do meu filho?')).toBe('clinica')
+    expect(recusaLocal('Posso dar entrada no hospital com dor no peito?')).toBe('clinica')
+  })
+
+  it('recusa outras frases da mesma classe (sondagem do fix round 2)', () => {
+    expect(recusaLocal('Posso dar baixa na dor de cabeça do meu filho?')).toBe('clinica')
+    expect(recusaLocal('Posso dar entrada no hospital com febre?')).toBe('clinica')
+    expect(recusaLocal('Posso dar uma olhada na dose da amoxicilina?')).toBe('clinica')
+    expect(recusaLocal('Preciso de uma olhada na posologia do xarope')).toBe('clinica')
+    expect(recusaLocal('Devo tomar uma medida para a dor?')).toBe('clinica')
+    expect(recusaLocal('Posso dar desconto na dipirona?')).toBe('clinica')
+    expect(recusaLocal('Posso dar baixa na tosse do meu filho?')).toBe('clinica')
+  })
+
+  // Os tres buracos que a re-sondagem da classe achou depois da primeira correcao:
+  // o verbo nao era "dar/tomar", o conector "para a" engolia o artigo e o destino
+  // hospitalar vinha separado por "com".
+  it('recusa a mesma classe quando o verbo nao e dar/tomar ou o conector muda', () => {
+    expect(recusaLocal('Preciso de uma medida de dipirona para criança')).toBe('clinica')
+    expect(recusaLocal('Qual a providência para a dor de cabeça?')).toBe('clinica')
+    expect(recusaLocal('Posso dar entrada no hospital com o bebê?')).toBe('clinica')
+    expect(recusaLocal('Qual a decisão sobre a dose do remédio?')).toBe('clinica')
+    expect(recusaLocal('Posso dar entrada na emergência com pressão alta?')).toBe('clinica')
+    expect(recusaLocal('Qual a medida de xarope para tosse?')).toBe('clinica')
+    expect(recusaLocal('Quero uma olhada na dose de amoxicilina para infecção')).toBe('clinica')
+  })
+
+  // A outra metade: os objetos de NEGOCIO da mesma lista nao podem voltar a
+  // recusar. Frases confirmadas pelo revisor.
+  it('NAO recusa o objeto de negocio da mesma lista (nao pode regredir)', () => {
+    expect(recusaLocal('Posso dar baixa no estoque vencido?')).toBeNull()
+    expect(recusaLocal('Posso dar entrada na nota fiscal hoje?')).toBeNull()
+    expect(recusaLocal('Como dar entrada de mercadoria no sistema?')).toBeNull()
+    expect(recusaLocal('Me ajuda a dar baixa no estoque vencido')).toBeNull()
+    expect(recusaLocal('Me dá uma olhada nas vendas de ontem')).toBeNull()
+    expect(recusaLocal('Qual a providência para o estoque parado?')).toBeNull()
+    expect(recusaLocal('Qual a decisão certa sobre o estoque baixo?')).toBeNull()
+    expect(recusaLocal('Preciso de uma olhada no relatório de vendas')).toBeNull()
+    expect(recusaLocal('Devo tomar uma atitude sobre os produtos vencidos?')).toBeNull()
+    expect(recusaLocal('Faz mal deixar estoque parado?')).toBeNull()
+    expect(recusaLocal('Poderia dar uma olhada no relatório?')).toBeNull()
+    expect(recusaLocal('Posso dar desconto numa venda?')).toBeNull()
+    expect(recusaLocal('Como dar entrada de nota no caixa?')).toBeNull()
+    expect(recusaLocal('Posso dar uma olhada no estoque baixo?')).toBeNull()
+    expect(recusaLocal('Preciso de uma medida para o estoque parado')).toBeNull()
+  })
 })
 describe('recusaLocal — PII', () => {
   it('recusa CPF, telefone e e-mail reconheciveis', () => {
