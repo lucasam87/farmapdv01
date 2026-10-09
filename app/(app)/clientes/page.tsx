@@ -57,13 +57,33 @@ export default async function ClientesPage({
 
   const { data, count, error } = await consulta
 
-  // CONSULTA QUE FALHOU NAO E "NENHUM CLIENTE ENCONTRADO" (M6 da revisao final do
-  // branch). Sem este ramo, um 4xx/5xx do PostgREST (coluna, RLS, rede) cai em
-  // `data = null` e a tela afirma que a base nao tem ninguem — o mesmo defeito que a
-  // T5 corrigiu em `/crediario`, e a mesma classe: silencio que engana. O `throw`
-  // esta fora de questao pelo mesmo motivo de la (o app nao tem `error.tsx`): aviso
-  // vermelho explicito, e NADA de estado vazio por cima dele.
-  if (error) {
+  const clientes = (data ?? []) as Cliente[]
+  const total = count ?? clientes.length
+
+  // Uma consulta para a pagina inteira, casada por `cliente_id` aqui no servidor.
+  // A view so devolve quem deve; quem nao aparece tem saldo zero.
+  const saldos = new Map<string, number>()
+  const ids = clientes.map((c) => c.id)
+  let erroSaldos: unknown = null
+  if (ids.length > 0) {
+    const { data: devedores, error: erro } = await supabase
+      .from('v_clientes_devedores')
+      .select('cliente_id, saldo')
+      .in('cliente_id', ids)
+    erroSaldos = erro
+    for (const d of (devedores ?? []) as { cliente_id: string; saldo: number }[]) {
+      saldos.set(d.cliente_id, d.saldo)
+    }
+  }
+
+  // CONSULTA QUE FALHOU NAO E "NENHUM CLIENTE ENCONTRADO" — e a do SALDO tambem nao
+  // pode virar "todos devem zero" (M6 e o resíduo da revisao final do branch). Sem
+  // este ramo, um 4xx/5xx do PostgREST (coluna, RLS, rede) cai em `data = null` e a
+  // tela afirma que a base nao tem ninguem; na consulta de saldos, mostraria R$ 0,00
+  // para quem deve. O `throw` esta fora de questao pelo mesmo motivo de `/crediario`
+  // (o app nao tem `error.tsx`): aviso vermelho explicito, e NADA de estado vazio ou
+  // de valor inventado por cima dele.
+  if (error || erroSaldos) {
     return (
       <div className="mx-auto max-w-5xl">
         <h1 className="text-2xl font-semibold text-slate-800">Clientes</h1>
@@ -72,23 +92,6 @@ export default async function ClientesPage({
         </p>
       </div>
     )
-  }
-
-  const clientes = (data ?? []) as Cliente[]
-  const total = count ?? clientes.length
-
-  // Uma consulta para a pagina inteira, casada por `cliente_id` aqui no servidor.
-  // A view so devolve quem deve; quem nao aparece tem saldo zero.
-  const saldos = new Map<string, number>()
-  const ids = clientes.map((c) => c.id)
-  if (ids.length > 0) {
-    const { data: devedores } = await supabase
-      .from('v_clientes_devedores')
-      .select('cliente_id, saldo')
-      .in('cliente_id', ids)
-    for (const d of (devedores ?? []) as { cliente_id: string; saldo: number }[]) {
-      saldos.set(d.cliente_id, d.saldo)
-    }
   }
 
   return (

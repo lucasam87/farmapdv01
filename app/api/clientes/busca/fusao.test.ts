@@ -100,8 +100,8 @@ describe('juntarClientes', () => {
 // pelo segundo ramo — e o saldo dele nao esta entre as linhas que o primeiro ramo
 // devolveu. O PDV imprime "deve R$ <saldo> de R$ <limite>": gravar 0 aqui faz o
 // balcao LER uma divida menor do que a real. Estes casos provam a fusao; a terceira
-// consulta da rota (a que busca esses saldos) nao tem teste — o e2e do cenario nao
-// tem cliente devedor que case so por CPF.
+// consulta da rota (a que busca esses saldos) e provada ponta a ponta pelo teste 7 de
+// `tests/e2e/crediario.spec.ts`, que busca um devedor SO pelo CPF.
 describe('juntarClientes com os saldos do segundo ramo', () => {
   function saldo(id: string, valor: number | string): LinhaSaldo {
     return { cliente_id: id, saldo: valor }

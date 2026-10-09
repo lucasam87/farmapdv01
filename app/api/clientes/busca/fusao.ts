@@ -4,17 +4,17 @@
 // traz o saldo, e so quem deve) e a tabela `clientes` (que traz o CPF, e so quem
 // nao aparece na view). Juntar isso tem tres regras que erram calado: DEVEDOR
 // PRIMEIRO, ninguem repetido (a busca por nome casa os dois lados) e corte unico de
-// 8 SOBRE A LISTA. Dentro do arquivo de rota isso nao tinha como ser testado — e o
-// e2e nao discrimina: o cliente do cenario nao deve nada, entao ele so passa pelo
-// segundo ramo. Aqui e uma funcao PURA (sem Supabase, sem React, sem I/O, mesma
-// escolha de `app/(app)/clientes/validacao.ts`), com teste de unidade.
+// 8 SOBRE A LISTA. Dentro do arquivo de rota isso nao tinha como ser testado por
+// unidade; hoje o e2e do crediario discrimina o caso (teste 7 do `crediario.spec.ts`:
+// um devedor que casa SO por CPF). Aqui e uma funcao PURA (sem Supabase, sem React,
+// sem I/O, mesma escolha de `app/(app)/clientes/validacao.ts`), com teste de unidade.
 //
 // O TERCEIRO ARGUMENTO (saldos) entrou na revisao final do branch (Important 1): a
 // view nao expoe `cpf`, entao quem casa SO por CPF vem do segundo ramo — e o saldo
 // dele NAO esta entre as linhas que o primeiro ramo devolveu. Sem esses saldos, o
 // segundo ramo gravaria 0 e o PDV diria "deve R$ 0,00" para quem deve.
 
-/** Teto da lista no balcao — o mesmo numero nas duas consultas da rota. */
+/** Teto da lista no balcao — o mesmo numero nas tres consultas da rota. */
 export const LIMITE_DA_BUSCA = 8
 
 /** O que a rota devolve e o PDV consome. `saldo` em CENTAVOS. */

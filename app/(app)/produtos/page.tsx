@@ -21,9 +21,13 @@ type Produto = {
 export default async function ProdutosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ busca?: string; categoria?: string; inativos?: string }>
+  // `string[]` e possivel: `?busca=a&busca=b` chega assim, e nem `trim` nem `eq`
+  // funcionam em array — sem a guarda a rota estoura (500) por causa da URL.
+  // (`/clientes` e `/crediario` ja nasceram com ela; faltava aqui.)
+  searchParams: Promise<{ busca?: string | string[]; categoria?: string | string[]; inativos?: string }>
 }) {
   const { busca, categoria, inativos } = await searchParams
+  const categoriaUnica = Array.isArray(categoria) ? (categoria[0] ?? '') : (categoria ?? '')
   const supabase = await criarClienteServidor()
 
   let consulta = supabase
@@ -35,9 +39,9 @@ export default async function ProdutosPage({
     .limit(LIMITE)
 
   if (!inativos) consulta = consulta.eq('ativo', true)
-  if (categoria) consulta = consulta.eq('categoria', categoria)
+  if (categoriaUnica !== '') consulta = consulta.eq('categoria', categoriaUnica)
 
-  const termo = (busca ?? '').trim()
+  const termo = (Array.isArray(busca) ? (busca[0] ?? '') : (busca ?? '')).trim()
   if (termo !== '') {
     // Codigo de barras exato OU pedaco do nome: o leitor manda o codigo inteiro,
     // e quem digita procura por pedaco do nome. O termo vai escapado — o `or()`

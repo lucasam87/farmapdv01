@@ -28,11 +28,12 @@
 -- O saldo devedor e SEMPRE a soma de crediario_lancamentos (a mesma conta de
 -- receber_pagamento e de v_clientes_devedores); ninguem guarda saldo em coluna.
 --
--- A MARCA 'Saldo importado do sistema antigo' aparece literalmente em TRES pontos
--- deste arquivo (2 inserts e 1 teste de existencia, em `cliente_salvar`) e vai ser
--- escrita de novo pela tela da Task 4/Task 6. SQL nao tem constante de modulo, e
--- um helper so para devolver esta string seria pior que o problema: o que estes
--- tres pontos (e a Task 6) precisam e do MESMO texto, caractere por caractere.
+-- A MARCA 'Saldo importado do sistema antigo' aparece literalmente em QUATRO pontos
+-- deste arquivo (2 inserts e 2 testes de existencia — um em `cliente_salvar`, outro em
+-- `importar_clientes`) e vai ser escrita de novo pela tela da Task 4/Task 6. SQL nao
+-- tem constante de modulo, e um helper so para devolver esta string seria pior que o
+-- problema: o que estes quatro pontos (e a Task 6) precisam e do MESMO texto, caractere
+-- por caractere.
 -- Variacao de maiuscula, de acento ou de espaco faz a guarda parar de reconhecer
 -- o saldo — e a divida dobra sem nenhum erro aparecer.
 --
