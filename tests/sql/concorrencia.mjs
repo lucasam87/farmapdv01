@@ -1,13 +1,15 @@
 // Testes de concorrencia: dois clientes do banco disputando o mesmo recurso.
 //
-//   1. ultimo item do estoque  — a segunda venda tem que falhar por estoque
+//   1. ultimo item do estoque  — a segunda venda nao pode perder saldo
 //   2. limite de crediario     — duas vendas simultaneas para o MESMO cliente
 //                                nao podem passar as duas do limite
+//   3. teto do orcamento do agente — duas reservas simultaneas que juntas
+//                                passariam dos US$ 5 nao podem passar as duas
 //
 // Sao os unicos testes que gravam FORA de transacao (duas conexoes concorrentes
-// nao cabem num rollback comum). Eles criam usuario, caixa, produtos e cliente
-// proprios, limpam tudo no fim (antes e depois, para poder rodar de novo) e
-// FALHAM se a limpeza nao funcionar.
+// nao cabem num rollback comum). Eles criam usuario, caixa, produtos, cliente e
+// mes de orcamento proprios, limpam tudo no fim (antes e depois, para poder rodar
+// de novo) e FALHAM se a limpeza nao funcionar.
 //
 // Transporte: duas requisicoes HTTP simultaneas ao endpoint /database/query.
 // Sonda comprovou que ele atende em conexoes diferentes (uma tomou lock timeout
@@ -37,6 +39,15 @@ const PRODUTO_B = 'PRODUTO CREDITO B'
 const CLIENTE = 'CLIENTE CONCORRENCIA'
 const PRECO_CREDITO = 4500
 const LIMITE_CREDITO = 5000
+// Cenario 3: o mes do orcamento do agente. MES DEDICADO (2099-12-01), nunca um mes
+// real: o teto e um numero unico e encostar no mes corrente apagaria a evidencia
+// de producao. O cenario deixa 1.000 µ$ de folga e dispara DUAS reservas de
+// 1.000 µ$: as duas juntas fariam 5.001.000 (acima dos US$ 5 = 5.000.000 µ$), e a
+// segunda tem que ser recusada.
+const MES_ORCAMENTO = '2099-12-01'
+const CONSUMIDO_INICIAL_ORCAMENTO = 4999000
+const RESERVA_MICROS = 1000
+const TETO_MICROS = 5000000
 
 const token = process.env.SUPABASE_ACCESS_TOKEN
 const urlProjeto = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -74,8 +85,12 @@ if (!token || !urlProjeto) {
 
   // ------------------------------ limpeza ------------------------------
   // Idempotente de proposito: rodar antes deixa o teste repetivel mesmo se uma
-  // execucao anterior falhou no meio.
+  // execucao anterior falhou no meio. O orcamento vem PRIMEIRO e na ordem certa:
+  // a reserva referencia o mes (FK), entao apagar o mes antes da reserva daria
+  // erro de chave estrangeira.
   const limpeza = `
+delete from agente_orcamento_reservas where mes = date '${MES_ORCAMENTO}';
+delete from agente_orcamento_mensal where mes = date '${MES_ORCAMENTO}';
 delete from caixa_movimentos where sessao_id in (select id from caixa_sessoes where terminal = '${TERMINAL}');
 delete from estoque_movimentos where produto_id in (
   select id from produtos where nome in ('${PRODUTO}', '${PRODUTO_A}', '${PRODUTO_B}'));
@@ -106,17 +121,49 @@ select jsonb_build_object(
   'mov_estoque',(select count(*) from estoque_movimentos m join produtos pr on pr.id = m.produto_id
                   where pr.nome in ('${PRODUTO}', '${PRODUTO_A}', '${PRODUTO_B}')),
   'mov_caixa',  (select count(*) from caixa_movimentos m join caixa_sessoes c on c.id = m.sessao_id
-                  where c.terminal = '${TERMINAL}')
+                  where c.terminal = '${TERMINAL}'),
+  'orc_mes',    (select count(*) from agente_orcamento_mensal where mes = date '${MES_ORCAMENTO}'),
+  'orc_reservas',(select count(*) from agente_orcamento_reservas where mes = date '${MES_ORCAMENTO}')
 ) as restou;
 `
 
   // Dispara A e B em paralelo e devolve o que cada lado viu. A segura a
   // transacao ate ver, no banco, alguem esperando lock; entao espera 1 s e
   // commita. B e cronometrado dentro do banco em volta da chamada.
-  async function disputar({ rotulo, claims, cliente, chaveA, chaveB, itensA, itensB, pagamentos }) {
-    const clienteSql = cliente ? `'${cliente}'` : 'null'
+  //
+  // O que A e B FAZEM e passado em `sqlA`/`sqlB` (strings SQL prontas): os tres
+  // cenarios precisam da MESMA orquestracao de lock e so mudam o corpo. As
+  // colunas que ele le de volta sao as comuns a todo cenario.
+  async function disputar({ rotulo, sqlA, sqlB }) {
+    console.log('')
+    console.log('--- ' + rotulo + ' ---')
+    // A sai primeiro; B entra depois que A com certeza ja pegou o lock (o
+    // endpoint leva ~1,5 s de overhead por requisicao).
+    const promessaA = sql(sqlA)
+    await dormir(2000)
+    const respostaB = await sql(sqlB)
+    const respostaA = await promessaA
 
-    const sqlA = `
+    const saida = { a: respostaA, b: respostaB, locks: -1, vendas: -1 }
+    if (respostaA.ok) {
+      saida.locks = JSON.parse(respostaA.texto)[0].resultado.locks
+      saida.vendas = JSON.parse(respostaA.texto)[0].resultado.venda_id
+    }
+    if (respostaB.ok) {
+      const b = JSON.parse(respostaB.texto)[0].resultado
+      saida.vendeu = b.vendeu
+      saida.esperouMs = b.esperou_ms
+      saida.mensagem = b.mensagem ?? ''
+      saida.reservaId = b.reserva_id ?? null
+      saida.consumido = b.consumido ?? null
+    }
+    return saida
+  }
+
+  // O lado A dos cenarios de VENDA: registra a venda e so COMMITA depois de ver
+  // alguem esperando o lock que a propria venda pegou.
+  function sqlVendaA(claims, clienteSql, chaveA, itensA, pagamentos) {
+    return `
 begin;
 drop table if exists _conc_a;
 create temp table _conc_a (locks integer, esperando integer, esperou_ms integer, venda_id text) on commit drop;
@@ -153,8 +200,14 @@ select jsonb_build_object('locks', locks, 'esperando', esperando, 'esperou_ms', 
 from _conc_a;
 commit;
 `
+  }
 
-    const sqlB = `
+  // O lado B dos cenarios de VENDA: tenta a venda e e cronometrado dentro do
+  // banco. COMMITA de proposito quando consegue: e isso que deixa o dano visivel
+  // no estado final (estoque negativo / divida acima do limite), que e o que o
+  // teste verifica depois. Quando B falha — o caso correto — nada e gravado.
+  function sqlVendaB(claims, clienteSql, chaveB, itensB, pagamentos) {
+    return `
 begin;
 drop table if exists _conc_b;
 create temp table _conc_b (vendeu boolean, esperou_ms integer, mensagem text) on commit drop;
@@ -175,34 +228,100 @@ begin
 end $$;
 select jsonb_build_object('vendeu', vendeu, 'esperou_ms', esperou_ms, 'mensagem', mensagem) as resultado
 from _conc_b;
--- B COMMITA de proposito quando consegue vender: e isso que deixa o dano
--- visivel no estado final (estoque negativo / divida acima do limite), que e o
--- que o teste verifica depois. Quando B falha — o caso correto — nada e gravado.
--- A limpeza no fim remove o que B tiver gravado.
 commit;
 `
+  }
 
-    console.log('')
-    console.log('--- ' + rotulo + ' ---')
-    // A sai primeiro; B entra depois que A com certeza ja pegou o lock (o
-    // endpoint leva ~1,5 s de overhead por requisicao).
-    const promessaA = sql(sqlA)
-    await dormir(2000)
-    const respostaB = await sql(sqlB)
-    const respostaA = await promessaA
+  // O lado A do cenario do ORCAMENTO: reserva os micros (o que trava a linha do
+  // mes) e SO COMMITA depois de ver alguem esperando lock — e o que garante que a
+  // medicao de tempo de B tinha um lock para esperar. Sem isso, A commitava antes
+  // de B chegar e o teste passaria sem disputa nenhuma.
+  //
+  // POR QUE `set role service_role`: o cenario tem que entrar pela PORTA DA
+  // PRODUCAO. `anon` e `authenticated` nao tem privilegio nenhum na tabela do
+  // ledger (migration 001), entao a unica role que alcanca o orcamento e
+  // `service_role` — e e ele que a Tarefa 3 vai usar. `grant ... to service_role`
+  // na tabela temporaria e obrigatorio: trocar de role tambem tira a escrita no
+  // `_conc_a` (o dono da temporaria e a role da sessao), e sem isso o proprio
+  // registro da saida falharia com "permission denied for table _conc_a".
+  function sqlReservaA(valorMicros) {
+    return `
+begin;
+drop table if exists _conc_a;
+create temp table _conc_a (locks integer, esperando integer, esperou_ms integer, reserva_id text) on commit drop;
+grant insert, select on _conc_a to service_role;
+set local role service_role;
+do $$
+declare
+  v_reserva uuid;
+  v_locks integer := 0;
+  v_esperando integer := 0;
+  v_tentativas integer := 0;
+  v_inicio timestamptz;
+begin
+  v_reserva := public.agente_orcamento_reservar(date '${MES_ORCAMENTO}', ${valorMicros});
+  v_inicio := clock_timestamp();
+  loop
+    select count(*) into v_locks from pg_locks where not granted;
+    select count(*) into v_esperando
+    from pg_stat_activity
+    where pid <> pg_backend_pid() and wait_event_type = 'Lock';
+    exit when v_locks > 0 or v_esperando > 0;
+    v_tentativas := v_tentativas + 1;
+    exit when v_tentativas > 100;
+    perform pg_sleep(0.1);
+  end loop;
+  if v_locks > 0 or v_esperando > 0 then
+    perform pg_sleep(1);
+  end if;
+  insert into _conc_a
+  values (v_locks, v_esperando, round(extract(epoch from (clock_timestamp() - v_inicio)) * 1000)::integer, v_reserva::text);
+end $$;
+select jsonb_build_object('locks', locks, 'esperando', esperando, 'esperou_ms', esperou_ms, 'venda_id', reserva_id) as resultado
+from _conc_a;
+commit;
+`
+  }
 
-    const saida = { a: respostaA, b: respostaB, locks: -1, vendas: -1 }
-    if (respostaA.ok) {
-      saida.locks = JSON.parse(respostaA.texto)[0].resultado.locks
-      saida.vendas = JSON.parse(respostaA.texto)[0].resultado.venda_id
-    }
-    if (respostaB.ok) {
-      const b = JSON.parse(respostaB.texto)[0].resultado
-      saida.vendeu = b.vendeu
-      saida.esperouMs = b.esperou_ms
-      saida.mensagem = b.mensagem ?? ''
-    }
-    return saida
+  // O lado B do cenario do ORCAMENTO: tenta reservar e e cronometrado DENTRO do
+  // banco (o endpoint leva ~1,5 s de overhead e mediria a rede, nao o lock).
+  // `reserva_id` e `consumido` ficam na saida para o teste conferir o estado final
+  // pelo caminho de quem perdeu. O `insert` do `_conc_b` roda como `service_role`
+  // (por isso o `grant`), mas o select final sai como a role da sessao: quem le a
+  // resposta e o proprio teste.
+  function sqlReservaB(valorMicros) {
+    return `
+begin;
+drop table if exists _conc_b;
+create temp table _conc_b (vendeu boolean, esperou_ms integer, mensagem text, reserva_id text, consumido bigint) on commit drop;
+grant insert on _conc_b to service_role;
+set local role service_role;
+do $$
+declare
+  v_inicio timestamptz;
+  v_id uuid;
+begin
+  v_inicio := clock_timestamp();
+  begin
+    v_id := public.agente_orcamento_reservar(date '${MES_ORCAMENTO}', ${valorMicros});
+    insert into _conc_b
+    values (true, round(extract(epoch from (clock_timestamp() - v_inicio)) * 1000)::integer, null, v_id::text,
+            (select consumido_micros from public.agente_orcamento_mensal where mes = date '${MES_ORCAMENTO}'));
+  exception when others then
+    insert into _conc_b
+    values (false, round(extract(epoch from (clock_timestamp() - v_inicio)) * 1000)::integer, sqlerrm, null,
+            (select consumido_micros from public.agente_orcamento_mensal where mes = date '${MES_ORCAMENTO}'));
+  end;
+end $$;
+reset role;
+select jsonb_build_object('vendeu', vendeu, 'esperou_ms', esperou_ms, 'mensagem', mensagem,
+                          'reserva_id', reserva_id, 'consumido', consumido) as resultado
+from _conc_b;
+-- B COMMITA de proposito quando consegue: e isso que deixa o dano visivel no
+-- estado final. Quando B falha — o caso correto — nada e gravado. A limpeza no
+-- fim remove o que B tiver gravado.
+commit;
+`
   }
 
   let ids = null
@@ -267,13 +386,8 @@ select jsonb_build_object(
     // ============ cenario 1: duas vendas do ultimo item ============
     const ultimo = await disputar({
       rotulo: 'cenario 1: duas vendas simultaneas do ultimo item',
-      claims,
-      cliente: null,
-      chaveA: crypto.randomUUID(),
-      chaveB: crypto.randomUUID(),
-      itensA: itens(ids.produto),
-      itensB: itens(ids.produto),
-      pagamentos: pagamentosDinheiro,
+      sqlA: sqlVendaA(claims, 'null', crypto.randomUUID(), itens(ids.produto), pagamentosDinheiro),
+      sqlB: sqlVendaB(claims, 'null', crypto.randomUUID(), itens(ids.produto), pagamentosDinheiro),
     })
 
     checar(ultimo.a.ok, 'ultimo item: A conseguiu vender',
@@ -321,13 +435,8 @@ select jsonb_build_object(
     // ============ cenario 2: limite de crediario ============
     const credito = await disputar({
       rotulo: 'cenario 2: duas vendas simultaneas para o mesmo cliente no crediario',
-      claims,
-      cliente: ids.cliente,
-      chaveA: crypto.randomUUID(),
-      chaveB: crypto.randomUUID(),
-      itensA: itens(ids.produtoA),
-      itensB: itens(ids.produtoB),
-      pagamentos: pagamentosCrediario,
+      sqlA: sqlVendaA(claims, `'${ids.cliente}'`, crypto.randomUUID(), itens(ids.produtoA), pagamentosCrediario),
+      sqlB: sqlVendaB(claims, `'${ids.cliente}'`, crypto.randomUUID(), itens(ids.produtoB), pagamentosCrediario),
     })
 
     checar(credito.a.ok, 'crediario: A conseguiu vender',
@@ -361,6 +470,72 @@ select jsonb_build_object(
     checar(estado2[0].estado.divida <= estado2[0].estado.limite,
       'crediario: a divida do cliente nao passa do limite',
       'divida = ' + estado2[0].estado.divida + ', limite = ' + estado2[0].estado.limite)
+
+    // ============ cenario 3: o teto do orcamento do agente ============
+    // A prova de que o `for update` da linha do mes vale: duas reservas
+    // SIMULTANEAS que juntas passariam dos US$ 5 nao podem passar as duas.
+    //
+    // O cenario e montado com o MES DEDICADO `2099-12-01` ja com 4.999.000 µ$
+    // consumidos — sobram 1.000 µ$. As duas reservas sao de 1.000 µ$: cada uma
+    // cabe sozinha, mas juntas fariam 5.001.000. E o desenho que separa "o lock
+    // funciona" de "o teto funciona": sem o `for update`, as duas sessoes leriam
+    // 4.999.000 e as DUAS passariam.
+    //
+    // Sem testar o orcamento pelo `service_role`: medido no Preflight (migration
+    // 001_base.sql:207-209), `anon` e `authenticated` nao tem privilegio de tabela
+    // nenhum no schema — so `service_role` alcanca o ledger, e o teste concorda
+    // com a producao em vez de contornar o controle.
+    await sql(`
+insert into agente_orcamento_mensal (mes, consumido_micros)
+values (date '${MES_ORCAMENTO}', ${CONSUMIDO_INICIAL_ORCAMENTO});
+`)
+    console.log('')
+    console.log('cenario 3: mes dedicado ' + MES_ORCAMENTO + ' com ' + CONSUMIDO_INICIAL_ORCAMENTO +
+      ' micros consumidos (folga de ' + (TETO_MICROS - CONSUMIDO_INICIAL_ORCAMENTO) + ' micros)')
+
+    const orcamento = await disputar({
+      rotulo: 'cenario 3: duas reservas simultaneas que juntas passariam dos US$ 5',
+      sqlA: sqlReservaA(RESERVA_MICROS),
+      sqlB: sqlReservaB(RESERVA_MICROS),
+    })
+
+    checar(orcamento.a.ok, 'orcamento: A conseguiu reservar',
+      'HTTP ' + orcamento.a.status + ': ' + orcamento.a.texto.slice(0, 200))
+    checar(orcamento.locks > 0,
+      'orcamento: A viu uma sessao esperando lock enquanto segurava a linha do mes',
+      'pg_locks = ' + orcamento.locks + ' (prova de que B ficou presa)')
+    checar(orcamento.b.ok, 'orcamento: B respondeu (mesmo recusando)',
+      'HTTP ' + orcamento.b.status + ': ' + orcamento.b.texto.slice(0, 200))
+    checar(orcamento.vendas && orcamento.vendas.length > 0,
+      'orcamento: A criou uma reserva de verdade',
+      'reserva_id = ' + orcamento.vendas)
+    checar(!orcamento.vendeu,
+      'orcamento: B NAO reservou — as duas reservas juntas passariam dos US$ 5',
+      'B reservou: o mes ficou com mais de 5.000.000 micros consumidos')
+    checar(/esgotado/i.test(orcamento.mensagem),
+      'orcamento: B falhou com a mensagem de orcamento esgotado',
+      'mensagem: ' + orcamento.mensagem)
+    checar(orcamento.esperouMs >= 200,
+      'orcamento: B ficou bloqueada por pelo menos 200 ms, medido dentro do banco',
+      'esperou_ms = ' + orcamento.esperouMs)
+
+    const estado3 = await linhas(`
+select jsonb_build_object(
+  'consumido', (select consumido_micros from agente_orcamento_mensal where mes = date '${MES_ORCAMENTO}'),
+  'reservas',  (select count(*) from agente_orcamento_reservas where mes = date '${MES_ORCAMENTO}'),
+  'reservadas',(select count(*) from agente_orcamento_reservas
+                 where mes = date '${MES_ORCAMENTO}' and estado = 'reservada')
+) as estado;
+`)
+    checar(estado3[0].estado.consumido === TETO_MICROS,
+      'orcamento: o consumido final e exatamente os US$ 5 (5.000.000 micros)',
+      'consumido = ' + estado3[0].estado.consumido)
+    checar(estado3[0].estado.consumido <= TETO_MICROS,
+      'orcamento: o consumido final NAO passa do teto',
+      'consumido = ' + estado3[0].estado.consumido + ', teto = ' + TETO_MICROS)
+    checar(estado3[0].estado.reservas === 1 && estado3[0].estado.reservadas === 1,
+      'orcamento: sobrou exatamente UMA reserva, a de A (B nao gravou nada)',
+      'reservas = ' + estado3[0].estado.reservas + ', abertas = ' + estado3[0].estado.reservadas)
   } catch (erro) {
     checar(false, 'os testes rodaram ate o fim', erro.message)
   } finally {

@@ -2,12 +2,20 @@ do $$
 declare
   v_codigo_barras text;
 begin
+  -- O numero de tabelas muda a cada etapa que acrescenta tabela (a etapa 8
+  -- acrescentou as DUAS do orcamento do agente, 017_orcamento_agente.sql: 10 -> 12).
+  -- A contagem exata existe para ninguem criar tabela sem atualizar este caso de
+  -- proposito; o que importa de verdade e a segunda assercao: TODA tabela do
+  -- schema public tem RLS ligada, e nenhuma nova pode nascer sem.
   perform teste_ok(
-    (select count(*) = 10 from pg_tables where schemaname = 'public'),
-    'existem 10 tabelas no schema public');
+    (select count(*) = 12 from pg_tables where schemaname = 'public'),
+    'existem 12 tabelas no schema public');
+  -- Esta e escrita como "nenhuma tabela SEM RLS" (e nao como "as 12 com RLS") de
+  -- proposito: assim a assercao nao precisa de numero novo a cada tabela criada e
+  -- continua valendo para sempre.
   perform teste_ok(
-    (select count(*) = 10 from pg_tables where schemaname = 'public' and rowsecurity = true),
-    'todas as 10 tabelas tem RLS ativado');
+    (select count(*) = 0 from pg_tables where schemaname = 'public' and not rowsecurity),
+    'nenhuma tabela do schema public esta sem RLS ativado');
 
   -- O plano escrevia este insert como subconsulta do FROM, o que o Postgres
   -- recusa (instrucao que modifica dados so entra numa consulta via WITH).
