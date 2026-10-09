@@ -15,11 +15,12 @@ Legenda: ⬜ pendente · 🟡 em andamento · ✅ concluída com evidência · �
 (Etapa 6, fechada) e `docs/superpowers/plans/2026-10-07-relatorios.md` (Etapa 7, **fechada**).
 **Etapas 0 a 7 fechadas.** A **Etapa 7 (relatórios) ✅**: Tasks 1–4 entregues nos commits
 `5316d80`/`e8c9012` (migration e revisão SQL), `d66754e` (período puro), `f40ec36` (tela) e
-`8628ff4` (E2E); Task 5 no commit `2d159aa`; correções da revisão final neste commit. Verificação
-após o fix, em série: `npm test` → **287 testes em 18 arquivos**; `npm run lint` → exit 0;
+`8628ff4` (E2E); Task 5 no commit `2d159aa`; correções da revisão final em `593906b` e
+`45858eb` (atalhos restauram os campos também ao clicar repetidamente no período já selecionado).
+Verificação após o fix, em série: `npm test` → **287 testes em 18 arquivos**; `npm run lint` → exit 0;
 `npm run build` → exit 0; `npm run test:e2e` → **26 passed (3,4 min)**; após o teardown,
-`npm run test:sql` → **376 OK, 0 FALHOU de 12 arquivos**. O E2E focado dos atalhos passou em **2/2**;
-os detalhes, incluindo a falha RED esperada, estão em
+`npm run test:sql` → **376 OK, 0 FALHOU de 12 arquivos**. O E2E focado dos atalhos passou em **1/1**
+(o caso cobre dois cliques, inclusive com URL idêntica); o RED e os detalhes estão em
 `.superpowers/sdd/2026-10-07-relatorios/final-review-fix-report.md`. A falha HTTP 502 transitória
 da execução da Task 5 permanece registrada em
 `.superpowers/sdd/2026-10-07-relatorios/task-5-report.md`.
