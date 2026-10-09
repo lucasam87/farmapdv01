@@ -153,6 +153,16 @@ comment on function public.relatorio_formas_pagamento(date, date) is
 -- 2 no dia 15 + 1 no dia 16 = 3). Ordena por QUANTIDADE, e nao por total: e o
 -- ranking de saida de mercadoria. O desempate por total existe para a ordem nao
 -- depender do plano de execucao; `p_limite` nulo cai no padrao de 10.
+--
+-- O agrupamento e SO por `produto_id`, com `max(nome_produto)` no nome (achado M6
+-- da revisao da Task 1): `venda_itens.nome_produto` e uma COPIA do nome que o
+-- produto tinha na hora da venda, entao agrupar por (produto_id, nome_produto)
+-- como a view 005 faz partia o produto em DUAS linhas quando o nome mudasse no
+-- meio do periodo — e o `limit` podia cortar uma delas em silencio.
+--
+-- `greatest(coalesce(p_limite, 10), 0)` e a mesma regra das outras funcoes: valor
+-- torto nao estoura. `limit -1` no Postgres e erro ("LIMIT must not be negative");
+-- com o corte em zero vira lista vazia.
 -- ============================================================
 create or replace function public.relatorio_mais_vendidos(p_de date, p_ate date, p_limite integer default 10)
 returns table (produto_id uuid, nome text, quantidade bigint, total bigint)
@@ -160,7 +170,7 @@ language sql
 stable
 as $$
   select i.produto_id,
-         i.nome_produto            as nome,
+         max(i.nome_produto)       as nome,
          sum(i.quantidade)::bigint as quantidade,
          sum(i.total)::bigint      as total
   from public.venda_itens i
@@ -170,9 +180,9 @@ as $$
     and p_ate is not null
     and p_de <= p_ate
     and (v.criado_em at time zone 'America/Sao_Paulo')::date between p_de and p_ate
-  group by i.produto_id, i.nome_produto
-  order by sum(i.quantidade) desc, sum(i.total) desc, i.nome_produto
-  limit coalesce(p_limite, 10);
+  group by i.produto_id
+  order by sum(i.quantidade) desc, sum(i.total) desc, max(i.nome_produto)
+  limit greatest(coalesce(p_limite, 10), 0);
 $$;
 
 comment on function public.relatorio_mais_vendidos(date, date, integer) is

@@ -6,8 +6,8 @@
 --   * TICKET MEDIO DO PERIODO = total / quantidade, NUNCA a media das medias
 --     diarias (o erro classico e silencioso deste numero). O cenario foi montado
 --     para as duas contas DAREM DIFERENTE: o dia 15/01 tem UMA venda de 600 e o
---     dia 16/01 tem DUAS vendas que somam 3150. Total/quantidade = 3750/3 = 1250;
---     media das medias dos dias = (600 + 1575)/2 = 1088. Se cada dia tivesse o
+--     dia 16/01 tem QUATRO vendas que somam 5150. Total/quantidade = 5750/5 = 1150;
+--     media das medias dos dias = (600 + 1287,5)/2 = 944. Se cada dia tivesse o
 --     mesmo numero de vendas, as duas contas coincidiriam e o caso nao provaria
 --     nada — foi o achado que mudou o cenario do brief (ver o relatorio).
 --   * FUSO: a venda das 22h de 15/01 em Sao Paulo (01:00 UTC do dia 16) conta no
@@ -39,10 +39,13 @@ declare
   v_p_b        uuid;
   v_p_c        uuid;
   v_p_canc     uuid;
+  v_p_ren      uuid;
   v_a          uuid;
   v_b          uuid;
   v_c          uuid;
   v_d          uuid;
+  v_ren        uuid;
+  v_ren2       uuid;
   v_canc       uuid;
   v_canc2      uuid;
 begin
@@ -143,26 +146,52 @@ begin
   update vendas set criado_em = timestamptz '2026-01-18 15:00:00+00' where id = v_canc2;
   perform cancelar_venda(v_canc2, 'cancelada de proposito no cenario do relatorio');
 
+  -- ---- produto renomeado NO MEIO do periodo (achado M6 da revisao) ----
+  -- DUAS vendas do MESMO produto, com o produto renomeado ENTRE elas: a primeira
+  -- grava 'PRODUTO RENOMEADO ANTES' em `venda_itens.nome_produto` e a segunda grava
+  -- 'PRODUTO RENOMEADO DEPOIS'. E este par de nomes que faz o `group by
+  -- (produto_id, nome_produto)` devolver DUAS linhas para o mesmo produto — renomear
+  -- DEPOIS de uma venda so nao provaria nada, porque o item guarda o nome do dia.
+  -- Preco 1000 nas duas (total 2000), para nao mexer nos numeros do caso 1.
+  v_p_ren := criar_produto('PRODUTO RENOMEADO ANTES', 1000, 100);
+  update produtos set preco_custo = 400 where id = v_p_ren;
+
+  v_chave := gen_random_uuid();
+  v_ren := (registrar_venda(v_chave, null,
+    jsonb_build_array(jsonb_build_object('produto_id', v_p_ren, 'quantidade', 1)),
+    jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 1000)),
+    0)->>'id')::uuid;
+  update vendas set criado_em = timestamptz '2026-01-16 15:00:00+00' where id = v_ren;
+
+  update produtos set nome = 'PRODUTO RENOMEADO DEPOIS' where id = v_p_ren;
+
+  v_chave := gen_random_uuid();
+  v_ren2 := (registrar_venda(v_chave, null,
+    jsonb_build_array(jsonb_build_object('produto_id', v_p_ren, 'quantidade', 1)),
+    jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 1000)),
+    0)->>'id')::uuid;
+  update vendas set criado_em = timestamptz '2026-01-16 15:00:00+00' where id = v_ren2;
+
   -- ================= caso 1: o resumo do periodo =================
-  -- Dia 15: 600 (1 venda). Dia 16: 2700 + 450 = 3150 (2 vendas).
-  -- Periodo: 3750 em 3 vendas -> 1250. A media das medias diarias daria 1088.
-  perform teste_ok((select faturamento = 3750 and vendas = 3 and ticket_medio = 1250
+  -- Dia 15: 600 (1 venda). Dia 16: 2700 + 450 + 1000 + 1000 = 5150 (4 vendas).
+  -- Periodo: 5750 em 5 vendas -> 1150. A media das medias diarias daria 944.
+  perform teste_ok((select faturamento = 5750 and vendas = 5 and ticket_medio = 1150
                       from relatorio_resumo(date '2026-01-15', date '2026-01-16')),
-    'caso 1: ticket medio do periodo e total/quantidade (3750/3 = 1250), nao a media das medias dos dias (1875)');
+    'caso 1: ticket medio do periodo e total/quantidade (5750/5 = 1150), nao a media das medias dos dias (944)');
   -- O MESMO periodo por outro angulo: a media das medias diarias, calculada aqui
-  -- em cima de v_vendas_dia, da 1088 — um numero DIFERENTE do ticket medio da
-  -- funcao (1250). Esta assercao existe para o cenario nao poder ser afrouxado
+  -- em cima de v_vendas_dia, da 944 — um numero DIFERENTE do ticket medio da
+  -- funcao (1150). Esta assercao existe para o cenario nao poder ser afrouxado
   -- sem que alguem veja: e ela que garante que o caso 1 acima distingue as duas
-  -- contas. Num cenario com o mesmo numero de vendas por dia, 1088 seria 1250 e a
+  -- contas. Num cenario com o mesmo numero de vendas por dia, 944 seria 1150 e a
   -- assercao ficaria vermelha.
   perform teste_ok(
     (select round(avg(ticket_medio)) from v_vendas_dia
-      where dia between date '2026-01-15' and date '2026-01-16') = 1088
-    and (select ticket_medio from relatorio_resumo(date '2026-01-15', date '2026-01-16')) = 1250
+      where dia between date '2026-01-15' and date '2026-01-16') = 944
+    and (select ticket_medio from relatorio_resumo(date '2026-01-15', date '2026-01-16')) = 1150
     and (select round(avg(ticket_medio)) from v_vendas_dia
           where dia between date '2026-01-15' and date '2026-01-16')
         <> (select ticket_medio from relatorio_resumo(date '2026-01-15', date '2026-01-16')),
-    'caso 1: a media das medias dos dias (1088) e um numero diferente do ticket medio do periodo (1250)');
+    'caso 1: a media das medias dos dias (944) e um numero diferente do ticket medio do periodo (1150)');
   perform teste_ok((select ticket_medio = 0 and faturamento = 0 and vendas = 0
                       from relatorio_resumo(date '2026-01-01', date '2026-01-02')),
     'caso 1: periodo sem venda devolve zero, e nao divisao por zero');
@@ -182,11 +211,10 @@ begin
                       from relatorio_resumo(date '2026-01-15', date '2026-01-15')),
     'caso 2: a venda das 22h de 15/01 conta no dia 15 (SP), e a cancelada do mesmo dia nao entra');
   -- O dia 16 em UTC receberia a venda A; em SP ela e do dia 15. Sem a expressao
-  -- de fuso, este dia teria 2400 + 3150 = 5550 em 3 vendas.
-  perform teste_ok((select faturamento = 3150 and vendas = 2
+  -- de fuso, este dia teria 2400 + 5150 = 7550 em 5 vendas.
+  perform teste_ok((select faturamento = 5150 and vendas = 4
                       from relatorio_resumo(date '2026-01-16', date '2026-01-16')),
-    'caso 2: o dia 16/01 tem as duas vendas do dia (3150) e nao recebe a venda da virada');
-  -- O dia 17/01 tem a venda C, CONCLUIDA e FORA do periodo: o recorte de data nao
+    'caso 2: o dia 16/01 tem as quatro vendas do dia (5150) e nao recebe a venda da virada');  -- O dia 17/01 tem a venda C, CONCLUIDA e FORA do periodo: o recorte de data nao
   -- pode esconder venda concluida de outro dia (nem trazer de volta a de dentro).
   perform teste_ok((select faturamento = 2400 and vendas = 1 and ticket_medio = 2400
                       from relatorio_resumo(date '2026-01-17', date '2026-01-17')),
@@ -196,24 +224,25 @@ begin
   perform teste_ok((select faturamento = 0 and vendas = 0 and ticket_medio = 0
                       from relatorio_resumo(date '2026-01-18', date '2026-01-18')),
     'caso 2: o dia que so tem venda cancelada fatura zero, em zero vendas');
-  -- E o periodo que as incluiria tambem nao as conta: 15/01 a 18/01 tem QUATRO
-  -- vendas concluidas (3750 do periodo + 2400 da venda C = 6150) e NAO as duas
+  -- E o periodo que as incluiria tambem nao as conta: 15/01 a 18/01 tem SEIS
+  -- vendas concluidas (5750 do periodo + 2400 da venda C = 8150) e NAO as duas
   -- canceladas (que somariam 10000 a mais em 2 vendas a mais).
-  perform teste_ok((select faturamento = 6150 and vendas = 4
+  perform teste_ok((select faturamento = 8150 and vendas = 6
                       from relatorio_resumo(date '2026-01-15', date '2026-01-18')),
     'caso 2: esticar o periodo ate 18/01 soma a do dia 17 e nenhuma das duas canceladas');
-  -- A soma das formas do MESMO periodo largo: 3750 + 2400 = 6150 (as canceladas
+  -- A soma das formas do MESMO periodo largo: 5750 + 2400 = 8150 (as canceladas
   -- nao entram nem por aqui).
-  perform teste_ok((select sum(total) = 6150 from relatorio_formas_pagamento(date '2026-01-15', date '2026-01-18')),
-    'caso 2: as formas do periodo largo somam 6150, sem as canceladas');
+  perform teste_ok((select sum(total) = 8150 from relatorio_formas_pagamento(date '2026-01-15', date '2026-01-18')),
+    'caso 2: as formas do periodo largo somam 8150, sem as canceladas');
 
   -- ================= caso 3: lucro = receita - custo (e so o dono le) =================
   -- Os valores esperados saem do CENARIO deste arquivo: 2x A e 1x A com custo 100,
-  -- 1x B com custo 300 e 1x C com custo 500.
-  -- Receita 600 + 2700 + 450 = 3750; custo 200 + 100 + 300 + 500 = 1100.
-  perform teste_ok((select receita = 3750 and custo = 1100 and lucro = 2650
+  -- 1x B com custo 300, 1x C com custo 500 e 2x renomeado (um de cada nome) com
+  -- custo 400.
+  -- Receita 600 + 2700 + 450 + 1000 + 1000 = 5750; custo 200 + 100 + 300 + 500 + 800 = 1900.
+  perform teste_ok((select receita = 5750 and custo = 1900 and lucro = 3850
                       from relatorio_lucro(date '2026-01-15', date '2026-01-16')),
-    'caso 3: lucro = receita - custo no periodo (3750 - 1100 = 2650)');
+    'caso 3: lucro = receita - custo no periodo (5750 - 1900 = 3850)');
   -- A receita do lucro e a MESMA do resumo: e o que amarra as duas funcoes ao
   -- mesmo numero (o total da venda e a soma dos itens).
   perform teste_ok((select receita = faturamento
@@ -241,7 +270,7 @@ begin
   perform teste_erro($sql$select * from relatorio_lucro(date '2026-01-15', date '2026-01-16')$sql$,
     'Só o dono vê o lucro', 'caso 3: atendente chamando a funcao direto nao le o lucro');
   -- E o atendente LE o resto do relatorio: a recusa e do lucro, nao do relatorio.
-  perform teste_ok((select faturamento = 3750 from relatorio_resumo(date '2026-01-15', date '2026-01-16')),
+  perform teste_ok((select faturamento = 5750 from relatorio_resumo(date '2026-01-15', date '2026-01-16')),
     'caso 3: o atendente continua lendo o resumo do periodo');
   -- Volta para o dono: `request.jwt.claims` e do CONNECTION e continua valendo nas
   -- assercoes seguintes. Sem isto, o `relatorio_lucro` das proximas linhas estoura.
@@ -249,27 +278,28 @@ begin
     jsonb_build_object('sub', v_dono, 'role', 'authenticated')::text, true);
 
   -- ================= caso 4: formas de pagamento do periodo =================
-  -- No periodo: dinheiro 600 + 1700 + 450 = 2750 em 3 pagamentos; pix 1000 em 1.
+  -- No periodo: dinheiro 600 + 1700 + 450 + 1000 + 1000 = 4750 em 5 pagamentos;
+  -- pix 1000 em 1.
   perform teste_ok((select count(*) = 2 from relatorio_formas_pagamento(date '2026-01-15', date '2026-01-16')),
     'caso 4: o periodo tem as duas formas usadas, e so elas');
-  perform teste_ok((select forma = 'dinheiro' and quantidade = 3 and total = 2750
+  perform teste_ok((select forma = 'dinheiro' and quantidade = 5 and total = 4750
                       from relatorio_formas_pagamento(date '2026-01-15', date '2026-01-16') limit 1),
-    'caso 4: dinheiro aparece com 3 pagamentos e 2750');
+    'caso 4: dinheiro aparece com 5 pagamentos e 4750');
   perform teste_ok((select forma = 'pix' and quantidade = 1 and total = 1000
                       from relatorio_formas_pagamento(date '2026-01-15', date '2026-01-16') offset 1 limit 1),
     'caso 4: a segunda linha e o pix, com 1 pagamento de 1000 (ordenado por total, maior primeiro)');
   -- A soma das formas e o faturamento do periodo: e a invariante que pega uma
   -- juncao furada (pagamento de venda cancelada, ou venda contada duas vezes).
-  perform teste_ok((select sum(total) = 3750 from relatorio_formas_pagamento(date '2026-01-15', date '2026-01-16')),
-    'caso 4: a soma das formas e o faturamento do periodo (2750 + 1000 = 3750)');
-  -- No dia 16/01: dinheiro 1700 + 450 = 2150 em 2 pagamentos e pix 1000 em 1; a
-  -- soma e o faturamento do dia (3150). Este e o recorte que prova que a funcao
-  -- respeita o dia de cada pagamento, e nao o periodo inteiro.
-  perform teste_ok((select sum(total) = 3150 from relatorio_formas_pagamento(date '2026-01-16', date '2026-01-16')),
-    'caso 4: as formas do dia 16/01 somam o total vendido no dia (2150 + 1000)');
-  perform teste_ok((select quantidade = 2 and total = 2150
+  perform teste_ok((select sum(total) = 5750 from relatorio_formas_pagamento(date '2026-01-15', date '2026-01-16')),
+    'caso 4: a soma das formas e o faturamento do periodo (4750 + 1000 = 5750)');
+  -- No dia 16/01: dinheiro 1700 + 450 + 1000 + 1000 = 4150 em 4 pagamentos e pix
+  -- 1000 em 1; a soma e o faturamento do dia (5150). Este e o recorte que prova
+  -- que a funcao respeita o dia de cada pagamento, e nao o periodo inteiro.
+  perform teste_ok((select sum(total) = 5150 from relatorio_formas_pagamento(date '2026-01-16', date '2026-01-16')),
+    'caso 4: as formas do dia 16/01 somam o total vendido no dia (4150 + 1000)');
+  perform teste_ok((select quantidade = 4 and total = 4150
                       from relatorio_formas_pagamento(date '2026-01-16', date '2026-01-16') limit 1),
-    'caso 4: no dia 16/01 o dinheiro tem 2 pagamentos e 2150');
+    'caso 4: no dia 16/01 o dinheiro tem 4 pagamentos e 4150');
   -- O dia 18/01 tem UMA venda no banco, CANCELADA: ela nao pode aparecer como
   -- forma de pagamento nenhuma (a venda de 5000 em dinheiro).
   perform teste_ok((select count(*) = 0 from relatorio_formas_pagamento(date '2026-01-18', date '2026-01-18')),
@@ -279,36 +309,64 @@ begin
 
   -- ================= caso 5: mais vendidos do periodo =================
   -- PRODUTO A: 2 (dia 15) + 1 (dia 16) = 3, total 900. PRODUTO C: 1, total 2400.
-  -- PRODUTO B: 1, total 450. Ordena por QUANTIDADE, entao A (3) vem antes de C e B,
-  -- apesar do total menor que o do C.
-  perform teste_ok((select count(*) = 3 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10)),
-    'caso 5: o ranking do periodo tem os tres produtos vendidos');
+  -- PRODUTO B: 1, total 450. E o renomeado: DUAS vendas com nomes diferentes (foi
+  -- renomeado entre elas), somadas em UMA linha pelo produto_id — 2 unidades e
+  -- total 2000. Sao QUATRO linhas, e nao cinco: e exatamente isso que prova o M6.
+  -- Ordena por QUANTIDADE desc, depois total desc, depois nome: A (3), renomeado
+  -- (2), C (1, total 2400), B (1, total 450).
+  perform teste_ok((select count(*) = 4 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10)),
+    'caso 5: o ranking do periodo tem QUATRO linhas — o produto renomeado nao vira duas');
   perform teste_ok((select produto_id = v_p_a and nome = 'PRODUTO A' and quantidade = 3 and total = 900
                       from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10) limit 1),
     'caso 5: o ranking soma os dias do mesmo produto (2 do dia 15 + 1 do dia 16 = 3)');
-  perform teste_ok((select produto_id = v_p_c and quantidade = 1 and total = 2400
+  perform teste_ok((select produto_id = v_p_ren and quantidade = 2 and total = 2000
                       from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10) offset 1 limit 1),
-    'caso 5: o segundo colocado e o produto de maior total e menor quantidade (quantidade manda)');
-  perform teste_ok((select produto_id = v_p_b and quantidade = 1 and total = 450
+    'caso 5: o segundo colocado e o renomeado, com as duas vendas somadas em uma linha');
+  perform teste_ok((select produto_id = v_p_c and quantidade = 1 and total = 2400
                       from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10) offset 2 limit 1),
-    'caso 5: o terceiro colocado e o produto do dia 16');
-  -- O limite corta a lista.
+    'caso 5: o terceiro e o produto de maior total e menor quantidade (quantidade manda)');
+  perform teste_ok((select produto_id = v_p_b and quantidade = 1 and total = 450
+                      from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10) offset 3 limit 1),
+    'caso 5: o quarto colocado e o outro produto do dia 16');
+  -- PRODUTO RENOMEADO NO MEIO DO PERIODO (achado M6 da revisao). A PRIMEIRA
+  -- assercao e a que impede esta prova de ser vazia: sem DOIS nomes gravados para o
+  -- mesmo produto, agrupar por (produto_id, nome_produto) nao teria o que separar e
+  -- o caso passaria sem provar nada — foi o que aconteceu na primeira versao.
+  perform teste_ok((select count(distinct nome_produto) = 2 from venda_itens
+                     where produto_id = v_p_ren and venda_id in (v_ren, v_ren2)),
+    'caso 5: o cenario tem DOIS nomes gravados para o mesmo produto (renomeado entre as vendas)');
+  -- E o que o M6 exige: UMA linha por produto_id, somando as duas vendas — mesmo o
+  -- nome sendo outro em cada item gravado.
+  perform teste_ok((select count(*) = 1 and max(quantidade) = 2 and max(total) = 2000
+                      from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10)
+                     where produto_id = v_p_ren),
+    'caso 5: produto renomeado no meio do periodo aparece em UMA linha, com as duas unidades somadas');
+  -- O limite corta a lista. Esta e a assercao que PROVA que o parametro e usado: a
+  -- lista tem 4 linhas, e com 1 volta exatamente 1 (o lider por quantidade).
   perform teste_ok((select count(*) = 1 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 1)),
-    'caso 5: o limite do ranking corta a lista em 1');
+    'caso 5: o parametro de limite e usado — com 1 volta 1 linha, de 4');
   perform teste_ok((select quantidade = 3 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 1)),
     'caso 5: com limite 1 fica o lider por quantidade');
-  -- Limite nulo cai no padrao de 10 (o que a tela manda quando nao escolhe).
-  perform teste_ok((select count(*) = 3 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', null)),
-    'caso 5: limite nulo usa o padrao de 10 e nao corta os tres produtos');
+  -- Limite nulo cai no padrao de 10 (o que a tela manda quando nao escolhe). ATENCAO
+  -- ao que esta assercao NAO prova: `limit coalesce(null, 10)` e `limit null` dao o
+  -- mesmo (sem limite) em SQL, entao e a assercao de `count(*) = 1` acima que
+  -- sustenta o parametro, nao esta.
+  perform teste_ok((select count(*) = 4 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', null)),
+    'caso 5: limite nulo nao corta as quatro linhas (padrao de 10)');
+  -- Limite negativo nao pode estourar: a funcao corta em zero e devolve lista vazia
+  -- (mesma regra de "periodo torto nao quebra o banco").
+  perform teste_ok((select count(*) = 0 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', -1)),
+    'caso 5: limite negativo devolve lista vazia, e nao erro de LIMIT');
   -- O dia 18/01 so tem a venda cancelada: ranking vazio. E o mesmo vale para o
   -- periodo 15-16, que nao pode ganhar unidade da cancelada do dia 15 nem da
-  -- venda C (que e do dia 17): o total de unidades do periodo e 5 (3 do A + 1 do C
-  -- + 1 do B) — se a venda C entrasse, seriam 6 e o C apareceria com 2.
+  -- venda C (que e do dia 17): o total de unidades do periodo e 7 (3 do A + 2 do
+  -- renomeado + 1 do C + 1 do B) — se a venda C entrasse, seriam 8 e o C apareceria
+  -- com 2.
   perform teste_ok((select count(*) = 0 from relatorio_mais_vendidos(date '2026-01-18', date '2026-01-18', 10)),
     'caso 5: o dia 18/01, que so tem venda cancelada, nao aparece no ranking');
-  perform teste_ok((select coalesce(sum(quantidade), 0) = 5 and coalesce(sum(total), 0) = 3750
+  perform teste_ok((select coalesce(sum(quantidade), 0) = 7 and coalesce(sum(total), 0) = 5750
                       from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10)),
-    'caso 5: o ranking do periodo soma 5 unidades e 3750, sem a venda de fora');
+    'caso 5: o ranking do periodo soma 7 unidades e 5750, sem a venda de fora');
   perform teste_ok((select count(*) = 0 from relatorio_mais_vendidos(date '2026-01-15', date '2026-01-16', 10)
                       where produto_id = v_p_canc),
     'caso 5: o produto da venda cancelada nao aparece no ranking do periodo');
