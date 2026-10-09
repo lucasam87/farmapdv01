@@ -9,6 +9,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname),
+      // O pacote `server-only` NAO esta instalado (e o plano proibe instalar
+      // dependencia). O Next resolve `import 'server-only'` no compilador, mas o
+      // Vitest nao: sem este alias, um teste que importe um modulo server-only
+      // morre em "Failed to resolve import". Ver `tests/stubs/vazio.ts`.
+      'server-only': path.resolve(import.meta.dirname, 'tests/stubs/vazio.ts'),
     },
   },
   test: {
