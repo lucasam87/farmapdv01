@@ -171,8 +171,71 @@ describe('recusaLocal — clinica', () => {
     expect(recusaLocal('Tem 3 caixas de dipirona no estoque?')).toBeNull()
     expect(recusaLocal('As vendas de hoje foram melhores que as de ontem?')).toBeNull()
   })
-})
 
+  // Achado Important 1 do revisor: frases GENERICAS de portugues ("me ajuda",
+  // "o que eu faco", "preciso tomar") disparavam sozinhas, sem nenhuma ancora
+  // clinica. Estas dez foram recusadas como `clinica` na versao anterior — a
+  // primeira e a terceira sao as intencoes canonicas `vendas_dia` e
+  // `estoque_baixo`.
+  it('NAO recusa pedido de ajuda ou imperativo de negocio (as dez do revisor)', () => {
+    expect(recusaLocal('Me ajuda a ver as vendas de hoje')).toBeNull()
+    expect(recusaLocal('O que eu faço para repor o estoque?')).toBeNull()
+    expect(recusaLocal('Me ajuda a ver o estoque baixo')).toBeNull()
+    expect(recusaLocal('O que eu faço com os produtos parados?')).toBeNull()
+    expect(recusaLocal('Preciso tomar alguma decisão sobre o estoque parado?')).toBeNull()
+    expect(recusaLocal('Devo tomar cuidado com produtos vencidos?')).toBeNull()
+    expect(recusaLocal('Posso dar baixa no estoque vencido?')).toBeNull()
+    expect(recusaLocal('Faz mal ter estoque parado?')).toBeNull()
+    expect(recusaLocal('Pode tomar decisões de compra com base no estoque baixo?')).toBeNull()
+    expect(recusaLocal('Posso dar desconto numa venda?')).toBeNull()
+  })
+
+  it('NAO recusa as variantes dessa mesma classe', () => {
+    expect(recusaLocal('Posso dar desconto?')).toBeNull()
+    expect(recusaLocal('Devo tomar cuidado com o estoque?')).toBeNull()
+    expect(recusaLocal('O que eu faço para vender mais?')).toBeNull()
+    expect(recusaLocal('Me ajuda a entender o relatório')).toBeNull()
+    expect(recusaLocal('Preciso tomar uma decisão sobre a compra')).toBeNull()
+    expect(recusaLocal('Pode tomar providências sobre o estoque?')).toBeNull()
+    expect(recusaLocal('O que eu posso fazer para reduzir o estoque parado?')).toBeNull()
+    expect(recusaLocal('Posso dar um jeito no estoque?')).toBeNull()
+    expect(recusaLocal('Quero saber quanto de dipirona tem no estoque')).toBeNull()
+    expect(recusaLocal('Qual a quantidade de amoxicilina em estoque?')).toBeNull()
+    expect(recusaLocal('Como estão as vendas do remédio X?')).toBeNull()
+  })
+
+  it('recusa a ancora clinica com pedido de ajuda, mesmo com outro assunto na frase', () => {
+    // O pedido de ajuda generico passa a valer SO com ancora clinica. "meu filho
+    // com febre" e a ancora; a frase termina pedindo para "ver" outra coisa, e
+    // isso nao transforma o pedido de ajuda em pedido gerencial.
+    expect(recusaLocal('Estou com febre, me ajuda a ver as vendas?')).toBe('clinica')
+    expect(recusaLocal('Meu filho está com febre, me ajuda?')).toBe('clinica')
+    expect(recusaLocal('Estou com dor, o que eu faço?')).toBe('clinica')
+  })
+
+  it('ancora clinica do caminho por medicamento e dose continua valendo', () => {
+    expect(recusaLocal('Posso dar dipirona para meu filho de 3 anos?')).toBe('clinica')
+    expect(recusaLocal('Qual remédio é bom para pressão alta?')).toBe('clinica')
+    expect(recusaLocal('Qual a posologia da amoxicilina?')).toBe('clinica')
+    expect(recusaLocal('Preciso tomar dipirona para dor?')).toBe('clinica')
+    expect(recusaLocal('Posso tomar amoxicilina?')).toBe('clinica')
+    expect(recusaLocal('Devo tomar paracetamol?')).toBe('clinica')
+  })
+
+  // Estes dois apareceram na sondagem do proprio filtro depois do Important 1:
+  // "o que tomar?" sem o "posso" e a doenca no lugar do sintoma.
+  it('recusa a doenca e o "o que tomar" sem o verbo modal', () => {
+    expect(recusaLocal('Tenho infecção de urina, o que tomar?')).toBe('clinica')
+    expect(recusaLocal('Qual o melhor remédio para gripe?')).toBe('clinica')
+    expect(recusaLocal('Tenho inflamação na garganta, é grave?')).toBe('clinica')
+  })
+
+  it('NAO recusa consulta de estoque com medicamento e quantidade', () => {
+    expect(recusaLocal('Quero saber quanto de dipirona tem no estoque')).toBeNull()
+    expect(recusaLocal('Qual a quantidade de amoxicilina em estoque?')).toBeNull()
+    expect(recusaLocal('Como estão as vendas do remédio X?')).toBeNull()
+  })
+})
 describe('recusaLocal — PII', () => {
   it('recusa CPF, telefone e e-mail reconheciveis', () => {
     expect(recusaLocal('O CPF 123.456.789-09 tem dívida?')).toBe('pessoal')
@@ -328,6 +391,57 @@ describe('validarClassificacao — recusas', () => {
     expect(validarClassificacao({ intencao: 'vendas_dia', de: null, ate: '2026-10-05' }, HOJE)).toBeNull()
     expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-10-01' }, HOJE)).toBeNull()
     expect(validarClassificacao({ intencao: 'vendas_dia', ate: '2026-10-05' }, HOJE)).toBeNull()
+  })
+
+  // Achado Important 2 do revisor: `validarDia` trata string vazia como "hoje,
+  // sem aviso" — correto para parametro de URL, ERRADO para o JSON do modelo.
+  // `''` nao e data de calendario: e recusa.
+  it('recusa string vazia nas pontas em vez de virar hoje', () => {
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '', ate: '2026-10-20' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-10-01', ate: '' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '', ate: '' }, HOJE)).toBeNull()
+    expect(validarClassificacao('{"intencao":"vendas_dia","de":"","ate":""}', HOJE)).toBeNull()
+    // Espaco em branco tambem nao e data.
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '   ', ate: '2026-10-20' }, HOJE)).toBeNull()
+  })
+
+  // Achado Important 3 do revisor: o intervalo vem do modelo, e a contagem dia a
+  // dia percorria milhares de anos de CPU SINCRONA antes de recusar (~8,9 s para
+  // 0000-01-01..9999-12-31). Estes testes sao a rede: se alguem voltar a contar
+  // num laco, o tempo estoura e o teste falha.
+  it('recusa intervalo absurdo em tempo desprezivel', () => {
+    const comeco = performance.now()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '0000-01-01', ate: '9999-12-31' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '0000-01-01', ate: HOJE }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: HOJE, ate: '9999-12-31' }, HOJE)).toBeNull()
+    const decorrido = performance.now() - comeco
+
+    // Antes: ~8,9 s so no primeiro caso. Agora os tres juntos ficam na casa de
+    // microssegundos; 200 ms e folga de sobra para uma maquina carregada.
+    expect(decorrido).toBeLessThan(200)
+  })
+
+  it('o corte de 31 dias e exato nas bordas do intervalo', () => {
+    // 31 dias passa, 32 recusa — inclusive atravessando mes e ano.
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-01-01', ate: '2026-01-31' }, HOJE)).toEqual({
+      intencao: 'vendas_dia',
+      de: '2026-01-01',
+      ate: '2026-01-31',
+    })
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-01-01', ate: '2026-02-01' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-12-15', ate: '2027-01-14' }, HOJE)).toEqual({
+      intencao: 'vendas_dia',
+      de: '2026-12-15',
+      ate: '2027-01-14',
+    })
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-12-15', ate: '2027-01-15' }, HOJE)).toBeNull()
+    // Ano bissexto: 2024-02-01 a 2024-03-02 sao 31 dias.
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2024-02-01', ate: '2024-03-02' }, HOJE)).toEqual({
+      intencao: 'vendas_dia',
+      de: '2024-02-01',
+      ate: '2024-03-02',
+    })
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2024-02-01', ate: '2024-03-03' }, HOJE)).toBeNull()
   })
 
   it('recusa periodo nas tres views que nao filtram data', () => {

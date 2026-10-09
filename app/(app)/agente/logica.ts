@@ -18,7 +18,7 @@
 //      formatada aqui sem passar por `Date`. Ver `formatarDiaCivil`.
 
 import { formatarMoeda } from '@/lib/format'
-import { diaAnterior, validarDia } from '@/app/(app)/vendas/dia'
+import { validarDia } from '@/app/(app)/vendas/dia'
 
 /** Tamanho maximo da pergunta, em caracteres. */
 export const LIMITE_PERGUNTA = 500
@@ -194,38 +194,77 @@ export function montarResposta(dados: DadosResposta): string {
 // consulta a view. Nada aqui e gravado em log nem em banco.
 // ============================================================
 
-// Frase que PEDE CONSELHO de saude. E o gatilho do filtro clinico quando o texto
-// nao descreve sintoma nenhum: "qual a dosagem", "posso tomar".
+// ARMADILHA DE `\b` EM PORTUGUES — a correcao do Important 1 e de um falso
+// negativo que ela revelou. `\b` no JavaScript e ASCII: nao existe fronteira
+// antes de "a" de "alergia" nem depois de "r" de "tomar" quando o que segue e o
+// "a" acentuado de "tomar a decisao"... na pratica `\b` se comporta ao CONTRARIO
+// do que o filtro precisa nas duas pontas. Tentar compensar com `(?![a-zà-ú])` em
+// cada alternativa e piorar o problema: sao ~30 posicoes que precisam concordar.
 //
-// NAO existe alternativa por substantivo de produto ("qual remedio...") AQUI, de
-// proposito: "Qual remedio vendeu mais no mes passado?" e consulta gerencial
-// legitima, e "qual remedio e bom para pressao alta?" ja e pega por
-// SITUACAO_CLINICA + PEDIDO_SOBRE_SITUACAO. Foi justamente um filtro por
-// substantivo que reprovou a primeira versao deste arquivo.
-//
-// SEM `\b` em volta do grupo inteiro: `\b` depois de uma alternativa que termina
-// em espaco nunca casa, porque a posicao seguinte e uma letra. As alternativas
-// curtas levam o proprio `\b` na ponta.
-const PEDIDO_DE_CONSELHO =
-  /(o que (eu )?(posso|devo) (tomar|dar|fazer)|posso (tomar|dar)\b|qual a dosagem|qual a dose|quanto (eu )?(posso|devo) tomar\b|me ajuda\b|o que eu fa[çc]o|preciso tomar|devo tomar|faz mal|pode tomar\b)/i
+// A solucao e tirar o acento do TEXTO antes de testar (`semAcento`) e escrever as
+// regex com ASCII puro. Depois disso `\b` volta a ser fronteira de palavra de
+// verdade. Os padroes abaixo sao todos SEM acento de proposito: nao "conserte"
+// acrescentando [eé] ou [ãa], porque o texto que chega aqui ja esta sem acento.
+const SEM_ACENTOS: Record<string, string> = {
+  á: 'a', à: 'a', ã: 'a', â: 'a', ä: 'a',
+  é: 'e', ê: 'e', è: 'e', ë: 'e',
+  í: 'i', ì: 'i', î: 'i', ï: 'i',
+  ó: 'o', ò: 'o', õ: 'o', ô: 'o', ö: 'o',
+  ú: 'u', ù: 'u', û: 'u', ü: 'u',
+  ç: 'c', ñ: 'n',
+}
 
-// Situacao clinica (sintoma ou doenca). Recusa junto de um pedido de conselho ou
-// de ajuda — sozinha, "febre" pode ser nome de produto ou relato gerencial, e
-// recusar por causa dela seria falso positivo.
+function semAcento(texto: string): string {
+  return texto.toLowerCase().replace(/[^\x00-\x7F]/g, (letra) => SEM_ACENTOS[letra] ?? letra)
+}
+
+// GATILHO ABSOLUTO: pedido explicito de dose, de escolha ou de uso de
+// medicamento. Sozinho ja recusa, porque nao existe leitura gerencial de
+// "qual a dosagem de amoxicilina".
+//
+// O pedido de CONSELHO e obrigatorio na alternativa do medicamento ([e] bom,
+// serve, indica, posso, melhor, pra, para). Sem ele, "qual remedio vendeu mais no
+// mes passado?" (gerencial) casaria por causa do substantivo — foi o falso
+// positivo que reprovou a primeira versao do filtro. `[^?]*` limita o salto a
+// mesma frase, entao "qual remedio vendeu? serve para X" nao casa por engano.
+const GATILHO_CLINICO_DIRETO =
+  /(qual a (dosagem|dose|posologia)|quanto (eu )?(posso|devo) tomar\b|quantas gotas|quantos comprimidos|o que (eu )?(posso |devo )?tomar\b|qual (o )?(melhor )?(remedio|medicamento|medicament|antibiotico|xarope|pomada|analgesico)[^?]*\b(e bom|serve|indica|posso|e melhor|melhor|pra|para)\b)/i
+
+// SITUACAO CLINICA: sintoma ou doenca. Usada para reconhecer a pergunta do tipo
+// "e bom para isso?" / "serve para isso?" sem exigir o nome do medicamento.
 const SITUACAO_CLINICA =
-  /\b(dor(es)?( de (cabe[çc]a|barriga|garganta|dente|costas|ouvido))?|febre|press[ãa]o alta|press[ãa]o baixa|diabet|infec[çc][ãa]o|inflama[çc][ãa]o|alergia|gripe|resfriado|tosse|diarreia|v[oô]mito|n[aá]usea|queimadura|c[oó]lica|ansiedade|ins[oô]nia|gravidez|gr[áa]vida|gestante|amamenta)\b/i
+  /\b(dor(es)?( de (cabeca|barriga|garganta|dente|costas|ouvido))?|febre|pressao (alta|baixa)|diabet|infec[c]ao|inflamac[a]o|alergia|gripe|resfriado|tosse|diarreia|vomito|nausea|queimadura|colica|ansiedade|insonia|gravidez|gravida|gestante|amamenta)\b/i
 
-// Como se pergunta sobre um sintoma: e isto, junto da situacao clinica, que
-// separa "qual remedio e bom para pressao alta?" (clinico) de "quais medicamentos
-// estao parados?" (gerencial).
+const MEDICACAO =
+  /\b(remedio|medicamento|medicament|antibiotico|amoxicilina|dipirona|paracetamol|ibuprofeno|loratadina|analgesico|xarope|pomada|dose|dosagem|posologia|comprimido|capsula|gotas)\b/i
+
+// ANCORA CLINICA: o texto fala de sintoma, doenca ou medicamento. NAO recusa
+// sozinha — substantivo de catalogo nao e pedido de conselho ("quais medicamentos
+// estao parados?", "qual remedio vendeu mais?"). Ela so vale acompanhada de um
+// PEDIDO.
+const ANCORA_CLINICA = new RegExp(`${SITUACAO_CLINICA.source}|${MEDICACAO.source}`, 'i')
+
+// PEDIDO DE AJUDA ou de conselho — GENERICO de portugues. NAO recusa sozinho:
+// "me ajuda a ver as vendas de hoje", "o que eu faco para repor o estoque?",
+// "posso dar desconto?" e "devo tomar cuidado com o estoque?" sao perguntas
+// gerenciais legitimas. A classe inteira e o Achado Important 1 da revisao.
 //
-// O verbo de conselho e OBRIGATORIO nas duas formas. Sem ele, "qual remedio
-// vendeu mais?" (gerencial) casaria por causa do substantivo — foi esse o falso
-// positivo que reprovou a primeira versao do filtro.
-const PEDIDO_SOBRE_SITUACAO =
-  /([eé] bom\b|serve para\b|[eé] indicado\b|posso tomar\b|posso dar\b|tomar\b|rem[eé]dio para\b|qual (o )?(rem[eé]dio|medicament|antibiotic|xarope|pomada|analg[eé]sico|antibi[oó]tico)[^?]*\b([eé] bom|posso|serve|indica|tomo|tomar|pra|para)\b)/i
+// A palavra "medicamento" e PROIBIDA nas alternativas deste padrao: qualquer
+// `me ajuda` que a contivesse viraria recusa clinica (foi o defeito da versao
+// anterior). Quem cobre a variante "me ajuda a escolher um medicamento para
+// pressao alta" e o portao de ANCORA_CLINICA, e nao este padrao.
+const PEDIDO_DE_AJUDA =
+  /(o que (eu )?(posso|devo)( fazer)?|posso (da|tomo|tomar)\b|preciso (tomar|da)\b|devo (tomar|da)\b|me ajuda\b|o que eu faco|faz mal\b|pode (tomar|dar)\b|e grave\b|quem pode tomar\b)/i
 
-const PEDIDO_DE_AJUDA = /(o que (eu )?(posso|devo)|me ajuda\b|o que eu fa[çc]o|posso dar\b|[eé] grave\b|preciso fazer)/i
+// Pedido que so faz sentido medicando alguem: "posso dar dipirona para meu filho",
+// "preciso tomar antibiotico". Exige a ancora clinica e um complemento depois do
+// verbo — e isso que impede "posso dar baixa no estoque vencido" de casar.
+//
+// A lista de exclusao e o que separa TOMAR/DAR medicamento de TOMAR/DAR decisao,
+// cuidado, baixa, desconto, entrada, uma olhada ou providencia: sem ela, a classe
+// gerencial inteira ("devo tomar cuidado com o estoque?") voltaria a ser recusada.
+const PEDIDO_DE_MEDICAR =
+  /((posso|devo) (tomar|dar)\s+(?!baixa\b|desconto\b|entrada\b|jeito\b|uma olhada\b|providencia|medida\b)\S|preciso (tomar|dar)\s+(?!baixa\b|desconto\b|entrada\b|decisao|providencia|medida\b|uma)\S|quem pode tomar\b)/i
 
 // CPF com ou sem pontuacao (11 digitos). O `\b` no fim impede casar um numero
 // maior por acidente.
@@ -240,13 +279,28 @@ const TELEFONE = /(?:\+?55[\s-]?)?(?:\(\d{2}\)|\b\d{2})[\s.-]?\d{4,5}[\s.-]?\d{4
 const EMAIL = /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/
 
 function recusaClinica(pergunta: string): boolean {
-  // (a) frase que pede conselho, mesmo sem descrever sintoma nenhum.
-  if (PEDIDO_DE_CONSELHO.test(pergunta)) return true
-  if (!SITUACAO_CLINICA.test(pergunta)) return false
-  // (b) sintoma + "e bom para isso?" / "posso tomar?" / "o que eu faco?".
-  // (c) "meu filho" sozinho NAO recusa: pode ser nome de cadastro. O que recusa e
-  // o preparo para medicar alguem.
-  return PEDIDO_SOBRE_SITUACAO.test(pergunta) || PEDIDO_DE_AJUDA.test(pergunta)
+  // Os padroes sao ASCII e o `\b` so e fronteira de palavra de verdade sem
+  // acento: quem tira o acento e esta linha, uma vez por pergunta.
+  const texto = semAcento(pergunta)
+
+  // (a) dose ou escolha de medicamento: sozinho ja e conselho de saude.
+  if (GATILHO_CLINICO_DIRETO.test(texto)) return true
+
+  // Sem ancora clinica nao ha conselho de saude nenhum: "me ajuda a ver as
+  // vendas", "o que eu faco para repor o estoque?" e "posso dar desconto?" sao
+  // gerenciais e SEGUEM. Este portao e o que corrige o Important 1.
+  if (!ANCORA_CLINICA.test(texto)) return false
+
+  // (b) sintoma ou medicamento + pedido de conselho/ajuda.
+  if (PEDIDO_DE_AJUDA.test(texto)) return true
+
+  // (c) sintoma ou medicamento + "e bom para isso?", "posso dar/tomar isso?".
+  // "meu filho" sozinho NAO recusa: pode ser nome de cadastro. O que recusa e o
+  // preparo para medicar alguem, e e por isso que o pedido precisa de complemento.
+  if (PEDIDO_DE_MEDICAR.test(texto)) return true
+
+  const temSintoma = SITUACAO_CLINICA.test(texto)
+  return temSintoma && /(e bom\b|serve para\b|e indicado\b|funciona\b|posso usar\b|pode dar\b|pode tomar\b)/i.test(texto)
 }
 
 function recusaPessoal(pergunta: string): boolean {
@@ -323,19 +377,41 @@ function presente(valor: unknown): boolean {
   return valor !== undefined && valor !== null
 }
 
+const DIA_ISO = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Le uma data do JSON do modelo. `validarDia` (`vendas/dia.ts`) e para parametro
+ * de URL, onde texto ausente ou vazio significa "tela abrindo em hoje" — aqui
+ * isso seria ERRADO: `de: ''` viraria "hoje" em silencio e o modelo poderia
+ * inventar um periodo que o usuario nao pediu. Data que nao seja um
+ * 'YYYY-MM-DD' de calendario real e recusa.
+ */
 function lerData(valor: unknown, hoje: string): string | null {
-  const dia = validarDia(valor as string, hoje)
+  if (typeof valor !== 'string') return null
+  if (!DIA_ISO.test(valor)) return null
+
+  const dia = validarDia(valor, hoje)
   return dia.aviso ? null : dia.dia
 }
 
+function diaEmUtc(dia: string): number {
+  const [ano, mes, diaDoMes] = dia.split('-').map(Number)
+  const data = new Date(Date.UTC(ano, mes - 1, diaDoMes))
+  // `Date.UTC` trata anos 0-99 como 1900-1999; restaura o ano literal.
+  if (ano >= 0 && ano < 100) data.setUTCFullYear(ano)
+  return data.getTime()
+}
+
+/**
+ * Dias do intervalo, INCLUSIVE nas duas pontas, por aritmetica — nao dia a dia.
+ *
+ * O intervalo vem do modelo, que tende a repetir qualquer data que o usuario
+ * escreveu: um laco descendo dia a dia gastou ~8,9 s de CPU SINCRONA em
+ * `0000-01-01..9999-12-31` antes de recusar, e isso trava o event loop do
+ * servidor para todas as requisicoes concorrentes. Aqui sao duas contas.
+ */
 function diasInclusivos(de: string, ate: string): number {
-  let dias = 1
-  let cursor = ate
-  while (cursor !== de) {
-    cursor = diaAnterior(cursor)
-    dias += 1
-  }
-  return dias
+  return (diaEmUtc(ate) - diaEmUtc(de)) / 86_400_000 + 1
 }
 
 function validarLimite(valor: unknown): number | null {
