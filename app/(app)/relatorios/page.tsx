@@ -1,8 +1,8 @@
 import Link from 'next/link'
 import { perfilAtual } from '@/lib/auth/perfil'
-import { formatarMoeda, formatarData } from '@/lib/format'
+import { formatarMoeda } from '@/lib/format'
 import { criarClienteServidor } from '@/lib/supabase/server'
-import { atalhos, diasDoPeriodo, ticketMedio, validarPeriodo } from './periodo'
+import { atalhos, diasDoPeriodo, formatarDataCivil, ticketMedio, validarPeriodo } from './periodo'
 
 type ParametroPeriodo = string | string[] | undefined
 
@@ -13,11 +13,6 @@ type MaisVendido = { produto_id: string; nome: string; quantidade: number; total
 
 function primeiro(valor: ParametroPeriodo): string | undefined {
   return Array.isArray(valor) ? valor[0] : valor
-}
-
-function dataLegivel(dia: string): string {
-  // Meio-dia evita deslocar a data ao formatar no fuso de São Paulo.
-  return formatarData(`${dia}T12:00:00`)
 }
 
 export default async function RelatoriosPage({
@@ -67,7 +62,11 @@ export default async function RelatoriosPage({
     <div className="mx-auto max-w-5xl">
       <h1 className="text-2xl font-semibold text-slate-800">Relatórios</h1>
 
-      <form method="get" className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+      <form
+        key={`${periodo.de}:${periodo.ate}`}
+        method="get"
+        className="mt-6 rounded-2xl bg-white p-5 shadow-sm"
+      >
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm font-medium text-slate-700">
             De
@@ -130,7 +129,7 @@ export default async function RelatoriosPage({
       ) : null}
 
       <p className="mt-5 text-sm text-slate-500">
-        {rotuloPeriodo} · {dataLegivel(periodo.de)} a {dataLegivel(periodo.ate)}
+        {rotuloPeriodo} · {formatarDataCivil(periodo.de)} a {formatarDataCivil(periodo.ate)}
       </p>
 
       {erro ? (

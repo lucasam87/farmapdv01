@@ -120,7 +120,7 @@ Expected: `FALHOU ... function relatorio_resumo(date, date) does not exist` e `0
 
 - [ ] **Step 3: Escrever a migration**
 
-`supabase/migrations/016_relatorios.sql` com as quatro funções. Decisões que a assinatura não resolve: o intervalo é **inclusivo** nas duas pontas (`>= p_de and <= p_ate`); o dia de cada venda é a expressão de São Paulo (a mesma da `v_vendas_dia`); toda agregação filtra `v.status = 'concluida'`; `p_de`/`p_ate` nulos ou invertidos devolvem **zero linhas / zeros** em vez de erro (a tela valida antes, e o banco não pode estourar); e as funções são legíveis por `authenticated` (`grant execute ... to authenticated`, `revoke ... from public, anon`), sem `security definer`.
+`supabase/migrations/016_relatorios.sql` com as quatro funções. Decisões que a assinatura não resolve: o intervalo é **inclusivo** nas duas pontas (`>= p_de and <= p_ate`); o dia de cada venda é a expressão de São Paulo (a mesma da `v_vendas_dia`); toda agregação filtra `v.status = 'concluida'`; `p_de`/`p_ate` nulos ou invertidos devolvem resultados vazios sem erro: `relatorio_resumo` e `relatorio_lucro` devolvem **uma linha com zeros**, enquanto `relatorio_formas_pagamento` e `relatorio_mais_vendidos` devolvem **listas vazias** (a tela valida antes, e o banco não pode estourar); e as funções são legíveis por `authenticated` (`grant execute ... to authenticated`, `revoke ... from public, anon`), sem `security definer`.
 
 - [ ] **Step 4: Aplicar e ver passar**
 Run: `npm run migrar -- 016_relatorios.sql` → `1 de 1 migrations aplicadas`, HTTP 201.

@@ -2,6 +2,11 @@ import { diaAnterior, diaSeguinte, validarDia } from '../vendas/dia'
 
 export type Periodo = { de: string; ate: string }
 
+export function formatarDataCivil(dia: string): string {
+  const [ano, mes, diaDoMes] = dia.split('-')
+  return `${diaDoMes}/${mes}/${ano}`
+}
+
 export function atalhos(hoje: string): { rotulo: string; periodo: Periodo }[] {
   let inicioSeteDias = hoje
   for (let i = 0; i < 6; i += 1) {

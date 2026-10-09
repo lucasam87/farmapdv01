@@ -40,6 +40,22 @@ async function faturamento(page: Page) {
   return centavos(texto)
 }
 
+async function venderProdutoDeCincoReais(page: Page) {
+  await page.goto('/vendas/nova')
+  await page.getByLabel('Buscar produto').fill(CODIGO_E2E)
+  const resultados = page.getByTestId('resultados')
+  await expect(resultados).toBeVisible()
+  await resultados.locator('li').filter({ hasText: PRODUTO_E2E }).click()
+  await expect(page.getByTestId('carrinho')).toContainText(PRODUTO_E2E)
+
+  await page.keyboard.press('F6')
+  await page.getByLabel('Valor do pagamento').fill('5,00')
+  await page.getByRole('button', { name: 'Lançar' }).click()
+  await page.keyboard.press('F2')
+  await expect(page.getByTestId('confirmacao')).toContainText('registrada')
+  await expect(page.getByTestId('confirmacao')).toContainText('R$ 5,00')
+}
+
 test.beforeEach(async ({ page }) => {
   await entrar(page)
 })
@@ -64,20 +80,7 @@ test('(2) a venda de R$ 5,00 no PDV aumenta o faturamento de hoje e entra no ran
   await page.goto('/relatorios')
   const hoje = hojeEmSaoPaulo()
   const antes = await faturamento(page)
-
-  await page.goto('/vendas/nova')
-  await page.getByLabel('Buscar produto').fill(CODIGO_E2E)
-  const resultados = page.getByTestId('resultados')
-  await expect(resultados).toBeVisible()
-  await resultados.locator('li').filter({ hasText: PRODUTO_E2E }).click()
-  await expect(page.getByTestId('carrinho')).toContainText(PRODUTO_E2E)
-
-  await page.keyboard.press('F6')
-  await page.getByLabel('Valor do pagamento').fill('5,00')
-  await page.getByRole('button', { name: 'Lançar' }).click()
-  await page.keyboard.press('F2')
-  await expect(page.getByTestId('confirmacao')).toContainText('registrada')
-  await expect(page.getByTestId('confirmacao')).toContainText('R$ 5,00')
+  await venderProdutoDeCincoReais(page)
 
   await page.goto(`/relatorios?de=${hoje}&ate=${hoje}`)
   await expect(page.getByTestId('card-faturamento')).toBeVisible()
@@ -96,16 +99,35 @@ test('(3) periodo invalido avisa e mantem os cartoes', async ({ page }) => {
   }
 })
 
-test('(4) o atalho Ontem atualiza o endereco e mostra o faturamento de ontem', async ({ page }) => {
-  await page.goto('/relatorios')
+test('(4) Ontem conserva o faturamento anterior mesmo apos uma venda de hoje', async ({ page }) => {
   const ontem = diaAnterior(hojeEmSaoPaulo())
+  await page.goto(`/relatorios?de=${ontem}&ate=${ontem}`)
+  await expect(page.getByTestId('periodo-de')).toHaveValue(ontem)
+  await expect(page.getByTestId('periodo-ate')).toHaveValue(ontem)
+  const faturamentoOntem = await faturamento(page)
+
+  await venderProdutoDeCincoReais(page)
+
+  await page.goto('/relatorios')
+  await expect(page.getByTestId('periodo-de')).toHaveValue(hojeEmSaoPaulo())
+  await expect(page.getByTestId('periodo-ate')).toHaveValue(hojeEmSaoPaulo())
 
   await page.getByTestId('periodo-ontem').click()
   await expect(page).toHaveURL(new RegExp(`/relatorios\\?de=${ontem}&ate=${ontem}$`))
   await expect(page.getByTestId('periodo-de')).toHaveValue(ontem)
   await expect(page.getByTestId('periodo-ate')).toHaveValue(ontem)
-  // `historico.spec.ts` insere uma venda de R$ 5,00 em ontem no mesmo cenário
-  // e o globalTeardown só a remove ao fim da suíte. O número prova o filtro do
-  // período e coincide com essa venda conhecida.
-  await expect(page.getByTestId('card-faturamento').locator('p').nth(1)).toHaveText('R$ 5,00')
+  expect(await faturamento(page)).toBe(faturamentoOntem)
+})
+
+test('(5) atalhos substituem as datas editadas nos campos', async ({ page }) => {
+  await page.goto('/relatorios?de=2024-01-02&ate=2024-01-04')
+  const hoje = hojeEmSaoPaulo()
+
+  await page.getByTestId('periodo-de').fill('2025-02-03')
+  await page.getByTestId('periodo-ate').fill('2025-02-05')
+  await page.getByTestId('periodo-hoje').click()
+
+  await expect(page).toHaveURL(new RegExp(`/relatorios\\?de=${hoje}&ate=${hoje}$`))
+  await expect(page.getByTestId('periodo-de')).toHaveValue(hoje)
+  await expect(page.getByTestId('periodo-ate')).toHaveValue(hoje)
 })

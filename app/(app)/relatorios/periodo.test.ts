@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { atalhos, diasDoPeriodo, ticketMedio, validarPeriodo } from './periodo'
+import { atalhos, diasDoPeriodo, formatarDataCivil, ticketMedio, validarPeriodo } from './periodo'
 
 const HOJE = '2026-10-07'
 
@@ -62,5 +62,11 @@ describe('diasDoPeriodo e ticketMedio', () => {
     expect(ticketMedio(0, 0)).toBe(0)
     expect(ticketMedio(3400, 2)).toBe(1700)
     expect(ticketMedio(900 + 2500, 2)).toBe(1700)
+  })
+})
+
+describe('formatarDataCivil', () => {
+  it('reorganiza o dia ISO sem converter o fuso horário', () => {
+    expect(formatarDataCivil('2026-01-02')).toBe('02/01/2026')
   })
 })
