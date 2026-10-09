@@ -63,10 +63,20 @@ update vendas set criado_em = timestamptz '2026-01-16 15:00:00+00' where id = v_
 E as asserções (todas `perform teste_ok(...)`, com valores **calculados a partir do cenário**, nunca contando a tabela inteira):
 
 ```sql
--- ticket medio: 2 dias com volumes diferentes -> a media das medias daria outro numero
-perform teste_ok((select faturamento = 900 + 2500 and vendas = 2 and ticket_medio = 1700
+-- ticket medio: o cenario PRECISA de volumes diferentes por dia. Com UMA venda em cada
+-- dia, total/quantidade e a media das medias dao o MESMO numero e o caso nao discrimina
+-- (foi o defeito da primeira versao deste plano, pego na implementacao: 900 num dia e
+-- 2500 no outro davam 1700 pelas duas contas). O caso implementado usa 3 vendas em 2
+-- dias (3750 no total) e compara com a media das medias DIARIAS da propria `v_vendas_dia`,
+-- exigindo que os dois numeros sejam diferentes:
+perform teste_ok((select faturamento = 3750 and vendas = 3 and ticket_medio = 1250
                     from relatorio_resumo(date '2026-01-15', date '2026-01-16')),
-  'caso 1: ticket medio do periodo e total/quantidade, nao a media dos dias');
+  'caso 1: ticket medio do periodo e total/quantidade (1250), nao a media dos dias');
+perform teste_ok(
+  (select ticket_medio from relatorio_resumo(date '2026-01-15', date '2026-01-16'))
+  <> (select round(avg(ticket_medio)) from v_vendas_dia
+        where dia between date '2026-01-15' and date '2026-01-16'),
+  'caso 1: neste cenario as duas contas dao numeros diferentes (senao o caso nao discrimina)');
 perform teste_ok((select ticket_medio = 0 and faturamento = 0 from relatorio_resumo(date '2026-01-01', date '2026-01-02')),
   'caso 1: periodo sem venda devolve zero, e nao divisao por zero');
 
