@@ -35,7 +35,37 @@ reais. (3) Ruling aceito e preservado: `relatorio_lucro` com período nulo/inver
 linha com zeros antes de negar o papel; a UI não chama essa função para atendente. (4) O teste de
 Ontem captura o faturamento atual pela UI antes de criar uma venda de hoje, sem depender de fixture
 de outra spec ou da ordem dos arquivos. A spec §9 registra `Só o dono vê o lucro.`.
-**Próximo passo: Etapa 8 (Agente de IA).**
+**Etapa 8 — Agente de IA (09/10/2026): 🟡 CÓDIGO FECHADO E REVISADO, VERIFICAÇÃO PARCIAL.**
+O desenho (`docs/superpowers/specs/2026-10-09-agente-ia-design.md`, commit `0b5f45d`) virou plano
+(`docs/superpowers/plans/2026-10-09-agente-ia.md`) e o plano foi executado por subagente, com revisor
+fresco por tarefa e ledger em `.superpowers/sdd/2026-10-09-agente-ia/progress.md`.
+
+As cinco tarefas estão commitadas: a migration **`017_orcamento_agente.sql`** (o ledger de orçamento —
+o teto de US$ 5 é travado por `for update` na linha do mês, e a reserva **já entra** no contador no
+instante em que nasce); **`app/(app)/agente/logica.ts`** (lógica pura, filtro clínico/PII e a conta do
+custo em micros de dólar); **`app/api/agente/{orquestracao,route}.ts`** + `lib/agente/deepseek.ts` +
+`lib/supabase/privilegiado.ts` (a rota, com dependências injetadas para ser testável sem servidor);
+**`app/(app)/agente/{page,formulario,resposta,corrida}`** (a tela); e `tests/e2e/agente.spec.ts`.
+
+**O que está provado por execução:** `npm test` → **427 passed (24 arquivos)**; `npm run lint` exit 0;
+`npx tsc --noEmit` exit 0; `npm run build` exit 0 com `ƒ /agente` e `ƒ /api/agente`; a chave
+privilegiada **não aparece no bundle do cliente** (grep em `.next/static`); e o filtro clínico foi
+medido contra a versão anterior em centenas de milhares de frases combinatórias.
+
+**⚠️ O QUE NÃO ESTÁ PROVADO — e não é defeito do código: o projeto Supabase desapareceu no meio da
+etapa.** `geywpaegovurwtfoacwt.supabase.co` **não resolve mais no DNS** e o `SUPABASE_ACCESS_TOKEN`
+responde **401** no endpoint de gerenciamento (conferido duas vezes, pelo controlador). No começo desta
+sessão o `npm run test:sql` rodou **376 OK** e as Tarefas 1 e 2 rodaram SQL com sucesso (**446 OK**);
+depois disso o projeto sumiu. Consequência: **`npm run test:sql`, `npm run test:sql:concorrencia` e
+`npm run test:e2e` não rodam** — não há login. Ficam **sem prova de execução**: o **cenário 3 da
+concorrência** (a única prova de que duas reservas simultâneas não furam os US$ 5), as rodadas de
+permissão novas do ledger, a **camada B do E2E** (sem sessão, recusa clínica, recusa de PII) e a
+integração paga real com o DeepSeek.
+
+**Ação necessária:** reativar/recriar o projeto Supabase (ou corrigir `NEXT_PUBLIC_SUPABASE_URL`) e
+gerar um `SUPABASE_ACCESS_TOKEN` novo. Quando voltar, a primeira rodada é
+`npm run test:sql -- 120_orcamento_agente.sql` (isolado, em janela **sem caixa aberto**) e depois
+`npx playwright test agente` — o primeiro sinal a olhar é o teste (1) da camada A da spec.
 
 **A revisão final do branch da Etapa 5 achou um vazamento:** as 11 views de `public` nasceram
 sem `security_invoker`, então rodavam como o dono e ignoravam a RLS das tabelas — e o Supabase
@@ -282,15 +312,16 @@ auditadas: nenhum segredo subiu. Detalhes na seção "Publicado no GitHub".
 Diga ao agente, nesta ordem:
 
 1. **"Leia o `PROGRESSO.md` e o ledger em
-   `.superpowers/sdd/2026-10-07-clientes-crediario/progress.md`. Estamos na branch
-   `etapa-3-4-produtos-estoque-pdv`, com as **Etapas 0 a 6 fechadas**.
-   ~~Falta o item 8 (o seletor de cliente do PDV) e passar uma planilha real pela
-   importação.~~ **O item 8 foi fechado na Etapa 6** (`a4357b4` + `cb8e7f4`) e **a planilha
-   real foi resolvida na Etapa 3** — **nenhuma pendência do branch anterior ficou em aberto**.
-   O próximo passo é a **Etapa 7 (relatórios)**, que ainda não tem plano escrito."** O ledger é
-   o registro detalhado de **todas** as decisões (rulings) e do que já foi verificado. Ele é
-   ignorado pelo git de propósito (é rascunho do processo), mas está no disco. Os ledgers
-   anteriores estão em `.superpowers/sdd/2026-10-07-historico-vendas/progress.md`,
+   `.superpowers/sdd/2026-10-09-agente-ia/progress.md`. Estamos na branch
+   `etapa-3-4-produtos-estoque-pdv`, com as **Etapas 0 a 7 fechadas** e a **Etapa 8 com o código
+   fechado e revisado, mas com a verificação parcial** porque **o projeto Supabase sumiu do DNS e o
+   `SUPABASE_ACCESS_TOKEN` dá 401** — antes de qualquer coisa, restaure o projeto e gere um token novo,
+   senão `npm run test:sql`, `test:sql:concorrencia` e `test:e2e` não rodam e não há login."** O ledger
+   é o registro detalhado de **todas** as decisões (rulings) e do que já foi verificado. Ele é
+   ignorado pelo git de propósito (é rascunho do processo), mas está no disco. Os ledgers anteriores
+   estão em `.superpowers/sdd/2026-10-07-relatorios/progress.md`,
+   `.superpowers/sdd/2026-10-07-historico-vendas/progress.md`,
+   `.superpowers/sdd/2026-10-07-clientes-crediario/progress.md`,
    `.superpowers/sdd/2026-10-06-produtos-estoque-pdv/progress.md` e
    `.superpowers/sdd/2026-10-06-fundacao-login-banco/progress.md`.
 
@@ -388,7 +419,7 @@ arquivo de `tests/sql/casos/*.sql` numa transação com `ROLLBACK`, e
 | 5 | Histórico de vendas | ✅ | As 6 tarefas deste plano ✅: a view `v_vendas_historico` (`bbdbad7` + `24d19d0`, migration `012`) que **NÃO filtra status** e entrega o `dia` no fuso de São Paulo, as contas de data puras em `app/(app)/vendas/dia.ts` (`b0f6539`), `/vendas` com o **dia no endereço** (`?dia=`), setas, seletor de data, resumo e linha de canceladas (`f5b3140`), o detalhe `/vendas/[id]` com o cancelamento do dono pela RPC `cancelar_venda` e motivo obrigatório (`46ac185`) e o e2e (`4931f80`). **Evidência colada em 07/10/2026, medida nesta ordem, sem nada em paralelo:** `npm test` → **210 passed (14 arquivos)**; `npm run test:sql` → **246 OK, 0 FALHOU de 9 arquivos** (eram 237 de 8; entrou `tests/sql/casos/080_historico.sql`); `npm run lint` exit 0; `npm run build` exit 0 com `ƒ /vendas` e `ƒ /vendas/[id]`; `npm run test:e2e` → **14 passed (1,5 m)**, 6 deles do histórico. **O critério da etapa está provado pelo navegador:** "vejo o dia, abro uma venda, cancelo, o estoque volta" e "a venda noturna cai no dia certo" (a venda das 22h de ontem aparecendo em ONTEM, não em hoje). **Bug corrigido no caminho (`f5b3140`): o ticket médio aparecia 100× maior** — a view devolve **centavos** e a tela **multiplicava por 100** (`Math.round(Number(dia?.ticket_medio ?? 0) * 100)`), como se a view devolvesse reais; era a **multiplicação**, não uma divisão, que inflava o número. **Não virou teste:** o líquido zero do estoque é **inferido** (o caso 3 do e2e lê o estoque antes da venda e confere que o mesmo número voltou depois do cancelamento, mas **nunca observa o saldo entre a venda e o cancelamento** — venda que não baixasse e cancelamento que não devolvesse passariam); a navegação de dia com `?ocultar=1` **não é exercida** (o e2e cobre lista → detalhe, não dia anterior/seguinte oculto); a asserção de que não há "R$" na lista oculta olha **só a primeira linha**; a **volta** do detalhe não é exercida — o e2e vai de lista → detalhe e nunca clica em **"Voltar para o dia"**, que é justamente o link que repassa o `ocultar` (ida e volta do item 3 do Review Focus, só a ida está provada); e o item 2 do Review Focus — um dia em que **todas** as vendas foram canceladas **não pode dizer "nenhuma venda"** — só tem teste da função pura `resumirCanceladas`, **não da regra da tela** (`vendas.length === 0` sobre a lista do histórico) | 07/10/2026 |
 | 6 | Clientes e crediário | ✅ | As 9 tarefas deste plano ✅. **Banco — migrations `014` e `015`, as RPCs novas:** `receber_pagamento` (`ac819f6`, `3de9735`, `c37d210`) com **20 asserções** em `tests/sql/casos/090_crediario.sql`, e `cliente_salvar` + `importar_clientes` (`71067ba`, `cb743e2`) com **55 asserções** em `tests/sql/casos/100_clientes.sql`. **A guarda contra dobrar a dívida é do banco e está provada:** reimportar o mesmo arquivo deixa **um** lançamento marcado (casos 6 e 7 de `100_clientes.sql`) e o pagamento acima da dívida é recusado — **nunca gera saldo credor**. **Telas:** `/clientes` com busca, cadastro e detalhe com extrato (`e3b7831`), `/crediario` com devedores, total a receber e receber na lista (`6840741`, `9798986`), `/clientes/importar` com análise pura, prévia com conferência de saldos e o teto do `integer` reusando `LIMITE_DE_CENTAVOS` (`2f8d305`, `c0d6afa`), a validação pura do cadastro, do recebimento e do link do WhatsApp (`2df284b`, `27399c1`) e a busca de cliente do PDV no lugar do `<select>` (`a4357b4`, `cb8e7f4`). **Evidência colada em 07/10/2026, medida nesta ordem, sem nada em paralelo:** `npm test` → **280 passed (17 arquivos)**, exit 0; `npm run test:sql` → **325 OK, 0 FALHOU de 11 arquivos** (eram **250 de 9** — 250 + 20 de `090_crediario.sql` + 55 de `100_clientes.sql` = 325), exit 0; `npm run lint` exit 0; `npm run build` exit 0 com `ƒ /clientes`, `ƒ /clientes/[id]`, `ƒ /clientes/novo`, `ƒ /clientes/importar`, `ƒ /crediario` e `ƒ /api/clientes/busca`; `npm run test:e2e` → **20 passed (2,7 m)**, 6 deles em `tests/e2e/crediario.spec.ts` (`f7e93f3`) — e **21** depois da correção da revisão final (`a55adcd`), que acrescentou o teste 7 (o devedor que casa só por CPF). **O critério da spec §13 ("saldo importado aparece, pagamento parcial atualiza, WhatsApp abre"):** a perna do **saldo importado** está provada pelos **casos 5, 6 e 7 de `100_clientes.sql`** — o saldo lançado pela importação **aparece no saldo devedor** do cliente, a reimportação **não o dobra** e o saldo da tela somado à importação deixa **um** lançamento só; **nenhum teste e2e toca `/clientes/importar`** (o saldo do e2e nasce da venda no crediário). As outras duas pernas são do **navegador**: o e2e cadastra o cliente, vende no crediário, o devedor aparece com o saldo, o recebimento parcial baixa pelo valor exato, receber acima da dívida é recusado sem virar crédito, e o link abre o `wa.me` com o `55` e a mensagem com o saldo. **A etapa fechou o item 8 da revisão do branch anterior** (o `<select>` dos 500 primeiros clientes do PDV virou busca sem corte). **Não virou teste:** a importação de clientes foi provada **contra a fixture** `tests/fixtures/clientes.xlsx`, **não contra o arquivo real do Nex — que ainda não existe** (o mesmo tipo de lacuna que travou a Etapa 3 até o catálogo real entrar); a tela do **atendente** não é provável no e2e (só há um usuário **dono** em `perfis`), e a cobertura por papel é dos casos SQL de `100_clientes.sql`; o **ramo dos devedores** da busca de cliente do PDV não é exercitado pelo e2e (a base está **sem devedores**), só por teste de unidade. **Diferidos que o próximo leitor precisa saber** (lista completa no ledger): **dois `importar_clientes` realmente simultâneos não têm teste** — o runner manda `begin/rollback` por requisição, sem barreira entre sessões; a prova existente é o **`for update`** do corpo implantado (`015_clientes.sql`) sob READ COMMITTED, em que a segunda transação relê e enxerga o lançamento, o **mesmo desenho já aceito em `002` e `014`**; o **segundo clique em Salvar com CPF vazio cria cliente duplicado**; e o mesmo defeito de `searchParams` como `string[]`, que a Etapa 6 corrigiu em `/clientes` e `/crediario`, **foi corrigido também em `/produtos`** na limpeza `4137693` | 07/10/2026 |
 | 7 | Relatórios | ✅ | Tasks 1–4: `5316d80`/`e8c9012` (migration e revisão), `d66754e` (período), `f40ec36` (tela), `8628ff4` (E2E); Task 5: `2d159aa`; correções da revisão final neste commit. Verificação após o fix: `npm test` **287/18 arquivos**, SQL **376 OK/0 falhas de 12 arquivos**, lint/build exit 0, E2E completo **26 passed (3,4 min)**. E2E focado dos atalhos **2/2 passed**; RED para o input sujo registrado. A execução original da Task 5 teve 2 HTTP 502 e uma falha consequente da fixture, registrada sem supressão. **Permanecem abertos:** três dias com venda real (banco com 0 vendas antes do cenário); custo/lucro acessíveis via PostgREST direto para `authenticated` por `venda_itens.preco_custo` e `v_lucro_periodo` (policy `using (true)` da v1); nenhum E2E com atendente (só há usuário dono); período nulo/invertido em `relatorio_lucro` retorna uma linha com zeros antes da checagem de papel (ruling aceito). O teste de Ontem compara o total com a captura da própria UI, sem depender de fixture de outra spec | 09/10/2026 |
-| 8 | Agente de IA | ⬜ | — | — |
+| 8 | Agente de IA | 🟡 | **Código fechado e revisado; verificação parcial pelo ambiente.** Migration `017` (ledger do orçamento, teto de US$ 5 com `for update`), `logica.ts` (lógica pura + filtro clínico/PII), `app/api/agente/` + `lib/agente/deepseek.ts` + `lib/supabase/privilegiado.ts` (a rota) e `app/(app)/agente/` (a tela), mais `tests/e2e/agente.spec.ts`. Revisão final do branch: **0 Critical, 2 Important** (os dois corrigidos) + 11 Minors corrigidos numa onda única; a re-revisão escopada confirmou todos os itens e deu **pronto para merge**, com 3 ressalvas. **Provado por execução:** `npm test` **427/24 arquivos**, lint 0, `tsc --noEmit` 0, build 0 com `ƒ /agente` e `ƒ /api/agente`, e a chave de serviço **ausente do bundle**. **Não provado (ambiente):** o projeto Supabase **sumiu do DNS** no meio da etapa e o `SUPABASE_ACCESS_TOKEN` dá **401** — `test:sql`, `test:sql:concorrencia` e `test:e2e` não rodam; ficam sem prova o cenário 3 da concorrência (teto sob corrida), as permissões novas do ledger e a camada B do E2E. **Pendências declaradas:** `DEEPSEEK_API_KEY` e `SUPABASE_SERVICE_ROLE_KEY` não configuradas (sem a segunda o agente responde 502 por desenho e nenhum token é gasto); o E2E das quatro intenções com dado de view; o E2E com perfil atendente (só existe conta de dono); e conferir a tarifa oficial antes de trocar de modelo | 09/10/2026 |
 | 9 | Publicar na Vercel | ⬜ | — | — |
 | 10 | Migração de dados | ⬜ | — | — |
 | 11 | Uso paralelo e corte | ⬜ | — | — |
@@ -443,12 +474,14 @@ o `.env.example` é só o modelo vazio.
 
 | Variável no `.env.local` | Para que serve | Situação |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | URL do projeto | ✅ `geywpaegovurwtfoacwt.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL do projeto | 🚨 **`geywpaegovurwtfoacwt.supabase.co` NÃO RESOLVE MAIS NO DNS** (09/10/2026) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | chave pública (publishable) | ✅ |
-| `DEEPSEEK_API_KEY` | agente de IA (Etapa 8) | vazio, ainda não é usada |
+| `DEEPSEEK_API_KEY` | agente de IA (Etapa 8) | ⚠️ **vazia** — sem ela a rota do agente não chama o provedor (o aceite pago real não foi verificado) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **só o ledger do orçamento** do agente (Etapa 8) | ⚠️ **ausente** — sem ela a rota do agente responde **502 sempre** (a reserva falha antes do envio, então nenhum token é gasto). Nunca vai ao navegador |
+| `DEEPSEEK_BASE_URL` | opcional; só para teste (aponta o provedor para um stub) | ausente; o padrão é `https://api.deepseek.com` e é **ignorada em produção** |
 | `SUPABASE_DB_URL` | conexão direta no banco | ⚠️ **a senha está errada/placeholder e NÃO é usada** — ver abaixo |
-| `SUPABASE_ACCESS_TOKEN` | Personal Access Token (`sbp_`) | ✅ é o que aplica migrations e roda SQL |
-| `USUARIO_EMAIL` / `USUARIO_SENHA` / `USUARIO_ID` | login de teste | ✅ `lucas@farmacia.local` |
+| `SUPABASE_ACCESS_TOKEN` | Personal Access Token (`sbp_`) | 🚨 **responde 401** desde 09/10/2026 — é o que aplica migrations e roda SQL, então `migrar` e `test:sql` estão parados |
+| `USUARIO_EMAIL` / `USUARIO_SENHA` / `USUARIO_ID` | login de teste | ✅ `lucas@farmacia.local` *(inutilizável enquanto o DNS do projeto não voltar)* |
 
 **Dois pontos importantes para a próxima sessão:**
 
