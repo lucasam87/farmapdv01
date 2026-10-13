@@ -16,6 +16,22 @@ import { MAX_TOKENS_SAIDA, MODELO } from '@/app/(app)/agente/logica'
 //
 // O QUE SAI DAQUI E SOMENTE O PROMPT FIXO E A PERGUNTA. Nada de linha de view,
 // id, cookie ou chave no corpo. Ha teste afirmando o objeto enviado inteiro.
+//
+// POR QUE UM 4xx NAO PODE TER SIDO FATURADO (a correcao do Important 2 da revisao
+// final). O provedor e pago por INFERENCIA, e a inferencia so comeca depois de o
+// gateway aceitar a requisicao. 400 (requisicao invalida), 401/403 (chave ausente,
+// invalida ou revogada) e 402 (saldo insuficiente) sao recusados ANTES de qualquer
+// token ser processado — nao existiu inferencia, logo nao existe o que faturar.
+// Marca-los como `ambigua` retinha 1.373 µ$ por tentativa: com a chave errada
+// (colagem com erro de digitacao, chave revogada), ~3.641 perguntas fechavam o mes
+// de US$ 5 sem produzir UMA resposta, e o agente passaria a dizer "limite mensal
+// atingido" mesmo depois de a chave ser corrigida.
+//
+// O QUE CONTINUA AMBIGUO, e e a spec que manda: 429 (rate limit pode ter aceitado
+// e contado a requisicao), 5xx, timeout e falha de rede. Ali a retencao
+// conservadora e exatamente o que a spec quer ("se o custo for desconhecido, a
+// reserva maxima permanece consumida"). A fronteira e uma lista fechada, nao um
+// "libera todo 4xx": ha teste para o 401 (pre-envio) E para o 429 (ambiguo).
 
 /** Tempo maximo esperando o provedor, contado do envio ate o corpo chegar. */
 export const TIMEOUT_MS = 10_000
@@ -56,10 +72,11 @@ export const PROMPT_CLASSIFICACAO =
  * orquestracao, nao este modulo.
  *
  * A falha tem DUAS fases, e a diferenca vale dinheiro:
- *   - `pre_envio`: deu para provar que nada saiu (chave ausente, URL invalida).
- *     A reserva pode ser liberada.
+ *   - `pre_envio`: deu para provar que nada saiu (chave ausente, URL invalida) OU
+ *     que o provedor recusou a requisicao antes de inferir (400/401/402/403). A
+ *     reserva pode ser liberada.
  *   - `ambigua`: o pedido pode ter saido e ter sido faturado (timeout, queda de
- *     conexao, 5xx). A reserva fica consumida ate o fim do mes.
+ *     conexao, 429, 5xx). A reserva fica consumida ate o fim do mes.
  */
 export type ResultadoClassificacao =
   | { ok: true; conteudo: string; uso: unknown }
@@ -96,6 +113,13 @@ export function bytesDoPayload(pergunta: string): number {
 }
 
 function baseUrl(): string {
+  // Em PRODUCAO o destino e cravado. `DEEPSEEK_BASE_URL` existe para o teste
+  // apontar a rota para um stub local (ruling R3), e so. Se ela existisse tambem
+  // no ambiente de producao, o `Authorization: Bearer <DEEPSEEK_API_KEY>` inteiro
+  // iria para o host que ela apontasse: uma variavel de ambiente errada, ou
+  // definida por engano, mandaria a chave para fora. Em producao ela e ignorada.
+  if (process.env.NODE_ENV === 'production') return 'https://api.deepseek.com'
+
   const configurada = process.env.DEEPSEEK_BASE_URL?.trim()
   // Vazia conta como ausente: e o que um `.env` com a chave em branco produz.
   return configurada !== undefined && configurada !== ''
@@ -126,9 +150,10 @@ function lerConteudo(corpo: unknown): string {
  * orquestracao decidir o destino da reserva sem `try/catch` no meio do fluxo.
  *
  * A fronteira pre-envio/ambigua e deliberadamente CONSERVADORA: so e pre-envio o
- * que da para provar que nao saiu (chave ausente, URL que nem monta, protocolo
- * que nao e http). Timeout, queda de conexao e 5xx sao ambiguos, porque o
- * provedor pode ter recebido e faturado o pedido.
+ * que da para provar que nao saiu ou que nao houve inferencia (chave ausente, URL
+ * que nem monta, protocolo que nao e http, 400/401/402/403 — ver o cabecalho).
+ * Timeout, queda de conexao, 429 e 5xx sao ambiguos, porque o provedor pode ter
+ * recebido e faturado o pedido.
  */
 export async function classificar(pergunta: string): Promise<ResultadoClassificacao> {
   const chave = chaveDaApi()
@@ -176,7 +201,18 @@ export async function classificar(pergunta: string): Promise<ResultadoClassifica
     return { ok: false, fase: 'ambigua' }
   }
 
-  if (!resposta.ok) return { ok: false, fase: 'ambigua' }
+  // O gateway recusa 400/401/402/403 ANTES de inferir: nada foi processado, logo
+  // nada foi faturado, e a reserva pode voltar. A lista e FECHADA de proposito —
+  // 429 e qualquer outro 4xx (408, 409, 422) continuam ambiguos, porque ali o
+  // pedido pode ter sido aceito e contado. Ver o cabecalho do modulo.
+  if (!resposta.ok) {
+    const recusadoAntesDeInferir =
+      resposta.status === 400 ||
+      resposta.status === 401 ||
+      resposta.status === 402 ||
+      resposta.status === 403
+    return { ok: false, fase: recusadoAntesDeInferir ? 'pre_envio' : 'ambigua' }
+  }
 
   let corpoResposta: unknown
   try {

@@ -131,6 +131,20 @@ describe('destino e conteudo enviado', () => {
     expect(chamadaDeFetch(espiao).destino).toBe('http://127.0.0.1:3210/chat/completions')
   })
 
+  // Minor 9 da revisao final: em producao o destino e CRAVADO. Se a variavel
+  // existisse tambem la, o header `Authorization: Bearer <chave>` inteiro iria
+  // para o host que ela apontasse.
+  it('em PRODUCAO o DEEPSEEK_BASE_URL e ignorado: a chave so vai para api.deepseek.com', async () => {
+    const espiao = espiaoDeFetch({ choices: [{ message: { content: '{}' } }] })
+    vi.stubGlobal('fetch', espiao)
+    vi.stubEnv('DEEPSEEK_BASE_URL', 'https://host-de-terceiro.exemplo')
+    vi.stubEnv('NODE_ENV', 'production')
+
+    await classificar(PERGUNTA)
+
+    expect(chamadaDeFetch(espiao).destino).toBe('https://api.deepseek.com/chat/completions')
+  })
+
   it('o corpo leva so o modelo, as duas mensagens e os limites — nada de banco', async () => {
     const espiao = espiaoDeFetch({ choices: [{ message: { content: '{}' } }] })
     vi.stubGlobal('fetch', espiao)
@@ -206,6 +220,46 @@ describe('falhas', () => {
     vi.stubGlobal('fetch', espiaoDeFetch({ error: 'boom' }, false, 503))
 
     expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'ambigua' })
+  })
+
+  // IMPORTANT 2 DA REVISAO FINAL. Um 4xx da lista e recusa ANTES de inferir: nada
+  // foi faturado e a reserva volta. Sem isso, a chave errada queimava 1.373 µ$ por
+  // pergunta e fechava o mes de US$ 5 sem UMA resposta.
+  it('401 (chave invalida ou revogada) e falha PRE-ENVIO: nao houve inferencia', async () => {
+    vi.stubGlobal('fetch', espiaoDeFetch({ error: 'invalid api key' }, false, 401))
+
+    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'pre_envio' })
+  })
+
+  it('400, 402 e 403 tambem sao PRE-ENVIO (a lista fechada do gateway)', async () => {
+    for (const status of [400, 402, 403]) {
+      vi.stubGlobal('fetch', espiaoDeFetch({ error: 'recusado' }, false, status))
+
+      expect(await classificar(PERGUNTA), `status ${status}`).toEqual({
+        ok: false,
+        fase: 'pre_envio',
+      })
+    }
+  })
+
+  // O CONTROLE POSITIVO da correcao acima: se alguem trocar a lista por um
+  // "libera todo 4xx", este teste quebra. 429 significa que a requisicao pode ter
+  // sido aceita e contada — a retencao conservadora e o que a spec manda.
+  it('429 e falha AMBIGUA: a distincao e uma lista, nao um "libera todo 4xx"', async () => {
+    vi.stubGlobal('fetch', espiaoDeFetch({ error: 'rate limited' }, false, 429))
+
+    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'ambigua' })
+  })
+
+  it('4xx fora da lista (408, 422) continua AMBIGUO', async () => {
+    for (const status of [408, 422, 409]) {
+      vi.stubGlobal('fetch', espiaoDeFetch({ error: 'outro 4xx' }, false, status))
+
+      expect(await classificar(PERGUNTA), `status ${status}`).toEqual({
+        ok: false,
+        fase: 'ambigua',
+      })
+    }
   })
 
   it('queda de conexao e timeout sao falhas AMBIGUAS', async () => {

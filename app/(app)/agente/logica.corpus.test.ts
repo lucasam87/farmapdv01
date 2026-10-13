@@ -39,16 +39,19 @@ import { recusaLocal } from './logica'
 //
 // Por que em PARES: a fronteira so trava se as duas leituras da mesma cabeca
 // estiverem escritas uma ao lado da outra. Cada par tem exatamente o mesmo
-// prefixo {medida, jeito, forma, maneira, providencia, olhada} e a mesma cauda de
-// medicamento; o que muda e a operacao — de ESTOQUE na coluna da esquerda (tem que
-// PASSAR) e de MEDICACAO na da direita (tem que RECUSAR). Sem o par, um "conserto"
-// que recuse o lado clinico passa despercebido, e um que aceite o lado gerencial
-// tambem: foi assim que o round 4 "passou" com 11.700 pares regressivos fora do
-// corpus.
+// prefixo {medida, jeito, providencia, olhada} e a mesma cauda de medicamento; o
+// que muda e a operacao — de ESTOQUE na coluna da esquerda (tem que PASSAR) e de
+// MEDICACAO na da direita (tem que RECUSAR). Sem o par, um "conserto" que recuse o
+// lado clinico passa despercebido, e um que aceite o lado gerencial tambem: foi
+// assim que o round 4 "passou" com 11.700 pares regressivos fora do corpus.
 //
 // Medicao base x head de cada par desta tabela: base `4d18667` = aceita nas duas
 // colunas; round 4 `602d28f` = recusa as duas; head = aceita a esquerda e recusa a
-// direita. As 13 linhas marcadas `T3b` sao o delta do round 5 contra o round 4.
+// direita.
+//
+// O prefixo {forma, maneira} SAIU desta tabela e da fiacao por ruling R20 (ver
+// `RESIDUO_DE_FORMA_QUE_PASSA` mais abaixo): as 12 frases da familia continuam no
+// arquivo, em blocos proprios, para a regressao nao ser refeita no escuro.
 const PARES_CASADOS: ReadonlyArray<readonly [gestao: string, clinica: string]> = [
   // medida
   ['Qual a medida para dar baixa na dipirona vencida?', 'Qual a medida para dar dipirona para criança?'],
@@ -69,15 +72,6 @@ const PARES_CASADOS: ReadonlyArray<readonly [gestao: string, clinica: string]> =
   ['Qual o jeito de usar o relatório de amoxicilina?', 'Qual o jeito de tomar amoxicilina?'],
   ['Qual o jeito certo de dar baixa na dipirona vencida?', 'Qual o jeito certo de dar dipirona para criança?'],
   ['Qual o melhor jeito de dar baixa na amoxicilina vencida?', 'Qual o melhor jeito de dar dipirona para o bebê?'],
-  // forma — o prefixo "forma" so foi ligado ao T3b neste round: no gatilho de
-  // pessoa atendida (T3d) ele derrubaria "qual a forma de contato com o paciente?"
-  ['Qual a forma de dar baixa na dipirona vencida?', 'Qual a forma de dar dipirona para a criança?'],
-  ['Qual a forma de dar desconto na amoxicilina do estoque?', 'Qual a forma de dar amoxicilina para o paciente?'],
-  ['Qual a forma certa de dar baixa na dipirona no estoque?', 'Qual a forma de medicar a criança com dipirona?'],
-  ['Qual a forma de aplicar o desconto na dipirona no caixa?', 'Qual a forma de dar dipirona para criança na febre?'],
-  // maneira
-  ['Qual a maneira de dar baixa na amoxicilina no sistema?', 'Qual a maneira de dar amoxicilina para o bebê?'],
-  ['Qual a maneira de dar baixa de dipirona no sistema?', 'Qual a maneira de tomar amoxicilina para infecção?'],
   // providência
   ['Qual a providência para dar baixa na dipirona do estoque?', 'Qual a providência para dar dipirona para criança?'],
   ['Qual a providência para dar entrada da amoxicilina no estoque?', 'Qual a providência para tomar amoxicilina para infecção?'],
@@ -310,6 +304,22 @@ const DEVE_PASSAR = [
   'Preciso tomar uma decisão sobre a compra',
   'Pode tomar providências sobre o estoque?',
   'O que eu posso fazer para reduzir o estoque parado?',
+  // ============================================================================
+  // RULING R20 — A FAMILIA `forma`/`maneira`, LADO GERENCIAL.
+  //
+  // Estas 6 frases pertenciam a `PARES_CASADOS` (coluna da esquerda) e foram
+  // tiradas de la quando o prefixo {forma, maneira} saiu da fiacao do T3b. Elas
+  // entram aqui como LITERAIS para a metade R18(b) da fronteira continuar travada:
+  // se alguem religar `FORMA_DE_FAZER`, estas linhas quebram e o comentario do
+  // ruling explica o custo. A metade clinica da mesma familia esta em
+  // `RESIDUO_DE_FORMA_QUE_PASSA`.
+  // ============================================================================
+  'Qual a forma de dar baixa na dipirona vencida?',
+  'Qual a forma de dar desconto na amoxicilina do estoque?',
+  'Qual a forma certa de dar baixa na dipirona no estoque?',
+  'Qual a forma de aplicar o desconto na dipirona no caixa?',
+  'Qual a maneira de dar baixa na amoxicilina no sistema?',
+  'Qual a maneira de dar baixa de dipirona no sistema?',
   // O lado gerencial de cada par do fix round 5 (ver `PARES_CASADOS`).
   ...PARES_CASADOS.map(([gestao]) => gestao),
 ]
@@ -348,6 +358,37 @@ const RESIDUO_QUE_PASSA = [
   'Qual a medida de dipirona?',
 ]
 
+// ============================================================================
+// RESIDUO DE `FORMA`/`MANEIRA` — aceito por RULING R20, e NAO e uma regressao.
+//
+// Historia, para ninguem refazer o caminho: o fix round 5 ligou
+// `FORMA_DE_FAZER = 'forma|maneira'` ao gatilho T3b. Aquilo era ESCOPO ALEM do
+// achado do round (que era a classe "pedido de medida + dar baixa/entrada"), e a
+// medicao deu o resultado como NEGATIVO — 1.840 recusas gerenciais novas contra
+// 1.232 deltas clinicos. A fiacao foi revertida por ruling.
+//
+// ESTAS 6 frases clinicas sao o lado que se perde na reversao. Elas NAO sao
+// regressao: a base `4d18667` (o oraculo da R18) TAMBEM as aceitava — medido, 360
+// frases da familia, 0 com base = recusa. Ou seja, sao residuo de falso negativo
+// JA aceito por ruling (a R18 manda preferir deixar passar a clinica exotica a
+// recusar consulta gerencial legitima), e nao uma perda de cobertura que existia.
+//
+// O bloco existe para DOIS motivos:
+//   1. memoria: apagar as 12 frases apagaria a unica lembranca dessa familia no
+//      repositorio, e "forma"/"maneira" e portugues comum — o proximo agente que
+//      "melhorar" o filtro refaria exatamente a regressao que custou 5 rounds;
+//   2. trava: se alguem religar `FORMA_DE_FAZER`, o teste abaixo QUEBRA e este
+//      comentario explica o que foi medido e por que nao vale a pena.
+// ============================================================================
+const RESIDUO_DE_FORMA_QUE_PASSA = [
+  'Qual a forma de dar dipirona para a criança?',
+  'Qual a forma de dar amoxicilina para o paciente?',
+  'Qual a forma de medicar a criança com dipirona?',
+  'Qual a forma de dar dipirona para criança na febre?',
+  'Qual a maneira de dar amoxicilina para o bebê?',
+  'Qual a maneira de tomar amoxicilina para infecção?',
+]
+
 describe('corpus de regressao do filtro clinico', () => {
   it('recusa as perguntas de saude', () => {
     expect(DEVE_RECUSAR.filter((f) => recusaLocal(f) !== 'clinica')).toEqual([])
@@ -359,6 +400,14 @@ describe('corpus de regressao do filtro clinico', () => {
 
   it('mantem aceito o residuo ambíguo declarado', () => {
     expect(RESIDUO_QUE_PASSA.filter((f) => recusaLocal(f) !== null)).toEqual([])
+  })
+
+  // A trava da R20: esta familia PASSA hoje e TEM que continuar passando. Se
+  // alguem religar `FORMA_DE_FAZER` no `logica.ts`, este teste quebra e o
+  // comentario do bloco conta o que foi medido (1.840 gerenciais contra 1.232
+  // clinicos) e por que a reversao foi adjudicada.
+  it('mantem aceito o residuo de forma/maneira (R20): religar FORMA_DE_FAZER quebra aqui', () => {
+    expect(RESIDUO_DE_FORMA_QUE_PASSA.filter((f) => recusaLocal(f) !== null)).toEqual([])
   })
 
   it('as duas listas nao se sobrepoem', () => {
@@ -380,8 +429,10 @@ describe('corpus de regressao do filtro clinico', () => {
     expect([...errados, ...clinicasQuePassam]).toEqual([])
   })
 
-  it('o par casado cobre os seis prefixos e as tres operacoes de estoque', () => {
-    const prefixos = ['medida', 'jeito', 'forma', 'maneira', 'providência', 'olhada']
+  it('o par casado cobre os quatro prefixos e as tres operacoes de estoque', () => {
+    // `forma` e `maneira` sairam desta lista por ruling R20: elas nao estao mais
+    // em `PARES_CASADOS` de proposito (ver `RESIDUO_DE_FORMA_QUE_PASSA`).
+    const prefixos = ['medida', 'jeito', 'providência', 'olhada']
     const operacoes = ['dar baixa', 'dar entrada', 'dar desconto']
     const faltandoPrefixo = prefixos.filter(
       (p) => !PARES_CASADOS.some(([gestao]) => gestao.toLowerCase().includes(p)),

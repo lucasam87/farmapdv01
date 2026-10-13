@@ -248,6 +248,14 @@ export async function processarPergunta(
 
   // O limite de 4.096 bytes vale para o payload REAL (prompt fixo + pergunta),
   // nao so para a pergunta — que sozinha nunca chegaria perto do teto.
+  //
+  // ⚠️ GUARDA DE FRONTEIRA, INALCANCAVEL COM O LIMITE ATUAL (Minor 8 da revisao
+  // final): o pior caso medido e o prompt fixo (1.016 bytes) + 500 code points de
+  // 4 bytes = 3.016 de 4.096, e `validarPergunta` ja recusou acima de 500 code
+  // points. Ou seja, `motivo: 'payload'` nao dispara por uma pergunta valida. A
+  // guarda fica porque ela mede o que REALMENTE sai (`bytesDoPayload`), e o dia em
+  // que o prompt crescer quem tem que segurar o teto e esta linha — o numero esta
+  // fixado em `logica.test.ts` e em `lib/agente/deepseek.test.ts`.
   if (bytesDoPayload(pergunta) > LIMITE_PAYLOAD_BYTES) {
     return { status: 400, corpo: erro(mensagemRecusa('payload')) }
   }

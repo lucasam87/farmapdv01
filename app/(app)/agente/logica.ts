@@ -35,7 +35,18 @@ export const MAX_TOKENS_SAIDA = 120
 /** Unico modelo permitido ao agente. */
 export const MODELO = 'deepseek-flash'
 
-/** Teto do mes civil de Sao Paulo: US$ 5 em micros de dolar. */
+/**
+ * Teto do mes civil de Sao Paulo: US$ 5 em micros de dolar.
+ *
+ * ⚠️ ONDE O TETO MORA DE VERDADE: no literal `5000000` da RPC
+ * `public.agente_orcamento_reservar` (`supabase/migrations/017_orcamento_agente.sql`,
+ * a comparacao `v_consumido + p_micros > 5000000`). NENHUM codigo de producao le
+ * esta constante — ela existe para o teste fixar o numero do plano e para o
+ * leitor saber qual e o teto. Mudar AQUI nao muda o dinheiro: quem recusa a
+ * reserva que passa do teto e o banco. Ha teste em `logica.test.ts` que amarra os
+ * dois numeros (le a migration e compara), justamente para esta constante nao
+ * virar uma ilusao de controle.
+ */
 export const TETO_MENSAL_MICROS = 5_000_000
 
 /** Intervalo maximo de um periodo explicito, inclusive nas duas pontas. */
@@ -87,27 +98,38 @@ export type DadosResposta =
 // ============================================================
 // Textos ao usuario — em portugues, sempre. Valores em centavos chegam prontos
 // das views e so viram texto aqui, por `lib/format.ts`.
+//
+// ACENTUADOS, e nao e estilo: a convencao do app e acentuada
+// (`app/(app)/crediario/page.tsx`, `vendas/nova/pdv.tsx`) e o MESMO fluxo ja
+// misturava os dois mundos — `orquestracao.ts` e `resposta.ts` sempre tiveram
+// acento, e so este arquivo nao tinha. Sem acento, a tela mostra ao dono um
+// portugues que o resto do sistema nao mostra.
+//
+// ⚠️ ESTES LITERAIS SAO COPIADOS A MAO EM DOIS OUTROS LUGARES e os tres tem que
+// andar juntos: `tests/e2e/agente.spec.ts` (RECUSA_CLINICA / RECUSA_PESSOAL — o
+// `.ts` do Playwright e CommonJS e nao resolve o alias `@/`) e
+// `app/(app)/agente/resposta.test.ts` (a mensagem do 400). Mudou aqui, mude la.
 // ============================================================
 
 const MENSAGENS_RECUSA: Record<MotivoRecusa, string> = {
-  vazia: 'Escreva uma pergunta sobre vendas ou estoque da farmacia.',
-  longa: `A pergunta pode ter no maximo ${LIMITE_PERGUNTA} caracteres.`,
+  vazia: 'Escreva uma pergunta sobre vendas ou estoque da farmácia.',
+  longa: `A pergunta pode ter no máximo ${LIMITE_PERGUNTA} caracteres.`,
   payload: 'A pergunta ficou grande demais para ser enviada. Tente encurtar.',
   clinica:
-    'Nao posso dar orientacao de saude nem indicar remedio, dose ou tratamento. ' +
-    'Procure um medico ou farmaceutico. Posso ajudar com vendas e estoque.',
+    'Não posso dar orientação de saúde nem indicar remédio, dose ou tratamento. ' +
+    'Procure um médico ou farmacêutico. Posso ajudar com vendas e estoque.',
   pessoal:
-    'Remova CPF, telefone e e-mail da pergunta. O assistente nao precisa de dados ' +
+    'Remova CPF, telefone e e-mail da pergunta. O assistente não precisa de dados ' +
     'pessoais para responder sobre vendas e estoque.',
   classificacao:
-    'Nao entendi a pergunta. Tente reformular com vendas, produtos mais vendidos, ' +
+    'Não entendi a pergunta. Tente reformular com vendas, produtos mais vendidos, ' +
     'estoque baixo ou produtos parados.',
 }
 
-const VAZIO_VENDAS = 'Nao ha vendas registradas no periodo consultado.'
-const VAZIO_MAIS_VENDIDOS = 'Ainda nao ha produtos vendidos registrados.'
-const VAZIO_ESTOQUE_BAIXO = 'Nenhum produto precisa de reposicao no momento.'
-const VAZIO_ESTOQUE_PARADO = 'Nenhum produto esta parado no momento.'
+const VAZIO_VENDAS = 'Não há vendas registradas no período consultado.'
+const VAZIO_MAIS_VENDIDOS = 'Ainda não há produtos vendidos registrados.'
+const VAZIO_ESTOQUE_BAIXO = 'Nenhum produto precisa de reposição no momento.'
+const VAZIO_ESTOQUE_PARADO = 'Nenhum produto está parado no momento.'
 
 /** Texto fixo em portugues para cada motivo de recusa. */
 export function mensagemRecusa(motivo: MotivoRecusa): string {
@@ -179,12 +201,18 @@ export function montarResposta(dados: DadosResposta): string {
       return [
         'Produtos com estoque baixo',
         ...dados.linhas.map((linha) => `${linha.nome}: ${linha.estoque_atual} em estoque`),
+        // Transparencia (Minor 11 da revisao final): a view tem MAIS linhas que as
+        // 10 que a rota pede, e sem esta linha o dono leria "Produtos com estoque
+        // baixo" como a lista completa. O numero nao muda — so o que a tela diz
+        // sobre ele. So aparece quando a lista bateu no teto.
+        ...(dados.linhas.length === LIMITE_RESULTADOS ? ['Mostrando os 10 primeiros.'] : []),
       ].join('\n')
 
     case 'estoque_parado':
       return [
         'Produtos parados',
         ...dados.linhas.map((linha) => `${linha.nome}: ${linha.estoque_atual} em estoque`),
+        ...(dados.linhas.length === LIMITE_RESULTADOS ? ['Mostrando os 10 primeiros.'] : []),
       ].join('\n')
   }
 }
@@ -405,12 +433,15 @@ const BAIXA_EM_MEDICAMENTO_DE_PESSOA = new RegExp(
 // base `4d18667` a aceitava, e a R18 manda deixar passar a clinica duvidosa em vez
 // de recusar a gerencial. Fica como residuo declarado.
 const PEDIDO_DE_MEDIDA = 'medida|olhada|jeito|providencia|providencias'
-// "forma" e "maneira" entram SO no gatilho que exige o verbo de medicar (T3b).
-// No `PEDIDO_DE_MEDIDA` compartilhado elas derrubariam "qual a forma de contato
-// com o paciente?" (medido: 1 falso positivo gerencial), porque o T3d aceita
-// qualquer palavra de pessoa atendida sem verbo. Aqui, presas ao verbo, elas so
-// recusam o que e inequivocamente medicacao.
-const FORMA_DE_FAZER = 'forma|maneira'
+// ⚠️ RULING R20 — `forma` e `maneira` NAO pertencem a este gatilho (nem a nenhum).
+// O fix round 5 ligou as duas ao T3b como escopo ALEM do achado, e a medicao deu
+// o resultado como NEGATIVO: 1.840 recusas gerenciais novas contra 1.232 deltas
+// clinicos. Os clinicos perdidos eram casos que a base `4d18667` tambem aceitava
+// (residuo de falso negativo aceito por ruling); as gerenciais nao caem em residuo
+// nenhum — sao violacao direta da R18(b). As 12 frases dessa familia continuam no
+// corpus (`logica.corpus.test.ts`): as 6 gerenciais em `DEVE_PASSAR` e as 6
+// clinicas em `RESIDUO_DE_FORMA_QUE_PASSA`, para o proximo agente ver o que
+// aconteceu antes de "melhorar" o filtro. Nao religue sem medir.
 const MEDIDA_COM_ALVO_DE_SAUDE = new RegExp(
   `\\b(?:${PEDIDO_DE_MEDIDA})\\b(?:\\s+\\S+){0,9}\\s+(?:${ALVO_DE_SAUDE})\\b`,
   'i',
@@ -443,7 +474,7 @@ const AVALIACAO_COM_ALVO_DE_SAUDE = new RegExp(
 //     medido e REJEITADO — ele deixaria passar "qual a medida para dar dipirona
 //     para o cliente?", que e saude (1.700 deltas clinicos perdidos).
 const MEDIDA_COM_VERBO_DE_MEDICAR = new RegExp(
-  `\\b(?:${PEDIDO_DE_MEDIDA}|${FORMA_DE_FAZER})\\b(?:\\s+\\S+){0,6}\\s+(?:tomar|dar|usar|aplicar|ministrar|medicar)\\b` +
+  `\\b(?:${PEDIDO_DE_MEDIDA})\\b(?:\\s+\\S+){0,6}\\s+(?:tomar|dar|usar|aplicar|ministrar|medicar)\\b` +
     `(?!\\s+(?:o |a |os |as |um |uma )?(?:baixa|desconto|entrada|saida)\\b)` +
     `(?!\\s+(?:o |a |os |as |um |uma )(?:${OBJETO_DE_GESTAO})\\b)` +
     `(?:\\s+\\S+){0,3}\\s+(?:${NOME_DE_MEDICAMENTO}|${ALVO_DE_SAUDE})\\b`,
@@ -582,6 +613,13 @@ export function validarPergunta(bruto: unknown): { ok: true; pergunta: string } 
   const pergunta = bruto.trim()
   if (pergunta === '') return { ok: false, motivo: 'vazia' }
   if (contarCaracteres(pergunta) > LIMITE_PERGUNTA) return { ok: false, motivo: 'longa' }
+  // ⚠️ GUARDA DE FRONTEIRA, NAO ALCANCAVEL COM O LIMITE ATUAL (Minor 8 da revisao
+  // final, medido): o pior payload real e o prompt fixo + 500 code points de 4
+  // bytes = 3.016 de 4.096, entao nenhuma pergunta valida chega aqui. A checagem
+  // fica de pe porque o limite de caracteres e o dono do teto de entrada e ela e a
+  // segunda linha de defesa se o prompt crescer — o `motivo: 'payload'` (e o texto
+  // em `MENSAGENS_RECUSA`) seguem existindo por isso. O numero esta fixado em
+  // `logica.test.ts` e em `lib/agente/deepseek.test.ts`.
   if (bytesUtf8(pergunta) > LIMITE_PAYLOAD_BYTES) return { ok: false, motivo: 'payload' }
 
   const local = recusaLocal(pergunta)

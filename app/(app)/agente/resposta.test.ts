@@ -25,16 +25,24 @@ describe('lerRespostaAgente', () => {
   })
 
   it('repassa o erro do servidor sem reescrever, em cada recusa da R6', () => {
-    const casos = [
-      [401, 'Faça login para usar o assistente.'],
-      [403, 'Seu perfil não tem acesso ao assistente.'],
-      [400, 'Escreva uma pergunta sobre vendas ou estoque da farmacia.'],
-      [429, 'O limite mensal do assistente foi atingido. Tente novamente no próximo mês.'],
-      [500, 'Não foi possível ler os dados agora. Tente novamente em instantes.'],
-      [502, 'O assistente está indisponível agora. Tente novamente em instantes.'],
+    // O modulo NAO ve o status HTTP: quem reduz a resposta a `httpOk` e o
+    // componente (`fetch` -> `resposta.ok`). Por isso a lista aqui e so das
+    // MENSAGENS — a coluna de status que existia antes era descartada pelo laco e
+    // so dava aparencia de cobertura (Minor 6 da revisao final). O mapeamento
+    // R6 -> mensagem, para memoria, e: 401 sem sessao, 403 sem perfil, 400 entrada
+    // invalida/fora de escopo, 429 orcamento esgotado, 500 falha de leitura, 502
+    // falha do provedor/ledger. O texto do 400 e copiado de
+    // `MENSAGENS_RECUSA.vazia` (`app/(app)/agente/logica.ts`) — mudou la, mude aqui.
+    const mensagens = [
+      'Faça login para usar o assistente.',
+      'Seu perfil não tem acesso ao assistente.',
+      'Escreva uma pergunta sobre vendas ou estoque da farmácia.',
+      'O limite mensal do assistente foi atingido. Tente novamente no próximo mês.',
+      'Não foi possível ler os dados agora. Tente novamente em instantes.',
+      'O assistente está indisponível agora. Tente novamente em instantes.',
     ] as const
 
-    for (const [, mensagem] of casos) {
+    for (const mensagem of mensagens) {
       expect(lerRespostaAgente(false, { erro: mensagem })).toEqual({ tipo: 'erro', texto: mensagem })
     }
   })

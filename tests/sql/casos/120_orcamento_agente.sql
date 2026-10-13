@@ -308,12 +308,22 @@ begin
                    and not has_table_privilege('authenticated', 'public.agente_orcamento_reservas', 'delete'),
     'permissoes: authenticated nao tem SELECT/INSERT/UPDATE/DELETE em nenhuma das duas tabelas');
   -- E `public` tambem nao: `PUBLIC` e o papel que todo mundo herda, entao um grant
-  -- ali valeria para anon e authenticated de uma vez.
+  -- ali valeria para anon e authenticated de uma vez. A assercao cobre as DUAS
+  -- tabelas e os quatro privilegios de tabela (antes checava so SELECT nas duas e
+  -- um UPDATE de coluna numa delas — prometia mais do que media).
   perform teste_ok(not has_table_privilege('public', 'public.agente_orcamento_mensal', 'select')
+                   and not has_table_privilege('public', 'public.agente_orcamento_mensal', 'insert')
+                   and not has_table_privilege('public', 'public.agente_orcamento_mensal', 'update')
+                   and not has_table_privilege('public', 'public.agente_orcamento_mensal', 'delete')
                    and not has_table_privilege('public', 'public.agente_orcamento_reservas', 'select')
+                   and not has_table_privilege('public', 'public.agente_orcamento_reservas', 'insert')
+                   and not has_table_privilege('public', 'public.agente_orcamento_reservas', 'update')
+                   and not has_table_privilege('public', 'public.agente_orcamento_reservas', 'delete')
                    and not has_column_privilege('public', 'public.agente_orcamento_mensal',
-                                                 'consumido_micros', 'update'),
-    'permissoes: o papel PUBLIC nao tem privilegio nenhum nas tabelas do orcamento');
+                                                 'consumido_micros', 'update')
+                   and not has_column_privilege('public', 'public.agente_orcamento_reservas',
+                                                 'estado', 'update'),
+    'permissoes: o papel PUBLIC nao tem privilegio nenhum nas duas tabelas do orcamento');
   -- As tres funcoes: `anon` e `authenticated` sem EXECUTE. O `revoke ... from anon`
   -- e obrigatorio (o grant chega direto no papel por default privileges).
   perform teste_ok(not has_function_privilege('anon', 'public.agente_orcamento_reservar(date,bigint)', 'execute')
@@ -333,19 +343,39 @@ begin
                    and has_function_privilege('service_role', 'public.agente_orcamento_reconciliar(uuid,bigint)', 'execute')
                    and has_function_privilege('service_role', 'public.agente_orcamento_liberar(uuid)', 'execute'),
     'permissoes: service_role executa reservar, reconciliar e liberar');
-  -- O grant de tabela e o MINIMO, e a prova e a entrada do ACL (e nao so o
-  -- `has_table_privilege`, que devolve true para DELETE tambem por heranca de
-  -- papel — medido com sonda: `service_role` e membro de `postgres` neste
-  -- projeto). O que a MIGRATION concede e `arw` = SELECT + INSERT + UPDATE; a
-  -- entrada exata e assertada, e nao um "contem".
-  perform teste_ok((select a::text from pg_class c, unnest(c.relacl) a
-                     where c.oid = 'public.agente_orcamento_mensal'::regclass
-                       and a::text like 'service_role=%') = 'service_role=arw/postgres',
-    'permissoes: o ACL do mes da a service_role exatamente SELECT+INSERT+UPDATE (arw)');
-  perform teste_ok((select a::text from pg_class c, unnest(c.relacl) a
-                     where c.oid = 'public.agente_orcamento_reservas'::regclass
-                       and a::text like 'service_role=%') = 'service_role=arw/postgres',
-    'permissoes: o ACL das reservas da a service_role exatamente SELECT+INSERT+UPDATE (arw)');
+  -- O grant de tabela e o MINIMO, e a prova e o CONJUNTO DE PRIVILEGIOS do ACL
+  -- (e nao so `has_table_privilege`). A causa do antigo
+  -- `has_table_privilege('service_role', ..., 'delete') = true` NAO era heranca de
+  -- papel: era a ENTRADA de ACL do DEFAULT PRIVILEGES do Supabase, que da
+  -- `service_role=arwdDxtm` a toda tabela criada em `public`. A prova de que a
+  -- causa nao era membership e dupla: se `service_role` herdasse privilegio de
+  -- dono, a assercao de ACL abaixo seria IMPOSSIVEL de passar (o ACL nao teria
+  -- entrada nenhuma) e o DELETE real do bloco de troca de role teria passado.
+  --
+  -- A comparacao e por CONJUNTO DE PRIVILEGIOS (`aclexplode`), e nao pelo texto do
+  -- `aclitem`: o texto crava o grantor (`= 'service_role=arw/postgres'`) e ficaria
+  -- vermelho se o grantor mudasse de nome, sem nenhum privilegio ter mudado; e a
+  -- subquery escalar quebrava com "more than one row" se houvesse duas entradas
+  -- para o mesmo grantee. O conjunto `{SELECT, INSERT, UPDATE}` e o que a funcao
+  -- precisa — nem DELETE nem TRUNCATE num ledger append-only.
+  perform teste_ok((
+    select coalesce(array_agg(distinct p.privilege_type order by p.privilege_type), array[]::text[])
+    from pg_class c
+      cross join lateral aclexplode(c.relacl) p
+      join pg_roles r on r.oid = p.grantee
+    where c.oid = 'public.agente_orcamento_mensal'::regclass
+      and r.rolname = 'service_role'
+    ) = array['INSERT', 'SELECT', 'UPDATE'],
+    'permissoes: o ACL do mes da a service_role exatamente SELECT+INSERT+UPDATE');
+  perform teste_ok((
+    select coalesce(array_agg(distinct p.privilege_type order by p.privilege_type), array[]::text[])
+    from pg_class c
+      cross join lateral aclexplode(c.relacl) p
+      join pg_roles r on r.oid = p.grantee
+    where c.oid = 'public.agente_orcamento_reservas'::regclass
+      and r.rolname = 'service_role'
+    ) = array['INSERT', 'SELECT', 'UPDATE'],
+    'permissoes: o ACL das reservas da a service_role exatamente SELECT+INSERT+UPDATE');
   -- E o DELETE que o DEFAULT PRIVILEGES do Supabase punha no papel NAO esta mais
   -- la (achado Important 1: e a migracao que concede, nao o ambiente).
   perform teste_ok(not has_table_privilege('service_role', 'public.agente_orcamento_mensal', 'delete')
@@ -365,12 +395,19 @@ begin
                               where oid = 'public.agente_orcamento_liberar(uuid)'::regprocedure),
     'seguranca: as tres funcoes do orcamento NAO sao security definer');
   -- As funcoes nao podem ter sido criadas com `search_path` frouxo nem chamando
-  -- objeto sem qualificacao: o corpo tem que falar `public.` explicitamente.
+  -- objeto sem qualificacao: o corpo tem que falar `public.` explicitamente nas
+  -- DUAS tabelas que ele toca, nas TRES funcoes (antes faltava `liberar`, que
+  -- tambem le e escreve as duas).
   perform teste_ok((select position('public.agente_orcamento_mensal' in prosrc) > 0
+                      and position('public.agente_orcamento_reservas' in prosrc) > 0
                     from pg_proc where oid = 'public.agente_orcamento_reservar(date,bigint)'::regprocedure)
                    and (select position('public.agente_orcamento_mensal' in prosrc) > 0
-                          from pg_proc where oid = 'public.agente_orcamento_reconciliar(uuid,bigint)'::regprocedure),
-    'seguranca: o corpo das funcoes referencia as tabelas com o schema qualificado');
+                          and position('public.agente_orcamento_reservas' in prosrc) > 0
+                        from pg_proc where oid = 'public.agente_orcamento_reconciliar(uuid,bigint)'::regprocedure)
+                   and (select position('public.agente_orcamento_mensal' in prosrc) > 0
+                          and position('public.agente_orcamento_reservas' in prosrc) > 0
+                        from pg_proc where oid = 'public.agente_orcamento_liberar(uuid)'::regprocedure),
+    'seguranca: o corpo das TRES funcoes referencia as duas tabelas com o schema qualificado');
 
   -- ================= permissoes: de verdade (troca de role) =================
   -- O bloco e escrito a mao (e nao com `teste_erro`) porque o Postgres proibe

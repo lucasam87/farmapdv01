@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { LIMITE_RESULTADOS } from '@/app/(app)/agente/logica'
 import { classificar } from '@/lib/agente/deepseek'
-import { autenticacaoAtual } from '@/lib/auth/perfil'
+import { autenticacaoAtual, type Perfil } from '@/lib/auth/perfil'
 import { liberar, reconciliar, reservar } from '@/lib/supabase/privilegiado'
 import { criarClienteServidor } from '@/lib/supabase/server'
 import {
@@ -78,7 +78,18 @@ async function consultar(
 }
 
 export async function POST(request: Request) {
-  const { sessao, perfil } = await autenticacaoAtual()
+  // Minor 1 da revisao final: uma excecao de Auth/`cookies()` (env ausente, cookie
+  // corrompido, Auth fora do ar) NAO pode virar o 500 HTML do Next — isso quebra o
+  // contrato `{ erro }` da R6 e a tela cairia no `ERRO_INESPERADO` sem mensagem em
+  // portugues. Sem sessao comprovada, a resposta e a mesma de quem nao tem sessao
+  // (401 com `{ erro }`), decidida num unico lugar: a orquestracao.
+  let autenticacao: { sessao: boolean; perfil: Perfil | null }
+  try {
+    autenticacao = await autenticacaoAtual()
+  } catch {
+    autenticacao = { sessao: false, perfil: null }
+  }
+  const { sessao, perfil } = autenticacao
 
   // Corpo torto nao e erro tecnico: vira `undefined` e a validacao da
   // orquestracao responde a mesma recusa de pergunta ausente.

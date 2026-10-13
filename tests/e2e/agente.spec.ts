@@ -15,6 +15,18 @@ import { expect, test, type Page } from '@playwright/test'
 //      Tarefa 4 — o cenario que so existe nesta camada) e a proibicao de mostrar
 //      detalhe tecnico.
 //
+//      ⚠️ ESTA CAMADA AUTENTICA DE VERDADE (Important 1 da revisao final).
+//      `/agente` NAO e rota publica (`lib/auth/rotas.ts`), entao o `proxy.ts`
+//      manda quem nao tem sessao para `/login` — o proprio teste (9) prova isso. A
+//      versao anterior desta camada fazia `page.goto('/agente')` SEM sessao e o
+//      primeiro `expect(getByTestId('pergunta'))` nunca era satisfeito: os 8 testes
+//      falhavam na arvore commitada, e a "ponte" que injetava o formulario na
+//      pagina publica de login foi descartada sem virar commit. Ou seja: sem
+//      sessao, o unico teste automatizado do comportamento da tela — inclusive a
+//      corrida de resposta obsoleta — nao existe de forma reproduzivel. Por isso
+//      `abrirAgente` faz login real (`entrar`) e depois navega. A interceptacao
+//      por `page.route` fica exatamente como estava.
+//
 //   B) ROTA REAL, SEM INTERCEPTACAO — so o que nao depende de chave configurada:
 //      sem sessao o `/agente` nao abre; logado como dono, a pergunta clinica e a
 //      com CPF mostram a RECUSA LOCAL em portugues, que a rota decide antes de
@@ -65,14 +77,18 @@ const EXEMPLOS = [
 const ERRO_INESPERADO = 'O assistente respondeu de forma inesperada. Tente novamente.'
 
 // Mensagens fixas de recusa local, espelhadas de `MENSAGENS_RECUSA`
-// (`app/(app)/agente/logica.ts:96-101`). Literais de proposito: o `.ts` do
-// Playwright e CommonJS e nao resolve o alias `@/` do tsconfig, e copiar aqui e o
-// mesmo padrao ja usado em `crediario.spec.ts` para as constantes do globalSetup.
+// (`app/(app)/agente/logica.ts`). Literais de proposito, e a duplicacao esta
+// declarada: o `.ts` do Playwright e CommonJS e NAO resolve o alias `@/` do
+// tsconfig, entao importar a constante da aplicacao nao e possivel — copiar aqui
+// e o mesmo padrao ja usado em `crediario.spec.ts` para as constantes do
+// globalSetup. ATENCAO: sao TRES copias que precisam andar juntas — esta,
+// `logica.ts` (a fonte) e `app/(app)/agente/resposta.test.ts` (a mensagem do 400).
+// Acentuadas como a fonte desde o Minor 2 da revisao final.
 const RECUSA_CLINICA =
-  'Nao posso dar orientacao de saude nem indicar remedio, dose ou tratamento. ' +
-  'Procure um medico ou farmaceutico. Posso ajudar com vendas e estoque.'
+  'Não posso dar orientação de saúde nem indicar remédio, dose ou tratamento. ' +
+  'Procure um médico ou farmacêutico. Posso ajudar com vendas e estoque.'
 const RECUSA_PESSOAL =
-  'Remova CPF, telefone e e-mail da pergunta. O assistente nao precisa de dados ' +
+  'Remova CPF, telefone e e-mail da pergunta. O assistente não precisa de dados ' +
   'pessoais para responder sobre vendas e estoque.'
 
 // Nenhum detalhe interno pode aparecer na tela (spec, "Limites, mensagens e
@@ -102,14 +118,26 @@ async function entrar(page: Page) {
   await expect(page.getByRole('link', { name: 'Nova venda' })).toBeVisible()
 }
 
+/**
+ * Abre a tela `/agente` COM sessao — e o unico caminho possivel.
+ *
+ * `/agente` nao e rota publica (`lib/auth/rotas.ts`) e o `proxy.ts` manda quem nao
+ * tem sessao para `/login`, como o proprio teste (9) prova. A versao anterior da
+ * camada A fazia `page.goto('/agente')` SEM sessao: o primeiro
+ * `expect(getByTestId('pergunta'))` nunca era satisfeito e os 8 testes falhavam na
+ * arvore commitada — o "8/8 verde" registrado saiu de uma ponte temporaria que
+ * injetava o formulario na pagina publica de `/login` e que NAO existe no commit.
+ * Com isso, o unico teste automatizado do comportamento da tela (inclusive a
+ * corrida de resposta obsoleta) nao existia de forma reproduzivel: Important 1 da
+ * revisao final.
+ *
+ * O login e o MESMO caminho da camada B (`entrar`), o mesmo padrao dos outros
+ * specs de `tests/e2e`. O `page.route` da camada A segue interceptando o `fetch`
+ * do NAVEGADOR, entao a rota real nunca e chamada e nenhuma reserva de orcamento
+ * sai — a sessao nao custa uma chamada paga.
+ */
 async function abrirAgente(page: Page) {
   await entrar(page)
-  await page.goto('/agente')
-  await expect(page.getByTestId('pergunta')).toBeVisible()
-}
-
-/** Camada A: abre a tela. Nao depende da sessao (a resposta vem de `page.route`). */
-async function irParaAgente(page: Page) {
   await page.goto('/agente')
   await expect(page.getByTestId('pergunta')).toBeVisible()
 }
@@ -137,7 +165,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
   test('(1) a tela abre com o aviso de privacidade, a dica inicial e o contador zerado', async ({
     page,
   }) => {
-    await irParaAgente(page)
+    await abrirAgente(page)
 
     await expect(page.getByTestId('orientacao-privacidade')).toContainText(
       'Não escreva dados pessoais nem de saúde',
@@ -157,7 +185,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
       await rota.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
     })
 
-    await irParaAgente(page)
+    await abrirAgente(page)
 
     for (const exemplo of EXEMPLOS) {
       await page.getByTestId(exemplo.testId).click()
@@ -178,7 +206,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
     page,
   }) => {
     await interceptar(page, { status: 200, corpo: { resposta: 'Resposta de teste.' } })
-    await irParaAgente(page)
+    await abrirAgente(page)
 
     await page.getByTestId('pergunta').fill('vendas')
     await expect(page.getByTestId('contador-caracteres')).toHaveText('6 de 500 caracteres')
@@ -196,7 +224,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
   test('(4) enviar mostra a resposta que o servidor mandou', async ({ page }) => {
     const texto = 'Vendas de hoje: 3 vendas, R$ 45,00. Ticket médio: R$ 15,00.'
     const enviados = await interceptar(page, { status: 200, corpo: { resposta: texto } })
-    await irParaAgente(page)
+    await abrirAgente(page)
 
     await page.getByTestId('pergunta').fill('Como foram as vendas de hoje?')
     await page.getByTestId('enviar').click()
@@ -211,7 +239,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
   test('(5) enviar mostra o erro em portugues que o servidor mandou', async ({ page }) => {
     const texto = 'O limite mensal do assistente foi atingido. Tente novamente no próximo mês.'
     await interceptar(page, { status: 429, corpo: { erro: texto } })
-    await irParaAgente(page)
+    await abrirAgente(page)
 
     await page.getByTestId('pergunta').fill('Como foram as vendas de hoje?')
     await page.getByTestId('enviar').click()
@@ -233,7 +261,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
     for (const combinacao of combinacoes) {
       await page.unroute(URL_ROTA)
       await interceptar(page, combinacao)
-      await irParaAgente(page)
+      await abrirAgente(page)
       await page.getByTestId('pergunta').fill('Como foram as vendas de hoje?')
       await page.getByTestId('enviar').click()
 
@@ -279,7 +307,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
       })
     })
 
-    await irParaAgente(page)
+    await abrirAgente(page)
 
     // 1. o usuario pergunta "A" e a requisicao fica em voo.
     await page.getByTestId('pergunta').fill(perguntaA)
@@ -316,7 +344,7 @@ test.describe('camada A — a tela com a API interceptada pelo navegador', () =>
         body: JSON.stringify({ resposta: `RESPOSTA ${chamadas}` }),
       })
     })
-    await irParaAgente(page)
+    await abrirAgente(page)
 
     await page.getByTestId('pergunta').fill('Como foram as vendas de hoje?')
     await page.getByTestId('enviar').click()

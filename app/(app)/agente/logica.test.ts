@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { bytesDoPayload } from '@/lib/agente/deepseek'
 import {
   LIMITE_PERGUNTA,
   LIMITE_PAYLOAD_BYTES,
@@ -34,6 +36,20 @@ describe('constantes do contrato', () => {
     expect(LIMITE_RESULTADOS).toBe(10)
     expect(TARIFA_ENTRADA_MICROS_POR_MILHAO).toBe(300_000)
     expect(TARIFA_SAIDA_MICROS_POR_MILHAO).toBe(1_200_000)
+  })
+
+  it('o teto do mes da constante e o MESMO literal da RPC do banco (017)', () => {
+    // Minor 7 da revisao final: NENHUM codigo de producao le `TETO_MENSAL_MICROS`.
+    // Quem recusa a reserva que passa do teto e o banco, no literal da RPC. Este
+    // teste amarra os dois numeros para a constante nao virar uma sensacao falsa de
+    // controle sobre o dinheiro (mudar o TS nao mudaria nada, em silencio).
+    const sql = readFileSync(
+      new URL('../../../supabase/migrations/017_orcamento_agente.sql', import.meta.url),
+      'utf8',
+    )
+    const comparacao = /v_consumido\s*\+\s*p_micros\s*>\s*(\d+)/.exec(sql)
+
+    expect(comparacao?.[1]).toBe(String(TETO_MENSAL_MICROS))
   })
 
   it('deriva a reserva das tarifas e dos limites, arredondando para cima', () => {
@@ -100,11 +116,20 @@ describe('validarPergunta', () => {
     expect(validarPergunta(`${pesados}😀`)).toEqual({ ok: false, motivo: 'longa' })
   })
 
-  it('o limite de payload e maior que o pior caso do limite de caracteres', () => {
-    // 500 caracteres de 4 bytes (emoji) = 2.000 bytes: o teto de bytes nunca
-    // dispara por tamanho de pergunta. Ele e guarda de fronteira do payload de
-    // mensagens, e o motivo 'payload' existe para quando a rota mudar o formato.
-    expect(LIMITE_PAYLOAD_BYTES).toBeGreaterThan(LIMITE_PERGUNTA * 4)
+  it('a guarda de payload e de fronteira: o pior caso real cabe, medido no payload', () => {
+    // Minors 5 e 8 da revisao final. A versao antiga comparava
+    // `LIMITE_PAYLOAD_BYTES` com `LIMITE_PERGUNTA * 4` — duas constantes, zero
+    // codigo exercitado, e dava a checagem como cobertura. O que importa e o pior
+    // payload POSSIVEL e REAL: o prompt fixo (1.016 bytes) mais 500 code points de
+    // 4 bytes (emoji) = 3.016 de 4.096. Ou seja: `motivo: 'payload'` NAO e
+    // alcancavel por uma pergunta valida hoje; a guarda fica como fronteira para o
+    // dia em que o prompt crescer (ver `logica.ts` e `orquestracao.ts`).
+    const piorCaso = bytesDoPayload('😀'.repeat(LIMITE_PERGUNTA))
+    const tetoDaPergunta = new TextEncoder().encode('😀'.repeat(LIMITE_PERGUNTA)).length
+
+    expect(tetoDaPergunta).toBe(LIMITE_PERGUNTA * 4)
+    expect(piorCaso).toBe(3_016)
+    expect(piorCaso).toBeLessThanOrEqual(LIMITE_PAYLOAD_BYTES)
   })
 
   it('recusa localmente antes de qualquer chamada externa', () => {

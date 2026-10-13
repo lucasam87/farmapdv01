@@ -589,10 +589,10 @@ describe('leitura e resposta', () => {
 
   it('lista vazia recebe a mensagem fixa em portugues, nao uma resposta inventada', async () => {
     for (const [conteudo, esperado] of [
-      ['{"intencao":"vendas_dia"}', 'Nao ha vendas registradas no periodo consultado.'],
-      ['{"intencao":"mais_vendidos"}', 'Ainda nao ha produtos vendidos registrados.'],
-      ['{"intencao":"estoque_baixo"}', 'Nenhum produto precisa de reposicao no momento.'],
-      ['{"intencao":"estoque_parado"}', 'Nenhum produto esta parado no momento.'],
+      ['{"intencao":"vendas_dia"}', 'Não há vendas registradas no período consultado.'],
+      ['{"intencao":"mais_vendidos"}', 'Ainda não há produtos vendidos registrados.'],
+      ['{"intencao":"estoque_baixo"}', 'Nenhum produto precisa de reposição no momento.'],
+      ['{"intencao":"estoque_parado"}', 'Nenhum produto está parado no momento.'],
     ] as const) {
       const { deps } = montarDeps({ classificacao: { ok: true, conteudo, uso: null } })
       const resposta = await processarPergunta(entrada('Qualquer pergunta gerencial?'), deps)
