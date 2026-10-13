@@ -504,7 +504,7 @@ o `.env.example` é só o modelo vazio.
 | `SUPABASE_SERVICE_ROLE_KEY` | **só o ledger do orçamento** do agente (Etapa 8) | ⚠️ **ausente** — sem ela a rota do agente responde **502 sempre** (a reserva falha antes do envio, então nenhum token é gasto). Nunca vai ao navegador |
 | `DEEPSEEK_BASE_URL` | opcional; só para teste (aponta o provedor para um stub) | ausente; o padrão é `https://api.deepseek.com` e é **ignorada em produção** |
 | `SUPABASE_DB_URL` | conexão direta no banco | ⚠️ **a senha está errada/placeholder e NÃO é usada** — ver abaixo |
-| `SUPABASE_ACCESS_TOKEN` | Personal Access Token (`sbp_`) | 🚨 **responde 401** — é o **único** bloqueio que resta: por ele passam `npm run migrar`, `npm run test:sql`, `test:sql:concorrencia` e o `npm run test:e2e` completo (`tests/e2e/global-setup.mjs:21` aborta sem ele). **Gerar um token novo no painel** (avatar → *Account* → *Access Tokens*) |
+| `SUPABASE_ACCESS_TOKEN` | Personal Access Token (`sbp_`) | ✅ **trocado e funcionando** (13/10/2026). O token anterior foi colado no chat e ficou exposto; foi **revogado** (confere 401 agora) e substituído por um novo, conferido em `GET /v1/projects` → **HTTP 200** e na prática (`npm run test:sql -- 120_orcamento_agente.sql` → **70 OK**). É por ele que passam `npm run migrar`, `npm run test:sql`, `test:sql:concorrencia` e o `npm run test:e2e` completo (`tests/e2e/global-setup.mjs:21` aborta sem ele). **Continua valendo a pendência de revogá-lo no fim do projeto** |
 | `USUARIO_EMAIL` / `USUARIO_SENHA` / `USUARIO_ID` | login de teste | ✅ `lucas@farmacia.local` — login conferido por HTTP 200 com `access_token` |
 
 **Dois pontos importantes para a próxima sessão:**
