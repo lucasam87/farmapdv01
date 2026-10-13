@@ -309,10 +309,25 @@ const DEVE_PASSAR = [
   //
   // Estas 6 frases pertenciam a `PARES_CASADOS` (coluna da esquerda) e foram
   // tiradas de la quando o prefixo {forma, maneira} saiu da fiacao do T3b. Elas
-  // entram aqui como LITERAIS para a metade R18(b) da fronteira continuar travada:
-  // se alguem religar `FORMA_DE_FAZER`, estas linhas quebram e o comentario do
-  // ruling explica o custo. A metade clinica da mesma familia esta em
-  // `RESIDUO_DE_FORMA_QUE_PASSA`.
+  // entram aqui como LITERAIS para a metade R18(b) da fronteira continuar travada.
+  //
+  // CORRECAO MEDIDA (a versao anterior deste comentario estava FALSA): estas 6
+  // gerenciais NAO sao a trava do `FORMA_DE_FAZER` — elas passam MESMO com a
+  // constante religada, porque ja estavam protegidas pelos dois lookaheads locais
+  // do round 5. A medicao foi base x variantes religadas: o modulo copiado para um
+  // diretorio temporario e `forma|maneira` reintroduzido em
+  // `(?:${PEDIDO_DE_MEDIDA})`, que aparece 3 vezes em `logica.ts` (`:446`, `:477`
+  // e `:484`). Resultado, nas 12 frases da familia:
+  //
+  //   | lista                            | base | religado na 1a ocorrencia | religado nas 3 |
+  //   | 6 gerenciais (esta lista)        | null | null                      | null           |
+  //   | 6 clinicas (RESIDUO_DE_FORMA...) | null | 2 de 6 viram `clinica`    | 6 de 6 viram   |
+  //
+  // Quem trava de verdade e o teste do `RESIDUO_DE_FORMA_QUE_PASSA` (o unico que
+  // quebra nas duas variantes). As 6 gerenciais continuam valendo como metade
+  // R18(b) da fronteira — garantem que a familia nao seja recusada por OUTRA
+  // regressao futura —, mas nao como trava do `FORMA_DE_FAZER`. A metade clinica
+  // da mesma familia esta em `RESIDUO_DE_FORMA_QUE_PASSA`.
   // ============================================================================
   'Qual a forma de dar baixa na dipirona vencida?',
   'Qual a forma de dar desconto na amoxicilina do estoque?',
@@ -378,7 +393,10 @@ const RESIDUO_QUE_PASSA = [
 //      repositorio, e "forma"/"maneira" e portugues comum — o proximo agente que
 //      "melhorar" o filtro refaria exatamente a regressao que custou 5 rounds;
 //   2. trava: se alguem religar `FORMA_DE_FAZER`, o teste abaixo QUEBRA e este
-//      comentario explica o que foi medido e por que nao vale a pena.
+//      comentario explica o que foi medido e por que nao vale a pena. E ESTA lista
+//      que trava, nao as 6 gerenciais de `DEVE_PASSAR`: medido, religando a
+//      constante em 1 das 3 ocorrencias 2 das 6 frases abaixo viram `clinica`, e
+//      religando nas 3 as 6 viram `clinica` (as gerenciais seguem aceitas).
 // ============================================================================
 const RESIDUO_DE_FORMA_QUE_PASSA = [
   'Qual a forma de dar dipirona para a criança?',
@@ -405,8 +423,10 @@ describe('corpus de regressao do filtro clinico', () => {
   // A trava da R20: esta familia PASSA hoje e TEM que continuar passando. Se
   // alguem religar `FORMA_DE_FAZER` no `logica.ts`, este teste quebra e o
   // comentario do bloco conta o que foi medido (1.840 gerenciais contra 1.232
-  // clinicos) e por que a reversao foi adjudicada.
-  it('mantem aceito o residuo de forma/maneira (R20): religar FORMA_DE_FAZER quebra aqui', () => {
+  // clinicos) e por que a reversao foi adjudicada. Medido: quebra nas DUAS
+  // variantes de religacao (2 das 6 frases com 1 das 3 ocorrencias religadas; as 6
+  // com as 3). As 6 gerenciais de `DEVE_PASSAR` NAO quebram — quem trava e aqui.
+  it('mantem aceito o residuo de forma/maneira (R20): religar FORMA_DE_FAZER quebra AQUI (as 6 gerenciais nao quebram)', () => {
     expect(RESIDUO_DE_FORMA_QUE_PASSA.filter((f) => recusaLocal(f) !== null)).toEqual([])
   })
 

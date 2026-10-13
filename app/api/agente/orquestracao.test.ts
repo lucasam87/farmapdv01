@@ -127,7 +127,12 @@ describe('sessao e perfil vem antes de qualquer custo', () => {
     )
 
     expect(resposta.status).toBe(401)
-    expect(resposta.corpo).toEqual({ erro: expect.any(String) })
+    // O texto e fixado de proposito (revisao final): a MESMA mensagem responde ao
+    // usuario deslogado e a excecao de Auth/`cookies()` que a rota trata como
+    // "sem sessao" (Minor 1), entao ela nao pode afirmar que ele esta deslogado.
+    expect(resposta.corpo).toEqual({
+      erro: 'Não foi possível confirmar sua sessão. Entre novamente.',
+    })
     expect(nadaFoiChamado(chamadas)).toBe(true)
   })
 

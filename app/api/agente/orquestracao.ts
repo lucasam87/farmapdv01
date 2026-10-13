@@ -94,7 +94,12 @@ export type Deps = {
 
 // Mensagens curtas em portugues. Nenhuma delas carrega detalhe tecnico, chave,
 // prompt ou linha de banco, e nenhuma e registrada em log.
-const MENSAGEM_SEM_SESSAO = 'Faça login para usar o assistente.'
+// A de 401 e usada nos DOIS casos de `sessao: false` — sem sessao nenhuma E
+// excecao de Auth/`cookies()` tratada como "sem sessao" na rota (Minor 1) —, entao
+// ela nao pode afirmar que o usuario esta deslogado: se o Auth caiu e ele estava
+// logado, "faca login" seria falso. "Nao foi possivel confirmar sua sessao" e
+// verdadeiro nos dois casos. O status continua 401 (fail closed).
+const MENSAGEM_SEM_SESSAO = 'Não foi possível confirmar sua sessão. Entre novamente.'
 const MENSAGEM_SEM_PERFIL = 'Seu perfil não tem acesso ao assistente.'
 const MENSAGEM_ORCAMENTO =
   'O limite mensal do assistente foi atingido. Tente novamente no próximo mês.'

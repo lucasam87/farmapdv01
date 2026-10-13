@@ -47,9 +47,27 @@ describe('constantes do contrato', () => {
       new URL('../../../supabase/migrations/017_orcamento_agente.sql', import.meta.url),
       'utf8',
     )
-    const comparacao = /v_consumido\s*\+\s*p_micros\s*>\s*(\d+)/.exec(sql)
 
-    expect(comparacao?.[1]).toBe(String(TETO_MENSAL_MICROS))
+    // Endurecido na revisao final (o teste casava a regex CRUA no arquivo inteiro):
+    //   (a) linhas de comentario `--` saem ANTES de casar, para o teste nao passar
+    //       (nem quebrar) por causa de um comentario que cite a comparacao;
+    //   (b) os espacos sao normalizados, para reformatar o SQL nao virar quebra
+    //       ruidosa por um motivo que nao e o que este teste mede;
+    //   (c) tem que existir EXATAMENTE UMA comparacao de teto no codigo, e a
+    //       ausencia de qualquer uma falha com mensagem propria, e nao com um
+    //       `undefined` comparado com string.
+    const codigo = sql
+      .split('\n')
+      .filter((linha) => !linha.trimStart().startsWith('--'))
+      .join('\n')
+      .replace(/\s+/g, ' ')
+    const comparacoes = [...codigo.matchAll(/v_consumido \+ p_micros > (\d+)/g)]
+
+    expect(
+      comparacoes.length,
+      `nao achei a comparacao de teto na migration (017): esperava exatamente uma, encontrei ${comparacoes.length}`,
+    ).toBe(1)
+    expect(comparacoes[0]?.[1]).toBe(String(TETO_MENSAL_MICROS))
   })
 
   it('deriva a reserva das tarifas e dos limites, arredondando para cima', () => {

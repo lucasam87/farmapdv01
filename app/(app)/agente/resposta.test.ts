@@ -29,12 +29,13 @@ describe('lerRespostaAgente', () => {
     // componente (`fetch` -> `resposta.ok`). Por isso a lista aqui e so das
     // MENSAGENS — a coluna de status que existia antes era descartada pelo laco e
     // so dava aparencia de cobertura (Minor 6 da revisao final). O mapeamento
-    // R6 -> mensagem, para memoria, e: 401 sem sessao, 403 sem perfil, 400 entrada
-    // invalida/fora de escopo, 429 orcamento esgotado, 500 falha de leitura, 502
-    // falha do provedor/ledger. O texto do 400 e copiado de
+    // R6 -> mensagem, para memoria, e: 401 sem sessao (ou sessao NAO CONFIRMAVEL,
+    // quando o Auth esta fora do ar), 403 sem perfil, 400 entrada invalida/fora de
+    // escopo, 429 orcamento esgotado, 500 falha de leitura, 502 falha do
+    // provedor/ledger. O texto do 400 e copiado de
     // `MENSAGENS_RECUSA.vazia` (`app/(app)/agente/logica.ts`) — mudou la, mude aqui.
     const mensagens = [
-      'Faça login para usar o assistente.',
+      'Não foi possível confirmar sua sessão. Entre novamente.',
       'Seu perfil não tem acesso ao assistente.',
       'Escreva uma pergunta sobre vendas ou estoque da farmácia.',
       'O limite mensal do assistente foi atingido. Tente novamente no próximo mês.',
