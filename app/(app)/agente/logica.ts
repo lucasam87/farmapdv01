@@ -341,8 +341,12 @@ const NOME_DE_MEDICAMENTO =
 // Objeto de GESTAO: quando ele aparece na frase, o gatilho de pessoa atendida
 // (T3d) NAO dispara. E o que separa "uma medida de dipirona para crianca" (saude)
 // de "uma olhada na dipirona do estoque" (gestao).
+//
+// "comprovante" entrou no fix round 5: ele JA era contexto de negocio do T1
+// (`CONTEXTO_DE_NEGOCIO`) mas tinha ficado de fora desta lista, e a assimetria
+// deixava "qual a medida para usar o comprovante de dipirona?" passar como saude.
 const OBJETO_DE_GESTAO =
-  'estoque|nota|fiscal|mercadoria|produto|produtos|relatorio|venda|vendas|sistema|caixa|pedido|compra|planilha|fornecedor|cliente|clientes|preco|margem|conta|contas|financeiro|valor|fatura|lucro|comissao|custo|cadastro|lote|validade|vencimento|balanco|faturamento|nf|nfe'
+  'comprovante|estoque|nota|fiscal|mercadoria|produto|produtos|relatorio|venda|vendas|sistema|caixa|pedido|compra|planilha|fornecedor|cliente|clientes|preco|margem|conta|contas|financeiro|valor|fatura|lucro|comissao|custo|cadastro|lote|validade|vencimento|balanco|faturamento|nf|nfe'
 
 const temObjetoDeGestao = new RegExp(`\\b(?:${OBJETO_DE_GESTAO})\\b`, 'i')
 // Sinal de pessoa atendida: sintoma, dose ou alguem sendo tratado. E o que
@@ -386,7 +390,10 @@ const BAIXA_EM_MEDICAMENTO_DE_PESSOA = new RegExp(
 //        Vale mesmo com objeto de gestao no meio: "uma olhada no relatorio DA
 //        DOSE DE amoxicilina" e pergunta de SAUDE.
 //   T3b: "jeito de tomar amoxicilina", "jeito de dar dipirona" — o verbo de
-//        medicar desambiguia o catalogo.
+//        medicar desambiguia o catalogo. O verbo SOZINHO nao basta (ver o achado
+//        do fix round 5 logo abaixo): ele ainda exige que o que vem depois dele
+//        nao seja uma operacao de gestao ("dar BAIXA", "dar ENTRADA", "aplicar o
+//        DESCONTO") nem um objeto de gestao.
 //   T3d: pessoa atendida no pedido ("uma medida de dipirona para crianca"), e so
 //        quando NAO ha objeto de gestao nenhum na frase.
 //   T3e: "decisao"/"atitude" so com alvo de saude inequivoco perto — sao palavras
@@ -398,6 +405,12 @@ const BAIXA_EM_MEDICAMENTO_DE_PESSOA = new RegExp(
 // base `4d18667` a aceitava, e a R18 manda deixar passar a clinica duvidosa em vez
 // de recusar a gerencial. Fica como residuo declarado.
 const PEDIDO_DE_MEDIDA = 'medida|olhada|jeito|providencia|providencias'
+// "forma" e "maneira" entram SO no gatilho que exige o verbo de medicar (T3b).
+// No `PEDIDO_DE_MEDIDA` compartilhado elas derrubariam "qual a forma de contato
+// com o paciente?" (medido: 1 falso positivo gerencial), porque o T3d aceita
+// qualquer palavra de pessoa atendida sem verbo. Aqui, presas ao verbo, elas so
+// recusam o que e inequivocamente medicacao.
+const FORMA_DE_FAZER = 'forma|maneira'
 const MEDIDA_COM_ALVO_DE_SAUDE = new RegExp(
   `\\b(?:${PEDIDO_DE_MEDIDA})\\b(?:\\s+\\S+){0,9}\\s+(?:${ALVO_DE_SAUDE})\\b`,
   'i',
@@ -410,8 +423,29 @@ const AVALIACAO_COM_ALVO_DE_SAUDE = new RegExp(
   `\\b(?:decisao|decisoes|atitude|atitudes)\\b(?:\\s+\\S+){0,6}\\s+(?:${ALVO_DE_SAUDE})\\b`,
   'i',
 )
+// ACHADO UNICO DO FIX ROUND 5 — o verbo de medicar NAO desambigua sozinho.
+//
+// Sem os dois lookaheads abaixo este gatilho recusava a classe inteira de gestao
+// de estoque que comeca com um pedido de medida e cita um medicamento:
+// "qual a medida para dar baixa na dipirona vencida?", "tem jeito de dar baixa em
+// dipirona vencida?", "qual a providencia para dar entrada da amoxicilina no
+// estoque?". A razao e que "dar" tambem e o verbo de DAR BAIXA, DAR ENTRADA e DAR
+// DESCONTO, e "usar"/"aplicar" valem para "usar o sistema" e "aplicar o desconto".
+// Medido: 16.320 pares `base=aceita -> head=recusa` na familia
+// "prefixo x dar baixa/entrada/desconto x medicamento x sufixo", 7.440 deles novos
+// contra o round 3.
+//
+// Os dois lookaheads sao a correcao MINIMA; nao ha guarda de frase inteira aqui.
+//   * o primeiro e a MESMA lista de exclusao que o `PEDIDO_DE_MEDICAR` ja usa na
+//     camada 1 (o "baixa/desconto/entrada" que separa medicar de gerir);
+//   * o segundo olha o objeto de gestao LOGO depois do verbo. E deliberadamente
+//     local: um guarda de frase inteira (`temObjetoDeGestao`, como o T3d) foi
+//     medido e REJEITADO — ele deixaria passar "qual a medida para dar dipirona
+//     para o cliente?", que e saude (1.700 deltas clinicos perdidos).
 const MEDIDA_COM_VERBO_DE_MEDICAR = new RegExp(
-  `\\b(?:${PEDIDO_DE_MEDIDA})\\b(?:\\s+\\S+){0,6}\\s+(?:tomar|dar|usar|aplicar|ministrar|medicar)\\b` +
+  `\\b(?:${PEDIDO_DE_MEDIDA}|${FORMA_DE_FAZER})\\b(?:\\s+\\S+){0,6}\\s+(?:tomar|dar|usar|aplicar|ministrar|medicar)\\b` +
+    `(?!\\s+(?:o |a |os |as |um |uma )?(?:baixa|desconto|entrada|saida)\\b)` +
+    `(?!\\s+(?:o |a |os |as |um |uma )(?:${OBJETO_DE_GESTAO})\\b)` +
     `(?:\\s+\\S+){0,3}\\s+(?:${NOME_DE_MEDICAMENTO}|${ALVO_DE_SAUDE})\\b`,
   'i',
 )
@@ -491,7 +525,10 @@ function recusaPessoal(pergunta: string): boolean {
  *     (`logica.corpus.test.ts`) e as que a base `4d18667` ja recusava;
  *   * nunca recusar uma consulta gerencial que a base `4d18667` aceitava. A
  *     varredura combinatoria base x head tem que devolver ZERO pares
- *     `base=aceita -> head=recusa`, e o corpus trava a classe;
+ *     `base=aceita -> head=recusa`, e o corpus trava a classe. O corpus tem uma
+ *     secao propria para a classe do fix round 5 (pedido de medida + operacao de
+ *     estoque + medicamento), montada em PARES CASADOS: a versao gerencial e a
+ *     versao clinica da mesma cabeca, uma ao lado da outra;
  *   * nunca chamar nada nem consultar view por conta propria.
  *
  * O QUE ESTA FUNCAO NAO PROMETE (o residuo aceito pela spec):
@@ -501,7 +538,15 @@ function recusaPessoal(pergunta: string): boolean {
  *     literalmente que "nenhum filtro textual consegue reconhecer toda forma
  *     possivel" e que os padroes cobertos sao os CONHECIDOS;
  *   * reconhecer todo dado pessoal: nome completo, RG, endereco, cartao ou
- *     prontuario passam, porque nao ha padrao confiavel para eles.
+ *     prontuario passam, porque nao ha padrao confiavel para eles;
+ *   * distinguir "medida" de DOSE de "medida" de METRICA quando nao ha nem verbo
+ *     de medicar nem alvo de saude nem pessoa atendida: "qual a medida da
+ *     amoxicilina?" PASSA (residuo 2 do corpus). Recusa-la recusaria tambem
+ *     "a medida de venda por atendente", e a R18 manda deixar passar a clinica
+ *     duvidosa em vez de recusar a gerencial;
+ *   * cobrir o pedido generico de AJUDA que cita medicamento: "me ajuda a dar
+ *     baixa na amoxicilina vencida" e recusado — e a base `4d18667` tambem o
+ *     recusava, entao nao e regressao, mas tambem nao e acerto novo.
  *   Ela e uma barreira de BOA FE, nao uma garantia de que nada sensivel escapa.
  */
 export function recusaLocal(pergunta: string): 'clinica' | 'pessoal' | null {

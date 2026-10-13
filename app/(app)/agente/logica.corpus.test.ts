@@ -13,6 +13,13 @@ import { recusaLocal } from './logica'
 // a barreira da base `4d18667`, congelada, e os gatilhos fortes, que so ACRESCENTAM
 // recusa. Este arquivo e o que impede a camada 2 de virar o round 4.
 //
+// O round 5 mostrou que "medir contra a base" NAO basta se a familia nao estiver
+// no corpus: o gatilho T3b recusava "qual a medida para dar baixa na dipirona
+// vencida?" e o corpus era CEGO para essa classe (nenhuma frase do tipo
+// "qual o jeito de dar baixa <medicamento>" estava em nenhuma das duas listas).
+// Por isso a classe do round 5 entrou como `PARES_CASADOS`, com o lado gerencial e
+// o lado clinico da mesma cabeca na mesma tabela.
+//
 // Regra que este arquivo protege:
 //   * consulta gerencial legitima NUNCA pode ser recusada (linha dura da spec);
 //   * pergunta de SAUDE reconhecida tem que ser recusada;
@@ -21,6 +28,64 @@ import { recusaLocal } from './logica'
 //   * TODA frase deste arquivo foi medida contra a base `4d18667` por um oraculo
 //     base x head fora do checkout. As gerenciais sao `base=aceita`; as clinicas
 //     sao recusadas no head (a maioria tambem na base).
+
+// ---- PAR CASADO DO FIX ROUND 5: pedido de medida + operacao de estoque -------
+//
+// A classe que o round 4 deixou passar em silencio: o gatilho T3b
+// (`MEDIDA_COM_VERBO_DE_MEDICAR`) aceitava o verbo de medicar como prova de que a
+// frase era clinica, mas "dar" tambem e o verbo de DAR BAIXA, DAR ENTRADA e DAR
+// DESCONTO. Resultado: "qual a medida para dar baixa na dipirona vencida?" era
+// recusada, e a versao sem prefixo da MESMA frase passava.
+//
+// Por que em PARES: a fronteira so trava se as duas leituras da mesma cabeca
+// estiverem escritas uma ao lado da outra. Cada par tem exatamente o mesmo
+// prefixo {medida, jeito, forma, maneira, providencia, olhada} e a mesma cauda de
+// medicamento; o que muda e a operacao — de ESTOQUE na coluna da esquerda (tem que
+// PASSAR) e de MEDICACAO na da direita (tem que RECUSAR). Sem o par, um "conserto"
+// que recuse o lado clinico passa despercebido, e um que aceite o lado gerencial
+// tambem: foi assim que o round 4 "passou" com 11.700 pares regressivos fora do
+// corpus.
+//
+// Medicao base x head de cada par desta tabela: base `4d18667` = aceita nas duas
+// colunas; round 4 `602d28f` = recusa as duas; head = aceita a esquerda e recusa a
+// direita. As 13 linhas marcadas `T3b` sao o delta do round 5 contra o round 4.
+const PARES_CASADOS: ReadonlyArray<readonly [gestao: string, clinica: string]> = [
+  // medida
+  ['Qual a medida para dar baixa na dipirona vencida?', 'Qual a medida para dar dipirona para criança?'],
+  ['Qual a medida para dar baixa na amoxicilina vencida?', 'Qual a medida para dar amoxicilina para o bebê?'],
+  ['Qual a medida para dar baixa em dipirona?', 'Qual a medida para dar dipirona ao cliente com dor?'],
+  ['Qual a medida para dar entrada de amoxicilina no sistema?', 'Qual a medida para usar amoxicilina no bebê?'],
+  ['Qual a medida para dar desconto na dipirona para o cliente?', 'Qual a medida para tomar paracetamol para dor?'],
+  ['Qual a medida para usar o sistema de dipirona?', 'Qual a medida para usar dipirona na febre?'],
+  ['Qual a medida para registrar a entrada de amoxicilina no sistema?', 'Qual a medida para registrar a dose de amoxicilina para criança?'],
+  ['Preciso de uma medida para dar baixa na amoxicilina vencida', 'Preciso de uma medida de dipirona para criança'],
+  // jeito
+  ['Tem jeito de dar baixa em dipirona vencida?', 'Tem jeito de dar dipirona para o meu filho?'],
+  ['Tem jeito de dar baixa na amoxicilina vencida no estoque?', 'Tem jeito de dar amoxicilina para o bebê agora?'],
+  ['Tem jeito de dar entrada de amoxicilina no estoque?', 'Tem jeito de dar xarope para tosse?'],
+  ['Tem jeito de lançar a baixa de dipirona no caixa?', 'Tem jeito de aplicar dipirona na alergia?'],
+  ['Qual o jeito de dar baixa na dipirona do estoque?', 'Qual o jeito de dar remédio para pressão alta?'],
+  ['Qual o jeito de dar entrada da amoxicilina no sistema?', 'Qual o jeito de dar amoxicilina para o bebê com febre?'],
+  ['Qual o jeito de usar o relatório de amoxicilina?', 'Qual o jeito de tomar amoxicilina?'],
+  ['Qual o jeito certo de dar baixa na dipirona vencida?', 'Qual o jeito certo de dar dipirona para criança?'],
+  ['Qual o melhor jeito de dar baixa na amoxicilina vencida?', 'Qual o melhor jeito de dar dipirona para o bebê?'],
+  // forma — o prefixo "forma" so foi ligado ao T3b neste round: no gatilho de
+  // pessoa atendida (T3d) ele derrubaria "qual a forma de contato com o paciente?"
+  ['Qual a forma de dar baixa na dipirona vencida?', 'Qual a forma de dar dipirona para a criança?'],
+  ['Qual a forma de dar desconto na amoxicilina do estoque?', 'Qual a forma de dar amoxicilina para o paciente?'],
+  ['Qual a forma certa de dar baixa na dipirona no estoque?', 'Qual a forma de medicar a criança com dipirona?'],
+  ['Qual a forma de aplicar o desconto na dipirona no caixa?', 'Qual a forma de dar dipirona para criança na febre?'],
+  // maneira
+  ['Qual a maneira de dar baixa na amoxicilina no sistema?', 'Qual a maneira de dar amoxicilina para o bebê?'],
+  ['Qual a maneira de dar baixa de dipirona no sistema?', 'Qual a maneira de tomar amoxicilina para infecção?'],
+  // providência
+  ['Qual a providência para dar baixa na dipirona do estoque?', 'Qual a providência para dar dipirona para criança?'],
+  ['Qual a providência para dar entrada da amoxicilina no estoque?', 'Qual a providência para tomar amoxicilina para infecção?'],
+  ['Qual a providência para dar desconto na dipirona?', 'Qual a providência para dar dipirona para o bebê?'],
+  ['Qual a providência certa para dar entrada da dipirona no sistema?', 'Qual a providência certa para dar dipirona para criança?'],
+  // olhada
+  ['Qual a olhada para dar baixa na amoxicilina vencida?', 'Qual a olhada para dar dipirona para criança?'],
+]
 
 // ---- Tem que recusar: pedido de conselho clinico ---------------------------------
 const DEVE_RECUSAR = [
@@ -97,6 +162,10 @@ const DEVE_RECUSAR = [
   'Posso tomar uma medida de dipirona?',
   'Preciso tomar uma medida de dipirona?',
   'Posso dar uma medida de xarope?',
+  // O lado clinico de cada par do fix round 5. Entram por `spread` para nao poderem
+  // divergir da tabela `PARES_CASADOS` — se alguem editar so uma das metades, o
+  // teste "o par casado da fronteira do round 5 continua separado" quebra.
+  ...PARES_CASADOS.map(([, clinica]) => clinica),
 ]
 
 // ---- Tem que passar: consulta gerencial legitima ---------------------------------
@@ -241,6 +310,8 @@ const DEVE_PASSAR = [
   'Preciso tomar uma decisão sobre a compra',
   'Pode tomar providências sobre o estoque?',
   'O que eu posso fazer para reduzir o estoque parado?',
+  // O lado gerencial de cada par do fix round 5 (ver `PARES_CASADOS`).
+  ...PARES_CASADOS.map(([gestao]) => gestao),
 ]
 
 // RESIDUO DECLARADO — frases que o head recusa e a BASE `4d18667` TAMBEM recusava.
@@ -293,5 +364,45 @@ describe('corpus de regressao do filtro clinico', () => {
   it('as duas listas nao se sobrepoem', () => {
     const recusar = new Set(DEVE_RECUSAR)
     expect(DEVE_PASSAR.filter((f) => recusar.has(f))).toEqual([])
+  })
+
+  // A fronteira do fix round 5, travada nas duas pontas. Um guarda de "frase
+  // inteira" (o `temObjetoDeGestao` do T3d) foi medido e rejeitado justamente
+  // porque derruba a terceira linha abaixo: "dar dipirona para o cliente" e saude,
+  // e `cliente` esta na lista de objeto de gestao.
+  it('o par casado da fronteira do round 5 continua separado', () => {
+    const errados = PARES_CASADOS.filter(([gestao]) => recusaLocal(gestao) !== null).map(
+      ([gestao, clinica]) => `gestao recusada: ${gestao} / ${clinica}`,
+    )
+    const clinicasQuePassam = PARES_CASADOS.filter(([, clinica]) => recusaLocal(clinica) !== 'clinica').map(
+      ([gestao, clinica]) => `clinica aceita: ${clinica} / ${gestao}`,
+    )
+    expect([...errados, ...clinicasQuePassam]).toEqual([])
+  })
+
+  it('o par casado cobre os seis prefixos e as tres operacoes de estoque', () => {
+    const prefixos = ['medida', 'jeito', 'forma', 'maneira', 'providência', 'olhada']
+    const operacoes = ['dar baixa', 'dar entrada', 'dar desconto']
+    const faltandoPrefixo = prefixos.filter(
+      (p) => !PARES_CASADOS.some(([gestao]) => gestao.toLowerCase().includes(p)),
+    )
+    const faltandoOperacao = operacoes.filter(
+      (o) => !PARES_CASADOS.some(([gestao]) => gestao.toLowerCase().includes(o)),
+    )
+    expect([...faltandoPrefixo, ...faltandoOperacao]).toEqual([])
+  })
+
+  // A leitura clinica da mesma cabeca gerencial: prova que o lado esquerdo do par
+  // nao foi consertado a custa do lado direito.
+  it('cita medicamento e continua passando quando o alvo e estoque', () => {
+    const estoqueComMedicamento = [
+      'Tem como dar baixa em dipirona vencida?',
+      'Como dar baixa na dipirona vencida no sistema?',
+      'Posso dar baixa na amoxicilina vencida?',
+      'Preciso dar entrada da amoxicilina no estoque',
+      'Posso dar baixa na dipirona do estoque?',
+      'Qual a medida de venda por atendente?',
+    ]
+    expect(estoqueComMedicamento.filter((f) => recusaLocal(f) !== null)).toEqual([])
   })
 })
