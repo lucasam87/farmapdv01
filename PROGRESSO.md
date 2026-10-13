@@ -544,9 +544,18 @@ Descrição e tópicos preenchidos (`farmacia`, `pdv`, `nextjs`, `supabase`, `po
 |---|---|---|
 | `main` | `a9f55cd` | ✅ |
 | `etapa-0-2-fundacao` | `58553e0` | ✅ |
+| `etapa-3-4-produtos-estoque-pdv` | `17abc5e` | ✅ (push de 13/10/2026) |
 
 Ambas com `-u`, então `git push` sozinho já sobe o trabalho daqui para frente. **53
 arquivos** no remoto, igual ao local.
+
+**A branch de trabalho também subiu, e foi auditada antes:** em **13/10/2026**, `git push origin
+etapa-3-4-produtos-estoque-pdv` levou as Etapas 4 a 8 (`daef717..17abc5e`, **18 commits**), com o
+remoto conferido hash a hash em `17abc5e90f232431151dd2adfcc54fbdcf49a6d0` — idêntico ao local, zero
+commits de diferença. Antes de empurrar, o range foi varrido por segredo: o token de acesso
+(`sbp_fc6c…`) e a senha do usuário de teste aparecem **0 vezes**, e o único `.env*` no diff é o
+`.env.example`, com **todos os valores vazios** (inclusive a `SUPABASE_SERVICE_ROLE_KEY` recém
+acrescentada). As duas menções à string `sbp_` são o texto da documentação desta tabela.
 
 **Autenticação:** `gh` (GitHub CLI **2.102.0**, instalado via winget) autenticado na conta
 `lucasam87` pelo cofre de credenciais do Windows (`gh auth status` → `✓ Logged in to
