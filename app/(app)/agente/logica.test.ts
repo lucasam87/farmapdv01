@@ -251,7 +251,9 @@ describe('recusaLocal — clinica', () => {
     expect(recusaLocal('Posso dar uma olhada na dose da amoxicilina?')).toBe('clinica')
     expect(recusaLocal('Preciso de uma olhada na posologia do xarope')).toBe('clinica')
     expect(recusaLocal('Devo tomar uma medida para a dor?')).toBe('clinica')
-    expect(recusaLocal('Posso dar desconto na dipirona?')).toBe('clinica')
+    // NAO e clinica: e o achado 1 do fix round 4. "dar desconto na dipirona" e o
+    // desconto comercial no produto, e a base `4d18667` sempre aceitou.
+    expect(recusaLocal('Posso dar desconto na dipirona?')).toBeNull()
     expect(recusaLocal('Posso dar baixa na tosse do meu filho?')).toBe('clinica')
   })
 
