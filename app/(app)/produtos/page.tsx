@@ -57,25 +57,25 @@ export default async function ProdutosPage({
   return (
     <div className="mx-auto max-w-5xl">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-slate-800">Produtos</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Produtos</h1>
         <div className="flex gap-3">
           <Link
             href="/produtos/novo"
-            className="rounded-lg bg-slate-800 px-5 py-3 text-base font-medium text-white hover:bg-slate-700"
+            className="rounded-lg bg-primary px-5 py-3 text-base font-medium text-primary-foreground hover:opacity-90"
           >
             Novo produto
           </Link>
           <Link
             href="/produtos/importar"
-            className="rounded-lg border border-slate-300 px-5 py-3 text-base font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-lg border border-input px-5 py-3 text-base font-medium text-foreground hover:bg-muted"
           >
             Importar planilha
           </Link>
         </div>
       </div>
 
-      <form className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
-        <label htmlFor="busca" className="block text-sm font-medium text-slate-700">
+      <form className="mt-6 rounded-lg bg-card p-6 shadow-sm">
+        <label htmlFor="busca" className="block text-sm font-medium text-foreground">
           Buscar por nome ou código de barras
         </label>
         <div className="mt-2 flex flex-wrap items-end gap-3">
@@ -83,15 +83,15 @@ export default async function ProdutosPage({
             id="busca"
             name="busca"
             defaultValue={termo}
-            className="w-full max-w-sm rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900"
+            className="w-full max-w-sm rounded-lg border border-input bg-card px-4 py-3 text-base text-foreground"
           />
-          <label className="flex items-center gap-2 text-base text-slate-700">
+          <label className="flex items-center gap-2 text-base text-foreground">
             <input type="checkbox" name="inativos" value="sim" defaultChecked={Boolean(inativos)} className="h-5 w-5" />
             Mostrar inativos
           </label>
           <button
             type="submit"
-            className="rounded-lg bg-slate-100 px-5 py-3 text-base font-medium text-slate-700 hover:bg-slate-200"
+            className="rounded-lg bg-muted px-5 py-3 text-base font-medium text-foreground hover:bg-border"
           >
             Buscar
           </button>
@@ -99,19 +99,19 @@ export default async function ProdutosPage({
       </form>
 
       {total > produtos.length ? (
-        <p className="mt-4 text-base text-amber-800">
+        <p className="mt-4 text-base text-warning">
           Mostrando {produtos.length} de {total}. Refine a busca.
         </p>
       ) : null}
 
       {produtos.length === 0 ? (
-        <p className="mt-6 rounded-2xl bg-white p-8 text-lg text-slate-600 shadow-sm">
+        <p className="mt-6 rounded-lg bg-card p-8 text-lg text-muted-foreground shadow-sm">
           Nenhum produto encontrado.
         </p>
       ) : (
-        <table className="mt-6 w-full rounded-2xl bg-white text-left text-base shadow-sm">
+        <table className="mt-6 w-full rounded-lg bg-card text-left text-base shadow-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-sm text-slate-500">
+            <tr className="border-b border-border text-sm text-muted-foreground">
               <th className="p-4 font-medium">Código</th>
               <th className="p-4 font-medium">Nome</th>
               <th className="p-4 font-medium">Preço</th>
@@ -123,16 +123,16 @@ export default async function ProdutosPage({
               const baixo = p.estoque_atual <= p.estoque_minimo
               const zerado = p.estoque_atual === 0
               return (
-                <tr key={p.id} className="border-b border-slate-100">
-                  <td className="p-4 text-slate-500">{p.codigo_barras ?? '—'}</td>
+                <tr key={p.id} className="border-b border-border">
+                  <td className="p-4 text-muted-foreground">{p.codigo_barras ?? '—'}</td>
                   <td className="p-4">
-                    <Link href={`/produtos/${p.id}`} className="text-slate-800 underline">
+                    <Link href={`/produtos/${p.id}`} className="text-foreground underline">
                       {p.nome}
                     </Link>
-                    {!p.ativo ? <span className="ml-2 text-sm text-slate-400">(inativo)</span> : null}
+                    {!p.ativo ? <span className="ml-2 text-sm text-muted-foreground">(inativo)</span> : null}
                   </td>
-                  <td className="p-4 text-slate-700">{formatarMoeda(p.preco_venda)}</td>
-                  <td className={`p-4 font-medium ${zerado ? 'text-slate-400' : baixo ? 'text-red-700' : 'text-slate-700'}`}>
+                  <td className="p-4 text-foreground">{formatarMoeda(p.preco_venda)}</td>
+                  <td className={`p-4 font-medium ${zerado ? 'text-muted-foreground' : baixo ? 'text-destructive' : 'text-foreground'}`}>
                     {p.estoque_atual}
                     {baixo && !zerado ? <span className="ml-2 text-sm">baixo</span> : null}
                   </td>
