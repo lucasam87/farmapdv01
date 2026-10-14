@@ -34,7 +34,12 @@ export default async function LoginPage({
         action={entrar}
         className="w-full max-w-sm rounded-lg bg-card p-8 shadow-sm"
       >
-        <h1 className="text-2xl font-semibold text-foreground">Farmácia</h1>
+        {/* O logotipo entra como imagem DECORATIVA (`alt=""`): o nome já está no
+            `h1`, e repetir faria o leitor de tela dizer "LaM Vendas" duas vezes.
+            O `h1` é só para leitor de tela porque o desenho já traz o nome escrito
+            — mas uma página sem `h1` é uma página sem título. */}
+        <h1 className="sr-only">LaM Vendas — sistema da farmácia</h1>
+        <img src="/logo-lam-vendas.png" alt="" aria-hidden="true" className="h-12 w-auto" />
         <p className="mt-1 text-sm text-muted-foreground">
           Entre com seu e-mail e sua senha.
         </p>

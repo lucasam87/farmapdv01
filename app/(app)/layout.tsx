@@ -56,7 +56,9 @@ export default async function AppLayout({
       {/* F3 abre a nova venda de qualquer tela (spec 10). */}
       <Atalhos />
       <aside className="w-56 shrink-0 border-r border-border bg-card p-4">
-        <p className="px-2 text-lg font-semibold text-foreground">Farmácia</p>
+        {/* O logotipo já traz o nome escrito, então o `alt` é o nome — e não uma
+            descrição do desenho ("sacola com seta"), que não ajudaria ninguém. */}
+        <img src="/logo-lam-vendas.png" alt="LaM Vendas" className="h-9 w-auto px-2" />
 
         <nav className="mt-6 space-y-1">
           {MENU.map((item) => (

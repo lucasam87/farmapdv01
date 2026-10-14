@@ -1,19 +1,36 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   TOKENS DO SISTEMA — claro e escuro.
+   TOKENS DO SISTEMA — claro e escuro, derivados do logotipo LaM Vendas.
+
+   AS CORES DO LOGOTIPO (medidas no arquivo `public/logo-lam-vendas.png`, que tem
+   exatamente duas, fora o branco):
+     #0058ED  azul   72,9% do desenho   -> 5,80:1 sobre branco
+     #01B262  verde  27,1% do desenho   -> 2,78:1 sobre branco, REPROVA como texto
+
+   A MARCA E O AZUL, e isso melhora a disciplina de cor que já existia: o verde
+   fica livre para significar SÓ "estoque ok", sem competir com a marca. Antes a
+   marca era verde e os dois sentidos se confundiam.
+
+   O VERDE DO LOGOTIPO NÃO SERVE PARA TEXTO (2,78:1). Ele continua sendo o verde da
+   marca em preenchimento — selo, gráfico, ícone cheio — e para TEXTO existe um
+   verde escurecido do mesmo tom, `#018049`, medido em 5,02:1 no cartão. É a mesma
+   separação entre decorativo e texto que os outros tokens já fazem.
+
+   AS SUPERFÍCIES SEGUEM NEUTRAS de propósito: tingir o fundo de azul faria a marca
+   competir com a tela inteira e apagaria o verde como sinal.
 
    POR QUE ISTO EXISTE: até 14/10/2026 as telas usavam cor fixa do Tailwind
-   (`bg-white`, `text-slate-800`, `border-slate-200`) em 509 lugares espalhados por
-   22 arquivos. Com cor fixa não há tema: o escuro exigiria escrever a variante
-   `dark:` 509 vezes, e cada tela nova repetiria o problema. Com token, o escuro é
-   só um segundo conjunto de valores e nenhum componente muda.
+   (`bg-white`, `text-slate-800`) em centenas de lugares. Com cor fixa não há tema
+   nem troca de identidade: o tema escuro exigiria escrever a variante `dark:` em
+   cada uma, e trocar a cor da marca exigiria editar tela por tela. Com token, os
+   dois são um segundo conjunto de valores neste arquivo e nenhum componente muda.
 
    O TEMA NÃO SEGUE O SISTEMA OPERACIONAL — é escolha do operador, e o padrão é o
-   claro. Isso é deliberado: o bug original (o texto digitado sumindo no login)
-   acontecia porque o Windows estava em modo escuro e o navegador pintava os campos
-   nativos em escuro enquanto a página seguia clara. Por isso `color-scheme` é
-   declarado POR TEMA, junto com as cores: os dois lados andam sempre juntos.
+   claro. O bug original (o texto digitado sumindo no login) acontecia porque o
+   Windows estava em modo escuro e o navegador pintava os campos nativos em escuro
+   enquanto a página seguia clara. Por isso `color-scheme` é declarado POR TEMA,
+   junto com as cores: os dois lados andam sempre juntos.
    ========================================================================= */
 
 @custom-variant dark (&:is(.dark *));
@@ -33,27 +50,37 @@
   /* `--border` é DECORATIVO (divisor, régua) e não carrega informação.
      `--input` É a informação que identifica o campo, e por isso precisa dos 3:1
      da WCAG 1.4.11 — o valor de mercado para borda de campo é o `#94A3B8`, que
-     mede 2,56:1 no branco e REPROVA. */
+     mede 2,56:1 no branco e REPROVA. Este continua neutro: a marca aparece no foco
+     e no botão, não na moldura de todo campo. */
   --border: #e2e8f0;
   --input: #7c8ca0;
 
-  /* Marca: 5,02:1 no branco. Usada só em item ativo, botão principal e foco. */
-  --primary: #15803d;
+  /* A marca: o azul do logotipo. 5,80:1 sobre o cartão — passa como fundo de
+     botão E como texto, o que nem toda cor de marca consegue. */
+  --primary: #0058ed;
   --primary-foreground: #ffffff;
-  --ring: #15803d;
+  --ring: #0058ed;
+
+  /* O verde do logotipo (`#01b262`) em texto reprova; este é o mesmo tom
+     escurecido até passar: 5,02:1 no cartão. Para PREENCHIMENTO de selo, o verde
+     do logotipo vale, e o texto por cima tem de ser escuro (`#052e16` = 5,36:1). */
+  --success: #018049;
+  --success-fill: #01b262;
 
   --destructive: #dc2626;
-  --success: #15803d;
   --warning: #b45309;
+  /* O `--info` continua neste azul-petróleo mais fechado, e não no azul da marca:
+     "pagamento sem resposta" e "ação principal" não podem ser a mesma cor. O teal
+     do logotipo (`#0491a0`) mede 3,77:1 e reprovaria como texto. */
   --info: #0369a1;
 
   --radius: 0.5rem;
 }
 
-/* Escuro. Contraste MEDIDO par a par (não é o claro invertido de olho):
-   texto 16,30:1 no fundo e 13,35:1 no cartão · secundário 6,96 / 5,71 / 4,83
-   (o 4,83 é o pior caso, sobre a superfície rebaixada) · borda de campo 4,83 no
-   pior caso · foco 10,25 · texto do botão 6,54 · erro 6,45 · aviso 10,69. */
+/* Escuro. Contraste MEDIDO par a par (não é o claro invertido de olho).
+   O azul do logotipo NÃO serve aqui: 2,52:1 no cartão. A marca clareia para
+   `#7fb0ff` (8,12 no fundo / 6,66 no cartão / 5,63 na superfície rebaixada) e o
+   texto do botão fica quase preto-azulado. O verde clareia para `#2ed88a`. */
 .dark {
   color-scheme: dark;
 
@@ -72,13 +99,14 @@
   --border: #334155;
   --input: #94a3b8;
 
-  /* No escuro a marca clareia; o texto do botão é verde quase preto. */
-  --primary: #22c55e;
-  --primary-foreground: #052e16;
-  --ring: #4ade80;
+  --primary: #7fb0ff;
+  --primary-foreground: #00102e;
+  --ring: #7fb0ff;
+
+  --success: #2ed88a;
+  --success-fill: #01b262;
 
   --destructive: #f87171;
-  --success: #4ade80;
   --warning: #fbbf24;
   --info: #38bdf8;
 }
@@ -97,6 +125,7 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-destructive: var(--destructive);
   --color-success: var(--success);
+  --color-success-fill: var(--success-fill);
   --color-warning: var(--warning);
   --color-info: var(--info);
 

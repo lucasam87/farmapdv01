@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Farmácia",
+  title: "LaM Vendas",
   description: "Sistema de gestão da farmácia",
 };
 
