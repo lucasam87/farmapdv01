@@ -51,3 +51,11 @@ yarn-error.log*
 
 # Lista de problemas do catalogo real (gerada a pedido, nao versionar)
 PROBLEMAS-NO-CATALOGO.csv
+
+# Arquivos pessoais do Lucas: existem no disco DE PROPOSITO e nao sao do projeto.
+# Ja entraram por engano uma vez — a causa foi um `git add -A`, que varre tudo que
+# esta sem rastreamento. A linha abaixo e a trava: sem ela, o proximo `-A` os pega
+# de novo. Nao remover nem versionar.
+progresso21.md
+tests/fixtures/projeto-continua.md
+image.png
