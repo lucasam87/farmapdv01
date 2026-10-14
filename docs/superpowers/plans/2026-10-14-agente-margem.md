@@ -48,7 +48,7 @@ Vitest (unitário) e o runner SQL próprio do projeto.
    ⚠️ **O banco tem esse texto CORROMPIDO hoje**: medido em 14/10/2026, `pg_get_functiondef` devolve
    `SÃ³ o dono vÃª o lucro.`, enquanto `016_relatorios.sql` tem o texto certo. A Task 2 **recria** a
    função copiando o arquivo, então ela conserta a codificação por tabela — e é por isso que o teste
-   compara o trecho sem acento (`'apenas o dono'`, que aparece igual nos dois).
+   compara o trecho sem acento (`'dono v'`, que aparece igual nos dois).
 2. **Período inválido:** `Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias.`
    **Esta mensagem é NOVA**, e é uma divergência deliberada da função irmã: `relatorio_lucro` **não**
    levanta exceção para período torto — ela devolve zeros (registrado no `PROGRESSO.md` como ruling
@@ -116,7 +116,7 @@ perform teste_ok((select sem_custo >= 0 from margem_sem_custo(HOJE - 30, HOJE)),
 ```
 
 Trocar de papel com `set_config('request.jwt.claims', ...)` e provar a recusa do atendente com o trecho
-**sem acento** `'apenas o dono'`.
+**sem acento** `'dono v'`.
 
 - [ ] **Step 2: Rodar e ver falhar**
 
@@ -126,7 +126,7 @@ Expected: `FALHOU ... function margem_produtos(...) does not exist`
 - [ ] **Step 3: Escrever a migration `019_margem_produtos.sql`**
 
 Copiar a estrutura de `relatorio_lucro` (`supabase/migrations/016_relatorios.sql:87`): validação de
-período **antes** da checagem de papel, `returns table`, sem `security definer`, e as duas linhas de
+período **antes** da checagem de papel, `returns table`, **`security definer`** (ver Global Constraints), e as duas linhas de
 permissão no fim. O corpo agrega `venda_itens` + `vendas` (`status = 'concluida'`, dia em São Paulo),
 exclui `preco_custo = 0`, calcula `percentual` e ordena `percentual asc, margem asc`.
 
@@ -174,7 +174,7 @@ perform teste_ok((select lucro > 0 from relatorio_lucro(HOJE - 30, HOJE)),
   'caso 3: relatorio_lucro SEGUE funcionando depois do fechamento');
 -- 4. e continua recusando o atendente
 perform set_config('request.jwt.claims', jsonb_build_object('sub', v_atendente, 'role', 'authenticated')::text, true);
-perform teste_erro('select * from relatorio_lucro(HOJE - 30, HOJE)', 'apenas o dono',
+perform teste_erro('select * from relatorio_lucro(HOJE - 30, HOJE)', 'dono v',
   'caso 4: o atendente continua sem ver o lucro');
 -- 5. o custo do CADASTRO segue legivel: a tela do produto depende disso
 perform teste_ok(has_column_privilege('authenticated', 'produtos', 'preco_custo', 'select'),
