@@ -54,8 +54,12 @@ Vitest (unitário) e o runner SQL próprio do projeto.
    levanta exceção para período torto — ela devolve zeros (registrado no `PROGRESSO.md` como ruling
    aceito da Etapa 7). Para o agente isso seria pior: período torto devolvendo "nenhum produto" é uma
    resposta **falsa**, não uma recusa. Então a função de margem valida e recusa.
-   No teste, comparar `'Periodo invalido'` **sem acento**.
-3. **Ranking vazio:** `Não houve venda com custo registrado no período.` — a frase que `montarResposta`
+   No teste, comparar `'31 dias'` **sem acento**. (Antes esta linha mandava comparar
+   `'Periodo invalido'` — fragmento que **não existe** na mensagem gravada, e que reprovaria o caso com a
+   função correta: o mesmo defeito de classe do `'apenas o dono'`. Corrigido em 14/10/2026 pela revisão
+   da Task 1, Minor 12.)
+3. **Limite fora de 1..10:** `Limite inválido: informe um valor entre 1 e 10.` — mensagem nova, criada na Task 1 e que faltava nesta lista.
+4. **Ranking vazio:** `Não houve venda com custo registrado no período.` — a frase que `montarResposta`
    devolve quando a lista volta vazia, no lugar de string vazia ou de uma tela em branco.
 
 ## Review Focus
