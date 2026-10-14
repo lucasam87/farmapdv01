@@ -34,13 +34,17 @@
 --
 -- TRECHOS DE MENSAGEM SAO COMPARADOS SEM ACENTO (aviso do plano, medido no caso
 -- 030 em 14/10/2026), MAS O TRECHO PRECISA EXISTIR NA MENSAGEM REAL. MEDIDO nesta
--- rodada, com `encode(convert_to(sqlerrm,'UTF8'),'hex')` (bytes, e nao texto, para o
--- transporte nao mentir):
---   * a mensagem viva no banco e `53c3b3206f20646f6e6f2076c3aa206f206c7563726f2e`
---     = "Só o dono vê o lucro." com acento CORRETO, e o literal de
---     `supabase/migrations/016_relatorios.sql:105` tem os MESMOS bytes — ou seja, o
---     texto NAO esta corrompido hoje e a recriacao da migration 020 nao o altera
---     (o "corrompido" que circulou nao se confirma contra o banco, ver o relatorio);
+-- rodada, com `encode(convert_to(prosrc,'UTF8'),'hex')` e `position(chr(65533) in
+-- prosrc)` (bytes e catalogo, e nao texto, para o transporte nao mentir):
+--   * o corpo VIVO de `relatorio_lucro` NAO tem nenhum U+FFFD
+--     (`position(chr(65533) in prosrc) = 0`; nenhum `efbfbd` nos bytes), e a mensagem
+--     e `53c3b3206f20646f6e6f2076c3aa206f206c7563726f2e` = "Só o dono vê o lucro." com
+--     acento CORRETO — os MESMOS bytes do literal de
+--     `supabase/migrations/016_relatorios.sql:105`, entao a recriacao da 020 nao
+--     alterou o texto dela. A afirmacao fica RESTRITA a esta funcao: ela e o que foi
+--     medido, e ela nao vale como "nao ha corrupcao no banco" — HA (havia) corrupcao
+--     em outra funcao do mesmo banco, `fechar_caixa`, medida na mesma rodada (ver
+--     tests/sql/casos/030_caixa.sql:115 e o relatorio da Task 2);
 --   * `lower()` do Postgres NAO tira acento neste banco (`lower('Só o dono vê o lucro.')`
 --     sai `só o dono vê o lucro.`): um trecho "sem acento" escrito por extenso
 --     ('So o dono ve o lucro') NUNCA casa com a mensagem acentuada. Por isso o trecho

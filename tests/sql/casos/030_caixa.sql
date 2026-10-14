@@ -112,12 +112,36 @@ begin
     0);
 
   -- ================= caso 8: diferenca sem observacao =================
-  -- O trecho comparado e SEM ACENTO de proposito. O transporte do runner ate o
-  -- endpoint de SQL nao preserva acento de forma confiavel: a funcao `fechar_caixa`
-  -- tinha a mensagem GRAVADA corrompida e este literal tambem chegava corrompido,
-  -- entao os dois casavam por acidente. A migration 018 reescreveu a funcao com o
-  -- texto certo (14/10/2026) e o acidente acabou — 'observa' e unico na mensagem e
+  -- O trecho comparado e SEM ACENTO de proposito: 'observa' e unico na mensagem e
   -- nao depende de codificacao nenhuma.
+  --
+  -- CORRECAO DA VERDADE (rodada 1 de 5 da revisao da Task 2 — o comentario anterior
+  -- aqui era FALSO). Ele dizia que o transporte do runner nao preserva acento e que
+  -- "a migration 018 reescreveu a funcao com o texto certo (14/10/2026)". MEDIDO:
+  --   * o REPOSITORIO sempre esteve certo — `018_fechamento_atendente.sql:45,49,53,
+  --     56,66,87` nao tem um byte `EF BF BD` (U+FFFD) sequer, e nenhum dos 171 commits
+  --     de `supabase/migrations` jamais teve (medido com `git grep` em todos os blobs);
+  --   * o BANCO estava corrompido: ate esta rodada, `prosrc` da `fechar_caixa` tinha
+  --     10 caracteres U+FFFD (medido: `position(chr(65533) in prosrc) = 245` e o
+  --     `encode(convert_to(prosrc,'UTF8'),'hex')` com `efbfbd`), e as 10 posicoes sao
+  --     exatamente estas seis mensagens:
+  --       'Sess<?>o expirada', 'Usu<?>rio sem perfil', 'S<?> o dono ou o atendente',
+  --       'O valor contado n<?>o pode', 'N<?>o h<?> caixa aberto' e
+  --       'A diferen<?>a de % precisa de observa<?><?><?>o';
+  --     (a revisao contou 11; a enumeracao DELA, medida aqui dentro com
+  --     `length - length(replace(...,chr(65533),''))`, da 10 — os tres `<?>` de
+  --     'observa<?><?><?>o' ja estao nesta conta);
+  --   * a corrupcao veio da APLICACAO da 018 (feita por PowerShell/`Invoke-WebRequest`
+  --     em 14/10/2026, nao por `npm run migrar`), e nao do arquivo;
+  --   * o TRANSPORTE preserva acento: um literal acentuado enviado pelo endpoint de SQL
+  --     chega intacto ao banco (medido com `position()` DENTRO do banco e com
+  --     `encode(convert_to(...,'UTF8'),'hex')`), entao a justificativa antiga da
+  --     comparacao sem acento — "os dois casavam por acidente" — nao se sustenta;
+  --   * conserto: a 018 foi reaplicada pelo caminho do projeto
+  --     (`npm run migrar -- 018_fechamento_atendente.sql`) e remedida —
+  --     `position(chr(65533) in prosrc) = 0`, zero `efbfbd` nos bytes, e os seis textos
+  --     acentuados de volta no corpo vivo. `abrir_caixa` e `caixa_movimento` (004)
+  --     foram medidos e NUNCA tiveram U+FFFD: a 004 nao precisou ser reaplicada.
   perform teste_erro('select fechar_caixa(7800, null)',
     'precisa de observa',
     'caso 8: fechar com diferenca e sem observacao e recusado');

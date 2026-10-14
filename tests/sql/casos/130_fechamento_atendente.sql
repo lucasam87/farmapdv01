@@ -58,10 +58,27 @@ begin
     'caso 4: o atendente fecha a sessão que o DONO abriu');
 
   -- ===== caso 5: a regra da diferença NÃO mudou (spec 8.3) =====
-  -- O trecho comparado é SEM acento de propósito: a mensagem vem da 004 e o
-  -- transporte do endpoint de SQL não preserva acento de forma confiável, então
-  -- casar 'observação' com acento dava falso negativo. 'observa' é único na
-  -- mensagem e não depende de codificação.
+  -- O trecho comparado é SEM acento de propósito: 'observa' é único na mensagem e
+  -- não depende de codificação nenhuma.
+  --
+  -- CORREÇÃO DA VERDADE (rodada 1 de 5 da revisão da Task 2 — o comentário anterior
+  -- aqui era FALSO em dois pontos). Ele dizia que a mensagem "vem da 004" e que "o
+  -- transporte do endpoint de SQL não preserva acento de forma confiável, então casar
+  -- 'observação' com acento dava falso negativo". MEDIDO:
+  --   * a mensagem NÃO vem da 004: `fechar_caixa` foi recriada pela
+  --     `018_fechamento_atendente.sql:87` (a 004 é a versão anterior dela);
+  --   * o TRANSPORTE preserva acento — um literal acentuado enviado pelo endpoint de
+  --     SQL chega intacto ao banco (medido com `position()` DENTRO do banco). O que
+  --     havia era outra coisa, e essa era real: o CORPO VIVO da `fechar_caixa` estava
+  --     gravado com 10 caracteres U+FFFD, porque a 018 foi APLICADA por
+  --     PowerShell/`Invoke-WebRequest` em 14/10/2026 (o arquivo do repositório sempre
+  --     esteve certo). Com a mensagem corrompida no banco, 'observação' com acento
+  --     casaria só por acidente; o 'observa' sem acento é o trecho robusto nos dois
+  --     estados.
+  --   * conserto (esta rodada): 018 reaplicada pelo caminho do projeto
+  --     (`npm run migrar -- 018_fechamento_atendente.sql`) e remedida —
+  --     `position(chr(65533) in prosrc) = 0` e os textos acentuados de volta no corpo
+  --     vivo. `abrir_caixa` e `caixa_movimento` (004) nunca tiveram U+FFFD.
   v_sessao := abrir_caixa(1000);
   perform teste_erro('select fechar_caixa(900, null)', 'precisa de observa',
     'caso 5: diferença sem observação continua recusada');

@@ -112,9 +112,21 @@ comment on function public.relatorio_lucro(date, date) is
 --
 --     POR QUE ISSO NAO QUEBRA A TELA: a unica leitura de `venda_itens` que o app faz
 --     pelo PostgREST e `app/(app)/vendas/[id]/page.tsx:45`, que pede exatamente
---     `id, nome_produto, quantidade, preco_unitario, total` — todos na lista. Os
---     caminhos de ESCRITA (PDV, cancelamento) passam por RPC `security definer`, nao por
---     grant de tabela, e nao sao tocados aqui.
+--     `id, nome_produto, quantidade, preco_unitario, total` — todos na lista.
+--
+--     O QUE **NAO** FOI FECHADO — escrito aqui porque o silencio ja fez alguem concluir
+--     o contrario (achado da revisao da Task 2, MEDIDO): a porta de ESCRITA continua
+--     ABERTA, e ja estava antes desta migration. `has_table_privilege('authenticated',
+--     'venda_itens','insert'/'update'/'delete')` = `true` nos tres (o DEFAULT PRIVILEGES
+--     do Supabase concede INSERT/UPDATE/DELETE/TRUNCATE em nivel de tabela) e a policy
+--     `logado_tudo` e `for all to authenticated using (true) with check (true)`
+--     (001_base.sql:233-235). Ou seja: depois desta migration o ATENDENTE nao LE o
+--     custo, mas continua podendo ESCREVER em `venda_itens` pelo PostgREST. Esta
+--     migration fecha LEITURA e nao toca em escrita — nao porque a escrita seja segura,
+--     mas porque fecha-la e outra decisao (mexe no PDV, no cancelamento e na policy
+--     `logado_tudo`) e merece analise propria. A frase "as escritas passam por RPC
+--     definer" descreve os caminhos NORMAIS do app; ela NAO diz que o grant nao existe,
+--     e era assim que a versao anterior deste comentario podia ser lida.
 --
 --     CONSEQUENCIA DECLARADA para quem mexer depois: grant por COLUNA nao cobre coluna
 --     que nascer depois, entao uma coluna nova em `venda_itens` nasce ILEGIVEL para
