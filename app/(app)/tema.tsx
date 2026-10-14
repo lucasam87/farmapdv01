@@ -64,7 +64,7 @@ function lerDoDom() {
   return document.documentElement.classList.contains('dark')
 }
 
-export function AlternadorTema() {
+export function AlternadorTema({ compacto = false }: { compacto?: boolean } = {}) {
   // No servidor não há DOM nem `localStorage`, então o palpite é o claro — que é o
   // padrão do sistema. Quem escolheu o escuro vê o rótulo corrigir na hidratação;
   // a COR, essa, já veio certa do script, sem piscar.
@@ -83,15 +83,26 @@ export function AlternadorTema() {
 
   // O rótulo diz a AÇÃO, não o estado: "Tema escuro" é o que acontece ao clicar.
   // Cor + ícone + texto, nunca só um deles (princípio 4 do DESIGN-PDV-FARMACIA).
-  const rotulo = escuro ? 'Tema claro' : 'Tema escuro'
+  // Na versão compacta o texto encurta mas NÃO some: ícone sozinho não diz nada a
+  // quem não conhece o símbolo.
+  const rotulo = compacto
+    ? escuro
+      ? 'Claro'
+      : 'Escuro'
+    : escuro
+      ? 'Tema claro'
+      : 'Tema escuro'
 
   return (
     <button
       type="button"
       onClick={alternar}
       aria-pressed={escuro}
+      aria-label={escuro ? 'Mudar para o tema claro' : 'Mudar para o tema escuro'}
       // `min-h-11` = 44 px, o alvo mínimo do princípio 8.
-      className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-base font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-base font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
+        compacto ? '' : 'w-full text-left'
+      }`}
     >
       {escuro ? <IconeSol /> : <IconeLua />}
       {rotulo}

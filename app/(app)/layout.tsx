@@ -28,7 +28,12 @@ export default async function AppLayout({
   // tem sessão e não tem perfil em `perfis` também não entra.
   if (!perfil) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-background p-6">
+      <main className="relative flex min-h-dvh items-center justify-center bg-background p-6">
+        {/* O alternador também aqui: esta tela é justamente onde cai quem tem conta
+            mas ainda não tem perfil, e ela não tem menu nenhum. */}
+        <div className="absolute right-4 top-4">
+          <AlternadorTema compacto />
+        </div>
         <div className="w-full max-w-md rounded-lg bg-card p-8 text-center shadow-sm">
           <p className="text-lg text-foreground">
             Usuário sem perfil cadastrado. Fale com o responsável.
