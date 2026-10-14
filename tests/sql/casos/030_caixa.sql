@@ -112,11 +112,17 @@ begin
     0);
 
   -- ================= caso 8: diferenca sem observacao =================
+  -- O trecho comparado e SEM ACENTO de proposito. O transporte do runner ate o
+  -- endpoint de SQL nao preserva acento de forma confiavel: a funcao `fechar_caixa`
+  -- tinha a mensagem GRAVADA corrompida e este literal tambem chegava corrompido,
+  -- entao os dois casavam por acidente. A migration 018 reescreveu a funcao com o
+  -- texto certo (14/10/2026) e o acidente acabou — 'observa' e unico na mensagem e
+  -- nao depende de codificacao nenhuma.
   perform teste_erro('select fechar_caixa(7800, null)',
-    'precisa de observação',
+    'precisa de observa',
     'caso 8: fechar com diferenca e sem observacao e recusado');
   perform teste_erro('select fechar_caixa(7800, ''   '')',
-    'precisa de observação',
+    'precisa de observa',
     'caso 8: observacao so com espacos nao vale');
   perform teste_ok((select status = 'aberto' from caixa_sessoes where id = v_caixa_b),
     'caso 8: a sessao continua aberta depois da recusa');
@@ -137,7 +143,7 @@ begin
     'Abra o caixa para começar a vender.',
     'caso 9: sangria sem caixa aberto e recusada');
   perform teste_erro('select fechar_caixa(100, null)',
-    'Não há caixa aberto.',
+    'caixa aberto.',
     'caso 9: fechar de novo e recusado');
 
   -- ================= caso 10: caixa fechado e tentativa de venda =================

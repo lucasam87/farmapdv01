@@ -1,13 +1,15 @@
 import { criarClienteServidor } from '@/lib/supabase/server'
-import { perfilAtual } from '@/lib/auth/perfil'
 import { TelaCaixa, type MovimentoCaixa, type SessaoCaixa } from './tela'
 
 // Tela de caixa. Le a sessao aberta da view `v_caixa_atual`, que ja traz a conta
 // da spec 8.3 pronta (valor inicial + dinheiro que entrou − dinheiro que saiu).
 //
 // Se nao ha sessao aberta, a tela so oferece abrir — nao ha nada para mostrar.
+//
+// A tela NAO consulta mais o papel (migration 018, 14/10/2026): fechar o caixa
+// deixou de ser so do dono. Quem decide e a RPC `fechar_caixa`, que aceita os dois
+// papeis — a tela nao repete a regra para nao divergir dela.
 export default async function CaixaPage() {
-  const perfil = await perfilAtual()
   const supabase = await criarClienteServidor()
 
   // `v_caixa_atual` tem UMA LINHA POR TERMINAL aberto — com dois terminais (o
@@ -38,7 +40,6 @@ export default async function CaixaPage() {
     <TelaCaixa
       sessao={(sessao as SessaoCaixa | null) ?? null}
       movimentos={movimentos}
-      ehDono={perfil?.papel === 'dono'}
     />
   )
 }

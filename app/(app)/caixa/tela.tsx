@@ -74,11 +74,9 @@ function Linha({ rotulo, valor, forte = false }: { rotulo: string; valor: number
 export function TelaCaixa({
   sessao,
   movimentos,
-  ehDono,
 }: {
   sessao: SessaoCaixa | null
   movimentos: MovimentoCaixa[]
-  ehDono: boolean
 }) {
   const [abertura, acaoAbrir, abrindo] = useActionState<Resultado | null, FormData>(abrirCaixa, null)
   const [movimento, acaoMovimentar, movimentando] = useActionState<Resultado | null, FormData>(
@@ -204,40 +202,43 @@ export function TelaCaixa({
         )}
       </section>
 
-      {ehDono ? (
-        <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-800">Fechar o caixa</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Conte o dinheiro da gaveta. Se não bater com o esperado, a diferença precisa de
-            observação. Depois de fechado, o caixa não muda mais.
-          </p>
-          <form action={acaoFechar} className="mt-4 space-y-3">
-            <div className="flex flex-wrap gap-3">
-              <input
-                name="valor_contado"
-                inputMode="decimal"
-                placeholder="Contado"
-                aria-label="Valor contado na gaveta"
-                className={`${CAMPO} w-40`}
-              />
-              <input
-                name="observacao"
-                placeholder="Observação (obrigatória se houver diferença)"
-                aria-label="Observação do fechamento"
-                className={`${CAMPO} flex-1`}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={fechando}
-              className="rounded-lg bg-slate-800 px-6 py-3 text-base font-medium text-white hover:bg-slate-700 disabled:opacity-60"
-            >
-              {fechando ? 'Fechando…' : 'Fechar caixa'}
-            </button>
-            <Recado estado={fechamento} />
-          </form>
-        </section>
-      ) : null}
+      {/* O fechamento NÃO é mais só do dono (migration 018, 14/10/2026). Antes,
+          `{ehDono ? ... : null}` escondia esta seção do atendente — e o banco
+          recusava junto. Como `abrir_caixa` não checa papel, o atendente abria o
+          caixa e não conseguia fechar: com o dono ausente a sessão ficava aberta e
+          o dia seguinte travava em 'Já existe um caixa aberto.'. */}
+      <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Fechar o caixa</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Conte o dinheiro da gaveta. Se não bater com o esperado, a diferença precisa de
+          observação. Depois de fechado, o caixa não muda mais.
+        </p>
+        <form action={acaoFechar} className="mt-4 space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <input
+              name="valor_contado"
+              inputMode="decimal"
+              placeholder="Contado"
+              aria-label="Valor contado na gaveta"
+              className={`${CAMPO} w-40`}
+            />
+            <input
+              name="observacao"
+              placeholder="Observação (obrigatória se houver diferença)"
+              aria-label="Observação do fechamento"
+              className={`${CAMPO} flex-1`}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={fechando}
+            className="rounded-lg bg-slate-800 px-6 py-3 text-base font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+          >
+            {fechando ? 'Fechando…' : 'Fechar caixa'}
+          </button>
+          <Recado estado={fechamento} />
+        </form>
+      </section>
     </div>
   )
 }
