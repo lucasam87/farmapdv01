@@ -138,16 +138,25 @@ describe('validarPergunta', () => {
     // Minors 5 e 8 da revisao final. A versao antiga comparava
     // `LIMITE_PAYLOAD_BYTES` com `LIMITE_PERGUNTA * 4` — duas constantes, zero
     // codigo exercitado, e dava a checagem como cobertura. O que importa e o pior
-    // payload POSSIVEL e REAL: o prompt fixo (1.016 bytes) mais 500 code points de
-    // 4 bytes (emoji) = 3.016 de 4.096. Ou seja: `motivo: 'payload'` NAO e
-    // alcancavel por uma pergunta valida hoje; a guarda fica como fronteira para o
-    // dia em que o prompt crescer (ver `logica.ts` e `orquestracao.ts`).
-    const piorCaso = bytesDoPayload('😀'.repeat(LIMITE_PERGUNTA))
+    // payload POSSIVEL e REAL: o prompt do sistema (com a linha da data, achado de
+    // 14/10/2026) mais 500 code points de 4 bytes (emoji). Ou seja: `motivo:
+    // 'payload'` NAO e alcancavel por uma pergunta valida hoje; a guarda fica como
+    // fronteira para o dia em que o prompt crescer.
+    //
+    // O numero NAO e fixado em literal de proposito: era 3.016 e virou outro no dia
+    // em que a data entrou no prompt, o que fazia o teste falhar por uma mudanca
+    // legitima. A relacao (prompt + teto da pergunta) e o que tem de valer sempre.
+    const prompt = bytesDoPayload('', HOJE)
+    const piorCaso = bytesDoPayload('😀'.repeat(LIMITE_PERGUNTA), HOJE)
     const tetoDaPergunta = new TextEncoder().encode('😀'.repeat(LIMITE_PERGUNTA)).length
 
     expect(tetoDaPergunta).toBe(LIMITE_PERGUNTA * 4)
-    expect(piorCaso).toBe(3_016)
+    expect(piorCaso).toBe(prompt + tetoDaPergunta)
+    // A garantia que importa: o pior caso REAL cabe no teto.
     expect(piorCaso).toBeLessThanOrEqual(LIMITE_PAYLOAD_BYTES)
+    // E o prompt nao pode comer metade do teto — se comer, a folga para a pergunta
+    // acabou e a guarda precisa ser revista.
+    expect(prompt).toBeLessThan(LIMITE_PAYLOAD_BYTES / 2)
   })
 
   it('recusa localmente antes de qualquer chamada externa', () => {
@@ -413,11 +422,13 @@ describe('validarClassificacao — JSON valido', () => {
   })
 
   it('aceita o intervalo inclusive de exatamente 31 dias', () => {
-    // 2026-10-01 a 2026-10-31 sao 31 dias contando as duas pontas.
-    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-10-01', ate: '2026-10-31' }, HOJE)).toEqual({
+    // 2026-09-01 a 2026-10-01 sao 31 dias contando as duas pontas (setembro tem 30).
+    // O intervalo e PASSADO de proposito: desde 14/10/2026 data futura e recusa
+    // (venda que ainda nao aconteceu nao existe), entao o limite se mede para tras.
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-09-01', ate: '2026-10-01' }, HOJE)).toEqual({
       intencao: 'vendas_dia',
-      de: '2026-10-01',
-      ate: '2026-10-31',
+      de: '2026-09-01',
+      ate: '2026-10-01',
     })
   })
 
@@ -519,19 +530,21 @@ describe('validarClassificacao — recusas', () => {
   })
 
   it('o corte de 31 dias e exato nas bordas do intervalo', () => {
-    // 31 dias passa, 32 recusa — inclusive atravessando mes e ano.
+    // 31 dias passa, 32 recusa — inclusive atravessando mes e ano. Todas as datas
+    // sao PASSADAS: desde 14/10/2026 periodo futuro e recusa, entao a borda se mede
+    // para tras a partir de HOJE (09/10/2026).
     expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-01-01', ate: '2026-01-31' }, HOJE)).toEqual({
       intencao: 'vendas_dia',
       de: '2026-01-01',
       ate: '2026-01-31',
     })
     expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-01-01', ate: '2026-02-01' }, HOJE)).toBeNull()
-    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-12-15', ate: '2027-01-14' }, HOJE)).toEqual({
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2025-12-15', ate: '2026-01-14' }, HOJE)).toEqual({
       intencao: 'vendas_dia',
-      de: '2026-12-15',
-      ate: '2027-01-14',
+      de: '2025-12-15',
+      ate: '2026-01-14',
     })
-    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-12-15', ate: '2027-01-15' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2025-12-15', ate: '2026-01-15' }, HOJE)).toBeNull()
     // Ano bissexto: 2024-02-01 a 2024-03-02 sao 31 dias.
     expect(validarClassificacao({ intencao: 'vendas_dia', de: '2024-02-01', ate: '2024-03-02' }, HOJE)).toEqual({
       intencao: 'vendas_dia',
@@ -539,6 +552,26 @@ describe('validarClassificacao — recusas', () => {
       ate: '2024-03-02',
     })
     expect(validarClassificacao({ intencao: 'vendas_dia', de: '2024-02-01', ate: '2024-03-03' }, HOJE)).toBeNull()
+  })
+
+  // Achado de 14/10/2026, com prova em producao: a MESMA pergunta ("como foram as
+  // vendas de hoje?") respondeu o dia 13 numa execucao e "nao ha vendas" na outra.
+  // A causa e que nada dizia ao modelo que dia e hoje, entao ele chutava uma data;
+  // e o validador aceitava, porque data futura dentro dos 31 dias passava. Venda
+  // que ainda nao aconteceu NAO EXISTE: futuro tem de ser recusa, nunca resposta.
+  it('recusa periodo no futuro: venda que ainda nao aconteceu', () => {
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-10-15', ate: '2026-10-15' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: HOJE, ate: '2026-10-15' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-10-01', ate: '2026-10-15' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2027-01-01', ate: '2027-01-02' }, HOJE)).toBeNull()
+  })
+
+  it('aceita o periodo que termina exatamente hoje', () => {
+    expect(validarClassificacao({ intencao: 'vendas_dia', de: '2026-10-01', ate: HOJE }, HOJE)).toEqual({
+      intencao: 'vendas_dia',
+      de: '2026-10-01',
+      ate: HOJE,
+    })
   })
 
   it('recusa periodo nas tres views que nao filtram data', () => {

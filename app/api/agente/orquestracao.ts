@@ -81,7 +81,12 @@ export type RespostaProcessada = {
  */
 export type Deps = {
   agora(): Date
-  classificar(pergunta: string): Promise<ResultadoClassificacao>
+  /**
+   * `hoje` e a data de Sao Paulo do MESMO instante de `agora()`. Ela vai no prompt
+   * porque o modelo nao sabe que dia e — sem isso ele chuta a data e o servidor
+   * responde sobre o dia chutado (achado de 14/10/2026).
+   */
+  classificar(pergunta: string, hoje: string): Promise<ResultadoClassificacao>
   reservar(mes: string, micros: number): Promise<ResultadoReserva>
   reconciliar(id: string, micros: number): Promise<void>
   liberar(id: string): Promise<void>
@@ -251,23 +256,29 @@ export async function processarPergunta(
   if (!validada.ok) return { status: 400, corpo: erro(mensagemRecusa(validada.motivo)) }
   const pergunta = validada.pergunta
 
-  // O limite de 4.096 bytes vale para o payload REAL (prompt fixo + pergunta),
+  // O limite de 4.096 bytes vale para o payload REAL (prompt do sistema + pergunta),
   // nao so para a pergunta — que sozinha nunca chegaria perto do teto.
   //
   // ⚠️ GUARDA DE FRONTEIRA, INALCANCAVEL COM O LIMITE ATUAL (Minor 8 da revisao
-  // final): o pior caso medido e o prompt fixo (1.016 bytes) + 500 code points de
-  // 4 bytes = 3.016 de 4.096, e `validarPergunta` ja recusou acima de 500 code
-  // points. Ou seja, `motivo: 'payload'` nao dispara por uma pergunta valida. A
-  // guarda fica porque ela mede o que REALMENTE sai (`bytesDoPayload`), e o dia em
-  // que o prompt crescer quem tem que segurar o teto e esta linha — o numero esta
-  // fixado em `logica.test.ts` e em `lib/agente/deepseek.test.ts`.
-  if (bytesDoPayload(pergunta) > LIMITE_PAYLOAD_BYTES) {
+  // final): o pior caso medido e o prompt (1.016 bytes, mais a linha da data) + 500
+  // code points de 4 bytes, e `validarPergunta` ja recusou acima de 500 code points.
+  // Ou seja, `motivo: 'payload'` nao dispara por uma pergunta valida. A guarda fica
+  // porque ela mede o que REALMENTE sai (`bytesDoPayload`), e o dia em que o prompt
+  // crescer quem tem que segurar o teto e esta linha — o numero esta fixado em
+  // `logica.test.ts` e em `lib/agente/deepseek.test.ts`.
+  //
+  // O relogio e lido UMA vez, e aqui: o mes do orcamento, a data que vai no prompt e
+  // a validacao do periodo tem de sair do MESMO instante. Duas leituras poderiam
+  // discordar na virada do dia.
+  const agora = deps.agora()
+  const hoje = diaSaoPaulo(agora)
+
+  if (bytesDoPayload(pergunta, hoje) > LIMITE_PAYLOAD_BYTES) {
     return { status: 400, corpo: erro(mensagemRecusa('payload')) }
   }
 
   // 3. Reserva ANTES de falar com o provedor. O mes e o de Sao Paulo e sempre o
   //    primeiro dia: a RPC do banco recusa qualquer outro valor.
-  const agora = deps.agora()
   const mes = mesSaoPaulo(agora)
 
   let reserva: ResultadoReserva
@@ -286,7 +297,7 @@ export async function processarPergunta(
   // 4. Classificacao no provedor.
   let classificacao: ResultadoClassificacao
   try {
-    classificacao = await deps.classificar(pergunta)
+    classificacao = await deps.classificar(pergunta, hoje)
   } catch {
     // Excecao inesperada tem o mesmo tratamento da falha ambigua: o pedido pode
     // ter saido e sido faturado, entao a reserva fica consumida.
@@ -310,7 +321,7 @@ export async function processarPergunta(
   // 5. Validacao ESTRITA do que o modelo devolveu. Qualquer coisa fora do
   //    contrato (chave a mais, intencao desconhecida, data torta, periodo
   //    invertido ou maior que 31 dias) e recusa, nunca consulta.
-  const classificada = validarClassificacao(classificacao.conteudo, diaSaoPaulo(agora))
+  const classificada = validarClassificacao(classificacao.conteudo, hoje)
   if (classificada === null || classificada.intencao === 'fora_escopo') {
     return { status: 400, corpo: erro(mensagemRecusa('classificacao')) }
   }

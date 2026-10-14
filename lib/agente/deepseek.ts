@@ -88,25 +88,49 @@ function bytesUtf8(texto: string): number {
   return new TextEncoder().encode(texto).length
 }
 
-/** As duas mensagens enviadas, nesta ordem: prompt fixo e pergunta. */
-export function mensagensDeClassificacao(pergunta: string): Mensagem[] {
+/**
+ * O prompt de sistema COM a data de hoje.
+ *
+ * Achado de 14/10/2026: o prompt fixo pedia `null` em "de"/"ate" para "hoje" e nunca
+ * dizia que dia era hoje — entao o modelo chutava uma data, e o servidor respondia
+ * sobre o dia chutado. Foi medido em producao: a MESMA pergunta ("como foram as
+ * vendas de hoje?") respondeu o dia 13 numa execucao e "nao ha vendas" na outra.
+ *
+ * A data NAO vem do relogio deste modulo: ela entra por parametro, do mesmo
+ * `agora()` injetado que decide o mes do orcamento e valida o periodo. Duas fontes
+ * de relogio poderiam discordar na virada do dia.
+ */
+export function promptClassificacao(hoje: string): string {
+  return (
+    PROMPT_CLASSIFICACAO +
+    '\n' +
+    '\n' +
+    `Hoje e ${hoje} (fuso de America/Sao_Paulo). Use null em "de" e "ate" quando a ` +
+    'pergunta for sobre hoje ou nao citar data; quando o usuario citar um dia ou um ' +
+    'periodo, converta para o formato "AAAA-MM-DD" usando esta data como referencia ' +
+    '(ontem, esta semana, mes passado). Nunca devolva data no futuro.'
+  )
+}
+
+/** As duas mensagens enviadas, nesta ordem: prompt do sistema e pergunta. */
+export function mensagensDeClassificacao(pergunta: string, hoje: string): Mensagem[] {
   return [
-    { role: 'system', content: PROMPT_CLASSIFICACAO },
+    { role: 'system', content: promptClassificacao(hoje) },
     { role: 'user', content: pergunta },
   ]
 }
 
 /**
- * Bytes UTF-8 do payload REAL de mensagens (prompt fixo + pergunta).
+ * Bytes UTF-8 do payload REAL de mensagens (prompt do sistema + pergunta).
  *
  * O limite de 4.096 bytes do plano tem que ser medido sobre o que realmente vai
  * sair daqui, e nao so sobre a pergunta: sozinha, a pergunta e limitada a 500
  * caracteres (no pior caso 2.000 bytes) e nunca chegaria perto do teto, o que
  * faria da checagem uma linha morta. Com o prompt somado, a conta e a do pedido
- * de verdade.
+ * de verdade — e a data, que tem sempre 10 caracteres, nao muda o tamanho.
  */
-export function bytesDoPayload(pergunta: string): number {
-  return mensagensDeClassificacao(pergunta).reduce(
+export function bytesDoPayload(pergunta: string, hoje: string): number {
+  return mensagensDeClassificacao(pergunta, hoje).reduce(
     (total, mensagem) => total + bytesUtf8(mensagem.content),
     0,
   )
@@ -155,7 +179,7 @@ function lerConteudo(corpo: unknown): string {
  * Timeout, queda de conexao, 429 e 5xx sao ambiguos, porque o provedor pode ter
  * recebido e faturado o pedido.
  */
-export async function classificar(pergunta: string): Promise<ResultadoClassificacao> {
+export async function classificar(pergunta: string, hoje: string): Promise<ResultadoClassificacao> {
   const chave = chaveDaApi()
   if (chave === null) return { ok: false, fase: 'pre_envio' }
 
@@ -172,7 +196,7 @@ export async function classificar(pergunta: string): Promise<ResultadoClassifica
 
   const corpo = {
     model: MODELO,
-    messages: mensagensDeClassificacao(pergunta),
+    messages: mensagensDeClassificacao(pergunta, hoje),
     response_format: { type: 'json_object' },
     // R12 — o `deepseek-flash` LIGA o thinking mode por padrao, com effort high,
     // e devolve `reasoning_content` antes do `content`. Com 120 tokens de saida,

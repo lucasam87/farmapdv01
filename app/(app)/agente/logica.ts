@@ -708,6 +708,13 @@ function validarVendasDia(objeto: Record<string, unknown>, hoje: string): Classi
   const ate = lerData(objeto.ate, hoje)
   if (de === null || ate === null) return null
   if (de > ate) return null
+
+  // Data futura e sempre erro do modelo. Ate 14/10/2026 o prompt pedia `null` para
+  // "hoje" sem nunca dizer que dia era hoje, entao o modelo chutava uma data — e o
+  // servidor respondia sobre o dia chutado, em silencio. Venda que ainda nao
+  // aconteceu nao existe: futuro vira RECUSA, nunca resposta errada.
+  if (de > hoje || ate > hoje) return null
+
   if (diasInclusivos(de, ate) > DIAS_MAXIMOS) return null
 
   return { intencao: 'vendas_dia', de, ate }

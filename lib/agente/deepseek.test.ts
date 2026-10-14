@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { classificar, mensagensDeClassificacao, bytesDoPayload, PROMPT_CLASSIFICACAO } from './deepseek'
+import {
+  classificar,
+  mensagensDeClassificacao,
+  bytesDoPayload,
+  promptClassificacao,
+  PROMPT_CLASSIFICACAO,
+} from './deepseek'
 import { LIMITE_PAYLOAD_BYTES, MAX_TOKENS_SAIDA, MODELO } from '@/app/(app)/agente/logica'
 
 // O modulo server-only que fala com o DeepSeek. Estes testes NAO tocam a rede:
@@ -10,6 +16,8 @@ import { LIMITE_PAYLOAD_BYTES, MAX_TOKENS_SAIDA, MODELO } from '@/app/(app)/agen
 
 const PERGUNTA = 'Como foram as vendas de hoje?'
 const CHAVE = 'chave-falsa-de-teste'
+// A data de Sao Paulo do dia do achado, injetada como a orquestracao injeta.
+const HOJE = '2026-10-14'
 
 type CorpoEnviado = {
   model: string
@@ -79,8 +87,8 @@ describe('prompt fixo', () => {
   })
 
   it('as mensagens sao so o prompt fixo e a pergunta, nessa ordem', () => {
-    expect(mensagensDeClassificacao(PERGUNTA)).toEqual([
-      { role: 'system', content: PROMPT_CLASSIFICACAO },
+    expect(mensagensDeClassificacao(PERGUNTA, HOJE)).toEqual([
+      { role: 'system', content: promptClassificacao(HOJE) },
       { role: 'user', content: PERGUNTA },
     ])
   })
@@ -88,16 +96,39 @@ describe('prompt fixo', () => {
   it('mede os BYTES do payload real (prompt + pergunta), nao so os da pergunta', () => {
     const bytes = (texto: string) => new TextEncoder().encode(texto).length
 
-    expect(bytesDoPayload('')).toBe(bytes(PROMPT_CLASSIFICACAO))
-    expect(bytesDoPayload('abc')).toBe(bytes(PROMPT_CLASSIFICACAO) + 3)
+    expect(bytesDoPayload('', HOJE)).toBe(bytes(promptClassificacao(HOJE)))
+    expect(bytesDoPayload('abc', HOJE)).toBe(bytes(promptClassificacao(HOJE)) + 3)
     // Acento e emoji contam mais de um byte: a conta tem que ser a do UTF-8 real.
-    expect(bytesDoPayload('ção')).toBe(bytes(PROMPT_CLASSIFICACAO) + 5)
-    expect(bytesDoPayload('😀')).toBe(bytes(PROMPT_CLASSIFICACAO) + 4)
+    expect(bytesDoPayload('ção', HOJE)).toBe(bytes(promptClassificacao(HOJE)) + 5)
+    expect(bytesDoPayload('😀', HOJE)).toBe(bytes(promptClassificacao(HOJE)) + 4)
   })
 
   it('o pior caso do limite de pergunta ainda cabe no payload (senao a checagem seria mentira)', () => {
     const piorCaso = '😀'.repeat(500)
-    expect(bytesDoPayload(piorCaso)).toBeLessThanOrEqual(LIMITE_PAYLOAD_BYTES)
+    expect(bytesDoPayload(piorCaso, HOJE)).toBeLessThanOrEqual(LIMITE_PAYLOAD_BYTES)
+  })
+})
+
+// ============================================================
+// A DATA DE HOJE NO PROMPT — achado de 14/10/2026.
+//
+// O prompt pedia `null` em "de"/"ate" para "hoje" e NUNCA dizia que dia era hoje.
+// Resultado medido em producao: a mesma pergunta respondeu 13/10 numa execucao e
+// "nao ha vendas" na outra, porque o modelo chutava a data. A data agora entra no
+// prompt, vinda do MESMO relogio injetado que decide o mes do orcamento.
+// ============================================================
+
+describe('a data de hoje no prompt', () => {
+  it('carrega a data de Sao Paulo que recebeu', () => {
+    expect(promptClassificacao(HOJE)).toContain(HOJE)
+  })
+
+  it('datas diferentes produzem prompts diferentes', () => {
+    expect(promptClassificacao('2026-10-14')).not.toBe(promptClassificacao('2026-10-15'))
+  })
+
+  it('a mensagem de sistema enviada ao provedor e a que carrega a data', () => {
+    expect(mensagensDeClassificacao(PERGUNTA, HOJE)[0]!.content).toContain(HOJE)
   })
 })
 
@@ -110,7 +141,7 @@ describe('destino e conteudo enviado', () => {
     const espiao = espiaoDeFetch({ choices: [{ message: { content: '{}' } }], usage: {} })
     vi.stubGlobal('fetch', espiao)
 
-    await classificar(PERGUNTA)
+    await classificar(PERGUNTA, HOJE)
 
     const { destino, init } = chamadaDeFetch(espiao)
     expect(destino).toBe('https://api.deepseek.com/chat/completions')
@@ -126,7 +157,7 @@ describe('destino e conteudo enviado', () => {
     vi.stubGlobal('fetch', espiao)
     vi.stubEnv('DEEPSEEK_BASE_URL', 'http://127.0.0.1:3210')
 
-    await classificar(PERGUNTA)
+    await classificar(PERGUNTA, HOJE)
 
     expect(chamadaDeFetch(espiao).destino).toBe('http://127.0.0.1:3210/chat/completions')
   })
@@ -140,7 +171,7 @@ describe('destino e conteudo enviado', () => {
     vi.stubEnv('DEEPSEEK_BASE_URL', 'https://host-de-terceiro.exemplo')
     vi.stubEnv('NODE_ENV', 'production')
 
-    await classificar(PERGUNTA)
+    await classificar(PERGUNTA, HOJE)
 
     expect(chamadaDeFetch(espiao).destino).toBe('https://api.deepseek.com/chat/completions')
   })
@@ -149,13 +180,13 @@ describe('destino e conteudo enviado', () => {
     const espiao = espiaoDeFetch({ choices: [{ message: { content: '{}' } }] })
     vi.stubGlobal('fetch', espiao)
 
-    await classificar(PERGUNTA)
+    await classificar(PERGUNTA, HOJE)
 
     const corpo = await corpoEnviado(espiao)
     expect(corpo).toEqual({
       model: MODELO,
       messages: [
-        { role: 'system', content: PROMPT_CLASSIFICACAO },
+        { role: 'system', content: promptClassificacao(HOJE) },
         { role: 'user', content: PERGUNTA },
       ],
       response_format: { type: 'json_object' },
@@ -194,7 +225,7 @@ describe('falhas', () => {
     vi.stubGlobal('fetch', espiao)
     vi.stubEnv('DEEPSEEK_API_KEY', '')
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'pre_envio' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'pre_envio' })
     expect(espiao).not.toHaveBeenCalled()
   })
 
@@ -203,7 +234,7 @@ describe('falhas', () => {
     vi.stubGlobal('fetch', espiao)
     vi.stubEnv('DEEPSEEK_BASE_URL', 'nao-e-uma-url')
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'pre_envio' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'pre_envio' })
     expect(espiao).not.toHaveBeenCalled()
   })
 
@@ -212,14 +243,14 @@ describe('falhas', () => {
     vi.stubGlobal('fetch', espiao)
     vi.stubEnv('DEEPSEEK_BASE_URL', 'ftp://exemplo')
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'pre_envio' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'pre_envio' })
     expect(espiao).not.toHaveBeenCalled()
   })
 
   it('5xx do provedor e falha AMBIGUA: o pedido pode ter sido faturado', async () => {
     vi.stubGlobal('fetch', espiaoDeFetch({ error: 'boom' }, false, 503))
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'ambigua' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'ambigua' })
   })
 
   // IMPORTANT 2 DA REVISAO FINAL. Um 4xx da lista e recusa ANTES de inferir: nada
@@ -228,14 +259,14 @@ describe('falhas', () => {
   it('401 (chave invalida ou revogada) e falha PRE-ENVIO: nao houve inferencia', async () => {
     vi.stubGlobal('fetch', espiaoDeFetch({ error: 'invalid api key' }, false, 401))
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'pre_envio' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'pre_envio' })
   })
 
   it('400, 402 e 403 tambem sao PRE-ENVIO (a lista fechada do gateway)', async () => {
     for (const status of [400, 402, 403]) {
       vi.stubGlobal('fetch', espiaoDeFetch({ error: 'recusado' }, false, status))
 
-      expect(await classificar(PERGUNTA), `status ${status}`).toEqual({
+      expect(await classificar(PERGUNTA, HOJE), `status ${status}`).toEqual({
         ok: false,
         fase: 'pre_envio',
       })
@@ -248,14 +279,14 @@ describe('falhas', () => {
   it('429 e falha AMBIGUA: a distincao e uma lista, nao um "libera todo 4xx"', async () => {
     vi.stubGlobal('fetch', espiaoDeFetch({ error: 'rate limited' }, false, 429))
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'ambigua' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'ambigua' })
   })
 
   it('4xx fora da lista (408, 422) continua AMBIGUO', async () => {
     for (const status of [408, 422, 409]) {
       vi.stubGlobal('fetch', espiaoDeFetch({ error: 'outro 4xx' }, false, status))
 
-      expect(await classificar(PERGUNTA), `status ${status}`).toEqual({
+      expect(await classificar(PERGUNTA, HOJE), `status ${status}`).toEqual({
         ok: false,
         fase: 'ambigua',
       })
@@ -269,7 +300,7 @@ describe('falhas', () => {
         throw new TypeError('fetch failed')
       }),
     )
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'ambigua' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'ambigua' })
 
     vi.stubGlobal(
       'fetch',
@@ -277,7 +308,7 @@ describe('falhas', () => {
         throw new DOMException('The operation was aborted', 'AbortError')
       }),
     )
-    expect(await classificar(PERGUNTA)).toEqual({ ok: false, fase: 'ambigua' })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: false, fase: 'ambigua' })
   })
 
   it('corpo que nao e JSON e RECUSA normal, nao excecao', async () => {
@@ -294,7 +325,7 @@ describe('falhas', () => {
       }),
     )
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: true, conteudo: '', uso: null })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: true, conteudo: '', uso: null })
   })
 
   it('conteudo vazio, choices vazio ou sem usage viram a MESMA recusa normal', async () => {
@@ -311,7 +342,7 @@ describe('falhas', () => {
       const espiao = espiaoDeFetch(corpo)
       vi.stubGlobal('fetch', espiao)
 
-      const resultado = await classificar(PERGUNTA)
+      const resultado = await classificar(PERGUNTA, HOJE)
       expect(resultado.ok).toBe(true)
       if (resultado.ok) {
         expect(typeof resultado.conteudo).toBe('string')
@@ -324,7 +355,7 @@ describe('falhas', () => {
     const uso = { prompt_tokens: 123, completion_tokens: 9 }
     vi.stubGlobal('fetch', espiaoDeFetch({ choices: [{ message: { content: conteudo } }], usage: uso }))
 
-    expect(await classificar(PERGUNTA)).toEqual({ ok: true, conteudo, uso })
+    expect(await classificar(PERGUNTA, HOJE)).toEqual({ ok: true, conteudo, uso })
   })
 
   it('nao registra pergunta, resposta nem detalhe tecnico em log nenhum', async () => {
@@ -337,14 +368,14 @@ describe('falhas', () => {
     ]
     vi.stubGlobal('fetch', espiaoDeFetch({ choices: [{ message: { content: '{}' } }] }))
 
-    await classificar(PERGUNTA)
+    await classificar(PERGUNTA, HOJE)
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
         throw new TypeError('fetch failed')
       }),
     )
-    await classificar(PERGUNTA)
+    await classificar(PERGUNTA, HOJE)
 
     for (const log of logs) expect(log).not.toHaveBeenCalled()
   })
