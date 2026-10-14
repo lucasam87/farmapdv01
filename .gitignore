@@ -59,3 +59,9 @@ PROBLEMAS-NO-CATALOGO.csv
 progresso21.md
 tests/fixtures/projeto-continua.md
 image.png
+
+# A Vercel CLI acrescentou `.env*` aqui sozinha ao vincular o projeto. Foi REVERTIDO:
+# ignorar `.env*` inteiro impede o `.env.example` de ser commitado — ver a regra 6 no
+# topo deste arquivo. O `.env.local` ja esta coberto por `.env.local` e `.env*.local`,
+# e o `VERCEL_OIDC_TOKEN` que a CLI escreveu mora dentro do proprio `.env.local`.
+
