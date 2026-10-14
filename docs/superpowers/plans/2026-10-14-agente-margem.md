@@ -42,6 +42,22 @@ Vitest (unitário) e o runner SQL próprio do projeto.
   de SQL não preserva acento: um literal acentuado casa por acidente com mensagem corrompida no banco e
   falha quando o banco é corrigido (foi o que quebrou o caso `030` em 14/10/2026).
 
+## Textos fixados (usar verbatim)
+
+1. **Recusa de papel:** `Só o dono vê o lucro.` — a mesma de `relatorio_lucro`.
+   ⚠️ **O banco tem esse texto CORROMPIDO hoje**: medido em 14/10/2026, `pg_get_functiondef` devolve
+   `SÃ³ o dono vÃª o lucro.`, enquanto `016_relatorios.sql` tem o texto certo. A Task 2 **recria** a
+   função copiando o arquivo, então ela conserta a codificação por tabela — e é por isso que o teste
+   compara o trecho sem acento (`'apenas o dono'`, que aparece igual nos dois).
+2. **Período inválido:** `Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias.`
+   **Esta mensagem é NOVA**, e é uma divergência deliberada da função irmã: `relatorio_lucro` **não**
+   levanta exceção para período torto — ela devolve zeros (registrado no `PROGRESSO.md` como ruling
+   aceito da Etapa 7). Para o agente isso seria pior: período torto devolvendo "nenhum produto" é uma
+   resposta **falsa**, não uma recusa. Então a função de margem valida e recusa.
+   No teste, comparar `'Periodo invalido'` **sem acento**.
+3. **Ranking vazio:** `Não houve venda com custo registrado no período.` — a frase que `montarResposta`
+   devolve quando a lista volta vazia, no lugar de string vazia ou de uma tela em branco.
+
 ## Review Focus
 
 Cinco entradas que a spec implica e que ninguém testaria por conta própria. Cada uma tem teste na
