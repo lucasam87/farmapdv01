@@ -53,6 +53,35 @@ lint 0, build 0.
 | nomes quebrados no meio da palavra | amostra de 15: **4 defeito real** | `ATORVASTATIN A`, `CIPROFLOXACI NO`. O padrão cru acha 793, mas 11 de 15 eram nomes legítimos — **a estimativa real é da ordem de 200**, não confirmada |
 | vendas registradas | 2 | as duas de teste, de 13/10 |
 
+## 🔭 FUTURO (não decidido e não planejado): o sistema como SaaS mensal
+
+Levantado pelo Lucas em 14/10/2026 e registrado aqui para não se perder. **Nada disto está aprovado
+nem entrou em plano.** A ordem é a de DEPENDÊNCIA, não a de prioridade.
+
+1. **Multi-tenant no banco — é o que decide tudo.** Hoje o sistema é de UMA farmácia: nenhuma das 10
+   tabelas tem coluna de inquilino. Num SaaS toda tabela precisa de `farmacia_id` e toda política de
+   RLS precisa filtrar por ele. Sem isso um cliente vê o dado do outro — e não é bug de tela, é
+   vazamento. A base ajuda: o RLS e as RPCs `security definer` já existem e estão provados; falta a
+   dimensão de inquilino.
+2. **Autocadastro, que hoje NÃO existe.** Criar conta no Auth não dá acesso — foi exatamente o que
+   aconteceu com a `leila@leila.com` em 14/10. Num SaaS o cliente precisa criar a farmácia e virar
+   dono sozinho.
+3. **Cobrança recorrente.** Gateway brasileiro (Asaas, Pagar.me, Mercado Pago) com cartão, boleto e
+   Pix, mais webhook para liberar e bloquear. O padrão de bloqueio já existe: é o mesmo `ativo` do
+   perfil, que a tela respeita.
+4. **O teto do agente precisa virar POR CLIENTE.** Hoje são **US$ 5/mês globais** —
+   `agente_orcamento_mensal` tem a chave só do mês, sem inquilino. O custo do DeepSeek sai do bolso de
+   quem hospeda, e sem teto por farmácia um cliente consumiria o teto dos outros.
+5. **Subdomínio ou caminho por cliente, backup por inquilino e limites por plano** (nº de usuários,
+   de produtos, de perguntas ao agente).
+6. **O risco maior não é técnico: são os dados.** O sistema guarda CPF, telefone e dívida dos clientes
+   da farmácia, e a conversa do agente tem tema de saúde. Como SaaS, quem hospeda passa a ser
+   **operador** desses dados sob a LGPD: contrato com cada farmácia, retenção definida, e o agente
+   provavelmente não pode guardar nada clínico. **É decisão de negócio antes de ser código.**
+
+**O que já está pronto e ajuda nisso:** RLS funcionando e provado por testes, o agente com teto medido
+dentro do banco, tokens de tema (a identidade visual troca em um arquivo) e a bateria de testes.
+
 ## ⚠️ DOIS ACHADOS AINDA ABERTOS
 
 1. **Estoque negativo no banco:** `AMOXICILINA 250MG/5ML PO SUS FR 150ML OF: -1 em estoque`. A migration
