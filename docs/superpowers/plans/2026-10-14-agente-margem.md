@@ -49,11 +49,15 @@ Vitest (unitário) e o runner SQL próprio do projeto.
    `SÃ³ o dono vÃª o lucro.`, enquanto `016_relatorios.sql` tem o texto certo. A Task 2 **recria** a
    função copiando o arquivo, então ela conserta a codificação por tabela — e é por isso que o teste
    compara o trecho sem acento (`'dono v'`, que aparece igual nos dois).
-2. **Período inválido:** `Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias.`
+2. **Período inválido:** `Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias (30 dias de intervalo).`
    **Esta mensagem é NOVA**, e é uma divergência deliberada da função irmã: `relatorio_lucro` **não**
    levanta exceção para período torto — ela devolve zeros (registrado no `PROGRESSO.md` como ruling
    aceito da Etapa 7). Para o agente isso seria pior: período torto devolvendo "nenhum produto" é uma
    resposta **falsa**, não uma recusa. Então a função de margem valida e recusa.
+   Os dois números no texto são o MESMO teto lido de duas formas (ruling R8 da revisão da Task 1): o app
+   conta **datas inclusivas** e recusa mais de 31 (de 01/01 a 31/01), que é `até - de ≤ 30`. A migration
+   aplica `> 30` e diz as duas leituras, para o texto não depender de qual das duas contas o leitor tem
+   na cabeça.
    No teste, comparar `'31 dias'` **sem acento**. (Antes esta linha mandava comparar
    `'Periodo invalido'` — fragmento que **não existe** na mensagem gravada, e que reprovaria o caso com a
    função correta: o mesmo defeito de classe do `'apenas o dono'`. Corrigido em 14/10/2026 pela revisão

@@ -184,11 +184,15 @@ comment on function public.margem_produtos(date, date, integer) is
 --      casos (como o `max(i.preco_custo) = 0` da versao anterior) voltaria a
 --      divergir na proxima regra nova.
 --
--- CONTA PRODUTOS DISTINTOS (`count(distinct produto_id)`) e nao itens: o mesmo
--- produto sem custo vendido cinco vezes e UM produto sem custo. Conta pelo custo
--- gravado no ITEM (`venda_itens.preco_custo`, o mesmo campo que o ranking usa), e
--- nao pelo cadastro de hoje — o preco do dia da venda e o que a margem daquela
--- venda usaria.
+-- CONTA PRODUTOS, e nao itens: o mesmo produto sem custo vendido cinco vezes e UM
+-- produto sem custo. O `count(*)` do corpo conta as LINHAS do subselect, e o
+-- subselect ja tem uma linha por produto (o `group by i.produto_id`) — por isso o
+-- `count(*)` responde pela contagem de produtos. (A primeira versao do comentario
+-- dizia `count(distinct produto_id)`, que era o texto de uma versao anterior do
+-- corpo e nao existe mais: `distinct` aqui seria redundante, e redundancia que
+-- mente e pior que redundancia.) Conta pelo custo gravado no ITEM
+-- (`venda_itens.preco_custo`, o mesmo campo que o ranking usa), e nao pelo cadastro
+-- de hoje — o preco do dia da venda e o que a margem daquela venda usaria.
 -- ============================================================
 create or replace function public.margem_sem_custo(p_de date, p_ate date)
 returns table (sem_custo bigint)
