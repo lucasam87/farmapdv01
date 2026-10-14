@@ -300,10 +300,11 @@ begin
   --   * uma venda ANTES de o custo ser cadastrado: item PAGO com `preco_custo = 0`;
   --   * uma venda DEPOIS: item pago com `preco_custo = 400`.
   -- MEDIDO na janela de UM DIA desse produto: a funcao NOVA devolve 0 (o produto ESTA no
-  -- ranking, pelo item com custo) e a funcao ANTIGA devolve 1 — numero medido contra a
-  -- definicao real do commit `2972376` (a revisao da rodada 2 fez essa medicao; eu havia
-  -- escrito "2" aqui, por supor o valor do bug, e estava errado). A prova por execucao,
-  -- com a assercao abaixo, esta no relatorio ("no dia do PRODUTO ISOLADO a contagem e 0").
+  -- ranking, pelo item com custo) e a funcao ANTIGA devolve 1 — numero medido pelo revisor
+  -- contra a definicao real do commit `2972376`. (Eu havia escrito "2" aqui, supondo o
+  -- valor do bug; estava errado. O que EU verifiquei foi a execucao: aplicando a definicao
+  -- historica extraida daquele commit, a assercao abaixo fica vermelha — ou seja, a antiga
+  -- devolve valor diferente de 0. O valor exato e a medicao do revisor.)
   -- Nao escreva aqui um numero do criterio antigo que voce nao mediu: foi exatamente
   -- supor esse valor que produziu a afirmacao falsa.
   v_p_isolado := criar_produto('PRODUTO ISOLADO', 1000, 100);
