@@ -131,7 +131,7 @@ describe('analisarClientes', () => {
       ),
     )
 
-    const msg = 'Telefone inválido. Use DDD + número, como (11) 91234-5678.'
+    const msg = 'Telefone inválido. Use DDD + número, como 11 91234-5678.'
     expect(r.linhas.map((l) => l.erros)).toEqual([[msg], [msg], [msg]])
     expect(JSON.parse(r.json)).toHaveLength(0)
   })

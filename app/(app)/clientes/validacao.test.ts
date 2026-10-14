@@ -119,7 +119,7 @@ describe('validarCliente', () => {
     })
     expect(validarCliente({ ...vazio, nome: 'ANA', telefone: '123' }, true)).toEqual({
       ok: false,
-      mensagem: 'Telefone inválido. Use DDD + número, como (11) 91234-5678.',
+      mensagem: 'Telefone inválido. Use DDD + número, como 11 91234-5678.',
     })
     // " " nao pode virar chave nem virar telefone vazio gravado.
     expect(validarCliente({ ...vazio, nome: 'ANA', telefone: ' ' }, true)).toEqual({

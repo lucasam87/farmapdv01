@@ -109,7 +109,7 @@ const OBRIGATORIOS = ['nome', 'cpf']
 // cadastro e outro na importacao para o mesmo fato.
 const CPF_SEM = 'Informe o CPF do cliente.'
 const CPF_INVALIDO = 'CPF inválido. Use 11 dígitos.'
-const TELEFONE_INVALIDO = 'Telefone inválido. Use DDD + número, como (11) 91234-5678.'
+const TELEFONE_INVALIDO = 'Telefone inválido. Use DDD + número, como 11 91234-5678.'
 const LIMITE_INVALIDO = 'Limite de crédito inválido. Digite em reais, como 100,00.'
 const LIMITE_NEGATIVO = 'O limite de crédito não pode ser negativo.'
 const SALDO_INVALIDO = 'Saldo devedor inválido. Digite em reais, como 50,00.'

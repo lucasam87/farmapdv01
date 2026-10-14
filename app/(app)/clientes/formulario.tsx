@@ -77,7 +77,7 @@ export function FormularioCliente({
         id="telefone"
         name="telefone"
         inputMode="tel"
-        placeholder="(11) 91234-5678"
+        placeholder="11 91234-5678"
         defaultValue={cliente?.telefone ?? ''}
         className={CAMPO}
       />

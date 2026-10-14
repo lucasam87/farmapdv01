@@ -121,7 +121,7 @@ export function validarCliente(entrada: ClienteEntrada, ehDono: boolean): Result
 
   const telefone = normalizarDigitos(entrada.telefone)
   if (telefone !== null && telefone.length !== 10 && telefone.length !== 11) {
-    return { ok: false, mensagem: 'Telefone inválido. Use DDD + número, como (11) 91234-5678.' }
+    return { ok: false, mensagem: 'Telefone inválido. Use DDD + número, como 11 91234-5678.' }
   }
 
   const limite = lerCentavos(entrada.limite)
