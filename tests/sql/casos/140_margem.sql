@@ -3,15 +3,17 @@
 --
 -- O que este arquivo prova, e por que cada assercao e do tamanho que e:
 --
---   * A ORDEM E POR PERCENTUAL, e nao pelo valor em reais. O cenario foi montado
---     para as duas ordens terem um par (primeiro, segundo) DIFERENTE:
---       PRODUTO A: receita 900, custo 300 -> margem 600 = 66,7% da receita
---       PRODUTO B: receita 1000, custo 200 -> margem 800 = 80,0% da receita
---     O pior PERCENTUAL e o A; a pior margem em REAIS tambem e o A (600 < 800), mas
---     a SEGUNDA linha ser o B e o que amarra a regra: se a ordenacao fosse pela
---     margem em reais, ou pelo lucro, o par (primeiro, segundo) mudaria de sentido.
---     Foi o achado que mudou o cenario do brief, que pedia "tres produtos": com
---     tres, escolher o pior era obvio e qualquer `order by` passaria.
+--   * A ORDEM E POR PERCENTUAL, e nao pelo valor em reais. Os TRES produtos que
+--     entram no ranking tem percentuais DISTINTOS, e a ordem por percentual e
+--     DIFERENTE da ordem pelo valor em reais dois a dois:
+--       PRODUTO A     receita  900, custo 300 -> margem 600 = 66,7%  (pior %)
+--       PRODUTO MISTO receita 1200, custo 300 -> margem 900 = 75,0%  (pior R$)
+--       PRODUTO B     receita 1000, custo 200 -> margem 800 = 80,0%  (melhor %)
+--     A ordem correta e A, MISTO, B. A primeira linha e o A e a SEGUNDA e o MISTO
+--     (que tem a MAIOR margem em reais) — se a ordenacao fosse pelo valor em reais,
+--     o MISTO viria primeiro e as duas assercoes ficariam vermelhas. Foi o achado que
+--     mudou o cenario do brief, que pedia "tres produtos": com tres, escolher o pior
+--     era obvio e qualquer `order by` passaria.
 --     (Os precos de venda sao os de TABELA: `registrar_venda` grava
 --     `produtos.preco_venda` no item, e nunca um preco vindo do carrinho.)
 --   * O DIA DA VENDA E FIXO NO CASO (nao e `now()`): as vendas deste arquivo sao
@@ -19,21 +21,30 @@
 --     primeiro run mediu `margem_produtos(hoje - 30, hoje, 10)` e voltou com uma
 --     venda REAL da farmacia ("CR PENT SEDA FROZEN BRILHO ENCANTA 300ML") dentro
 --     da janela; o segundo usou uma janela de 10 dias atras e tambem achou venda
---     real. Com dado real dentro do periodo, `count(*) = 2` mede a farmacia e nao a
+--     real. Com dado real dentro do periodo, `count(*)` mede a farmacia e nao a
 --     funcao (~15 vendas/dia no periodo medido). A janela e no futuro e o caso 0
 --     PROVA que ela esta vazia; a janela continua RELATIVA a hoje porque o caso 5
---     precisa exercitar o teto de 31 dias sobre o parametro que o agente manda.
+--     precisa exercitar o TETO sobre o parametro que o agente manda.
 --   * PRODUTO SEM CUSTO fica FORA do ranking e e contado a parte
 --     (`margem_sem_custo`). `preco_custo = 0` e "nao sei o custo", nao "custo
 --     zero": entrar no ranking daria percentual 100% (o MELHOR lugar) para o
 --     produto que a farmacia nem sabe quanto pagou. O produto sem custo e vendido
 --     de proposito, senao a exclusao poderia estar so escondendo um produto que
 --     nao vendeu.
+--   * CUSTO MISTO e decidido por PRODUTO, e nao item a item (ruling R4): o
+--     PRODUTO MISTO vende uma vez antes e uma depois de o custo ser cadastrado, e
+--     tem de aparecer NO RANKING (com os itens que tem custo) e NAO na contagem.
+--     Contar `i.preco_custo = 0` de um lado e `> 0` do outro fazia esse produto
+--     aparecer nos DOIS, e o numero narrado ao dono superestimava.
 --   * RECEITA ZERO (brinde, desconto de 100%) nao pode entrar no ranking: e o caso
---     em que `margem / receita` DIVIDE POR ZERO. A venda do brinde e inserida
---     DIRETO nas tabelas (com preco_custo > 0) porque `registrar_venda` recusa
---     venda de total zero; a constraint que tambem proibe a linha e derrubada
---     DENTRO da transacao do caso (ver o comentario no ponto do cenario).
+--     em que `margem / receita` DIVIDE POR ZERO. E quem fica de fora por causa
+--     disso NAO some da resposta: entra na contagem de `margem_sem_custo` (ruling
+--     R7), porque com custo 300 e receita 0 ele tem margem -300 e e o PIOR caso que
+--     existe — deixa-lo fora das duas respostas faria o agente dizer "nenhum
+--     produto com margem ruim" com ele na tela. A venda do brinde e inserida
+--     DIRETO nas tabelas, junto de um item pago, para o total da venda ficar
+--     positivo e a constraint `vendas_total_positivo` NUNCA ser tocada (ruling R6:
+--     teste nao derruba constraint em tabela de producao — ver o cenario).
 --   * PERIODO TORTO E RECUSADO, e nao devolvido como zero. Esta e a divergencia
 --     DELIBERADA da funcao irma: `relatorio_lucro` (016) devolve zeros para
 --     periodo nulo/invertido/torto. Para o agente isso seria pior que nao
@@ -57,14 +68,17 @@ declare
   -- garantidamente VAZIA num banco de PRODUCAO em operacao. O primeiro run deste
   -- caso usou `hoje - 30, hoje` e voltou com vendas REAIS da farmacia dentro da
   -- janela (uma delas "CR PENT SEDA FROZEN BRILHO ENCANTA 300ML", ~15 vendas/dia
-  -- no periodo medido): com dado real dentro, `count(*) = 2` mede a farmacia e nao
+  -- no periodo medido): com dado real dentro, toda contagem mede a farmacia e nao
   -- a funcao. Janela no PASSADO nao serve sempre (a farmacia vende todo dia, e a
   -- janela de 10 dias atras tem venda real — foi o segundo run, vermelho tambem);
   -- dias no futuro nao podem ter venda registrada, e o caso 0 PROVA isso.
   -- A janela e relativa a HOJE (e nao uma data fixa) porque o caso 5 precisa
-  -- exercitar o TETO de 31 dias sobre o parametro que o agente manda.
+  -- exercitar o TETO sobre o parametro que o agente manda.
   v_dia_venda  date := hoje + 100;
-  v_de         date := v_dia_venda - 30;   -- 30 dias de janela (dentro do teto de 31)
+  -- O intervalo e 30, e nao 31: o app conta DATAS INCLUSIVAS (31 datas = de 01/01 a
+  -- 31/01 = `ate - de` de 30), entao 30 e o TETO, e a janela do caso e o proprio
+  -- limite superior (ruling R5).
+  v_de         date := v_dia_venda - 30;
   v_ate        date := v_dia_venda;
   v_dono       uuid;
   v_atendente  uuid;
@@ -76,6 +90,10 @@ declare
   -- produtos que NAO podem entrar no ranking
   v_p_brinde   uuid;   -- custo > 0 e receita ZERO: divide por zero
   v_p_semcusto uuid;   -- preco_custo = 0: some do ranking e vira contagem
+  -- produto de CUSTO MISTO: entra no ranking e NAO entra na contagem (ruling R4)
+  v_p_misto    uuid;
+  v_venda_misto1 uuid; -- a venda dele ANTES de o custo ser cadastrado
+  v_venda_misto2 uuid; -- e a venda DEPOIS
   v_venda_a    uuid;
   v_venda_b    uuid;
   v_venda_c    uuid;
@@ -126,7 +144,8 @@ begin
     0)->>'id')::uuid;
 
   -- A venda B: 1x PRODUTO A (para ele ter DUAS vendas somadas em UMA linha) e 1x
-  -- PRODUTO SEM CUSTO. A receita do A fecha em 1050 e a do sem custo em 400.
+  -- PRODUTO SEM CUSTO. A receita do A fecha em 900 e a do sem custo comeca em 400
+  -- (que vira 900 com a linha paga da venda do brinde, mais abaixo).
   v_chave := gen_random_uuid();
   v_venda_b := (registrar_venda(v_chave, null,
     jsonb_build_array(
@@ -146,129 +165,208 @@ begin
     jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 1000)),
     0)->>'id')::uuid;
 
-  -- As tres vendas no MESMO dia conhecido (o `criado_em` que a funcao usa no
+  -- ---- o PRODUTO MISTO: custo cadastrado NO MEIO do periodo (ruling R4) ----
+  -- Duas vendas do MESMO produto, com o custo cadastrado ENTRE elas: a primeira
+  -- grava `venda_itens.preco_custo = 0` (o custo ainda nao existia no cadastro) e a
+  -- segunda grava o custo novo. E este par que faz o produto ter itens de CUSTO
+  -- MISTO no periodo — vender so depois do cadastro nao provaria nada, e vender so
+  -- antes daria o mesmo que o PRODUTO SEM CUSTO.
+  --
+  -- O que ele prova: a decisao "esta no ranking ou na contagem" e por PRODUTO. Um
+  -- produto com QUALQUER item de custo > 0 esta no ranking (somando so os itens com
+  -- custo, porque o de custo zero somaria receita sem custo e inflaria a margem) e
+  -- NAO pode aparecer na contagem. A primeira versao da funcao contava
+  -- `i.preco_custo = 0` na contagem e `> 0` no ranking: este produto aparecia nos
+  -- DOIS lados, o comentario "ficaram fora do ranking" ficava falso e o numero
+  -- narrado ao dono superestimava. E o cenario e realista: `produtos.preco_custo` e
+  -- preenchido DEPOIS pela importacao de precos.
+  --
+  -- Os numeros dele foram escolhidos para o ranking nao virar um caso ambiguo:
+  -- 2 unidades a 1200 (receita 1200, porque so o item COM custo entra na soma) e
+  -- custo 300 dao margem 900 — a MAIOR margem em reais do cenario e o SEGUNDO pior
+  -- percentual (75,0%, entre o A de 66,7% e o B de 80,0%).
+  v_p_misto := criar_produto('PRODUTO MISTO', 1200, 100);
+  update produtos set preco_custo = 0 where id = v_p_misto;
+
+  -- Antes do cadastro do custo: 1 unidade a 1200, custo 0 no item.
+  v_chave := gen_random_uuid();
+  v_venda_misto1 := (registrar_venda(v_chave, null,
+    jsonb_build_array(jsonb_build_object('produto_id', v_p_misto, 'quantidade', 1)),
+    jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 1200)),
+    0)->>'id')::uuid;
+
+  -- A importacao de precos chega e cadastra o custo.
+  update produtos set preco_custo = 300 where id = v_p_misto;
+
+  -- Depois do cadastro: 1 unidade a 1200, custo 300 no item.
+  v_chave := gen_random_uuid();
+  v_venda_misto2 := (registrar_venda(v_chave, null,
+    jsonb_build_array(jsonb_build_object('produto_id', v_p_misto, 'quantidade', 1)),
+    jsonb_build_array(jsonb_build_object('forma', 'dinheiro', 'valor', 1200)),
+    0)->>'id')::uuid;
+
+  -- As vendas do cenario no MESMO dia conhecido (o `criado_em` que a funcao usa no
   -- recorte e no fuso).
   update vendas
      set criado_em = (v_dia_venda::timestamp + time '12:00') at time zone 'America/Sao_Paulo'
-   where id in (v_venda_a, v_venda_b, v_venda_c);
+   where id in (v_venda_a, v_venda_b, v_venda_c, v_venda_misto1, v_venda_misto2);
 
-  -- ---- a venda do BRINDE: receita ZERO, custo > 0 (inserida direto) ----
-  -- `registrar_venda` recusa total zero ("O desconto nao pode zerar a venda"), e a
-  -- tabela ainda tem a constraint `vendas_total_positivo` (001_base.sql:104), que
-  -- PROIBE a linha existir. As duas coisas sao a mesma decisao: o PDV nao fecha
-  -- venda de receita zero.
+  -- ---- a venda do BRINDE: um item de receita ZERO com custo > 0 ----
+  -- `registrar_venda` nao serve aqui: ele monta a linha do item com o preco de
+  -- tabela do produto, e nao aceita item de receita zero. A venda e montada a mao
+  -- (como os casos irmaos montam cenario), com DOIS itens:
+  --   * o BRINDE, item de receita zero: `preco_unitario = 0`, `preco_custo = 300`;
+  --   * um item PAGO (1x PRODUTO SEM CUSTO a 1000), cuja receita cobre o desconto
+  --     de 100% aplicado ao brinde — o TOTAL da venda fica POSITIVO (subtotal 1000,
+  --     desconto 500, total 500).
   --
-  -- O cenario precisa da linha assim mesmo, e por dois motivos escritos:
-  --   1. e o Review Focus 1 do plano ("brinde, desconto de 100%"), e a pergunta que
-  --      ele responde e sobre `margem / receita`: se essa linha existir, a funcao
-  --      NAO PODE entrar em divisao por zero;
-  --   2. o banco e o de PRODUCAO e a constraint e de hoje — dado historico
-  --      importado, ou venda feita antes dela, pode ter receita zero.
-  -- A constraint e derrubada DENTRO da transacao do caso (o DROP e transacional no
-  -- Postgres, como as tabelas temporarias do _helper) e o ROLLBACK do runner a
-  -- devolve: nada fica alterado no banco. Alternativa descartada: montar a linha
-  -- pelo caminho real com o desconto no nivel da VENDA — e impossivel, porque
-  -- `venda_itens.preco_unitario` tem CHECK >= 0 e o total do item e preco *
-  -- quantidade, entao receita de item zero so existe com preco zero (e
-  -- `vendas.total > 0` sempre). E alternativa descartada tambem: nao testar o
-  -- caso, que e justamente o que o Review Focus exige.
-  alter table vendas drop constraint vendas_total_positivo;
-
-  -- O preco_custo e gravado no ITEM (venda_itens.preco_custo, coluna de 001:122),
-  -- que e o custo do dia da venda — o mesmo campo que a funcao le.
+  -- Este segundo item e o que evita derrubar a constraint `vendas_total_positivo`
+  -- (001_base.sql:104), que PROIBE venda de total zero. A primeira versao deste
+  -- caso fazia `alter table vendas drop constraint ...` para caber uma venda de
+  -- total zero — e isso e INACEITAVEL num banco de PRODUCAO (ruling R6 da revisao):
+  -- o DROP toma ACCESS EXCLUSIVE em `vendas` ate o ROLLBACK, e a farmacia esta
+  -- VENDENDO agora; o caso bloquearia o PDV, e um retry do runner poderia prender
+  -- atras de um lock. **Teste nao derruba constraint em tabela de producao**, ponto.
+  -- O estado que o caso precisa (um item com custo e receita ZERO no periodo) e
+  -- alcancavel sem DDL nenhum: o que estava errado era o desenho do cenario, nao a
+  -- constraint. O `vendas_desconto_ok` (desconto <= subtotal) e o `vendas_total_ok`
+  -- (total = subtotal - desconto) continuam valendo, e a venda passa pelos dois.
+  --
+  -- A linha paga e do PRODUTO SEM CUSTO de proposito, e nao de um produto novo: ele
+  -- JA tem `preco_custo = 0`, entao a linha nao mexe em conta nenhuma do ranking
+  -- (nao pode entrar nele por falta de custo) e serve de item pago sem poluir o
+  -- cenario com um sexto produto. O efeito colateral esta preso pelo caso 2: a
+  -- receita dele no periodo passa de 400 para 900.
   v_p_brinde := criar_produto('PRODUTO BRINDE', 500, 100);
   update produtos set preco_custo = 300 where id = v_p_brinde;
 
   insert into vendas (chave_idempotencia, caixa_sessao_id, usuario_id,
                       subtotal, desconto, total, valor_pago, troco, criado_em)
-  values (gen_random_uuid(), v_caixa, v_dono, 500, 500, 0, 0, 0,
+  values (gen_random_uuid(), v_caixa, v_dono, 1000, 500, 500, 500, 0,
           (v_dia_venda::timestamp + time '12:00') at time zone 'America/Sao_Paulo')
   returning id into v_venda_brinde;
 
+  -- O preco_custo e gravado no ITEM (venda_itens.preco_custo, coluna de 001:122),
+  -- que e o custo do dia da venda — o mesmo campo que a funcao le.
   insert into venda_itens (venda_id, produto_id, nome_produto, quantidade,
                            preco_unitario, preco_custo, total)
-  values (v_venda_brinde, v_p_brinde, 'PRODUTO BRINDE', 1, 0, 300, 0);
+  values (v_venda_brinde, v_p_brinde, 'PRODUTO BRINDE', 1, 0, 300, 0),
+         (v_venda_brinde, v_p_semcusto, 'PRODUTO SEM CUSTO', 1, 1000, 0, 1000);
 
   -- ================= caso 0: o cenario esta montado =================
   -- As assercoes abaixo seriam VAZIAS se o cenario nao tivesse, de fato, os casos
-  -- que elas testam. Estas tres sao a guarda contra "passar por acidente".
+  -- que elas testam. Estas quatro sao a guarda contra "passar por acidente".
   perform teste_ok((select count(*) = 1 from venda_itens where produto_id = v_p_brinde and preco_custo > 0),
     'caso 0: o cenario tem UMA venda de produto com custo e RECEITA ZERO (senao o caso 6 nao prova nada)');
-  perform teste_ok((select count(*) = 1 from venda_itens where produto_id = v_p_semcusto),
+  perform teste_ok((select count(*) >= 1 from venda_itens where produto_id = v_p_semcusto),
     'caso 0: o produto SEM custo foi vendido (senao a exclusao do ranking nao prova nada)');
+  -- A guarda do PRODUTO MISTO: ele so prova o R4 se tiver, de fato, os DOIS tipos de
+  -- item no periodo. Sem esta assercao, um cenario que perdesse a venda anterior ao
+  -- cadastro do custo faria o "custo misto" nao existir — e a assercao do caso 3
+  -- passaria por ausencia, nao por regra.
+  perform teste_ok((select count(*) filter (where preco_custo = 0) = 1
+                       and count(*) filter (where preco_custo > 0) = 1
+                      from venda_itens where produto_id = v_p_misto),
+    'caso 0: o PRODUTO MISTO tem UM item sem custo e UM com custo no periodo (senao o caso 3 nao prova o R4)');
   -- A CANARIA DA JANELA: se qualquer venda real da farmacia cair no periodo deste
   -- caso, TODA contagem abaixo vira uma medicao da farmacia (foi o que aconteceu
   -- no primeiro run, com `hoje - 30, hoje`) e este caso para de provar qualquer
   -- coisa. Esta assercao e a que denuncia isso.
-  perform teste_ok((select count(distinct i.produto_id) = 4
+  perform teste_ok((select count(distinct i.produto_id) = 5
                       from venda_itens i
                       join vendas v on v.id = i.venda_id
                      where v.status = 'concluida'
                        and (v.criado_em at time zone 'America/Sao_Paulo')::date between v_de and v_ate),
-    'caso 0: a janela do caso tem SO os quatro produtos do cenario (nenhuma venda real da farmacia caiu nela)');
+    'caso 0: a janela do caso tem SO os cinco produtos do cenario (nenhuma venda real da farmacia caiu nela)');
 
   -- ================= caso 1: a ordem e pelo PIOR percentual =================
   -- PRODUTO A: 900 de receita (3 unidades ao preco de TABELA do cenario, 300 cada
   -- — o `registrar_venda` sempre grava `produtos.preco_venda`, e nao um preco vindo
-  -- do carrinho), 300 de custo, margem 600 (66,7%).
-  -- PRODUTO B: 1000 de receita, 200 de custo, margem 800 (80,0%).
-  -- A primeira linha e o A e a segunda e o B: e a assercao que separa "ordena por
-  -- percentual" de "ordena pelo valor em reais" (o A tem a MENOR margem em reais E
-  -- o PIOR percentual; o B tem a maior margem em reais e o melhor percentual — se a
-  -- funcao ordenasse por margem decrescente, o A viria primeiro por outro motivo e a
-  -- assercao de que a SEGUNDA linha e o B ficaria vermelha).
+  -- do carrinho), 300 de custo, margem 600 (66,7%) — o PIOR percentual.
+  -- PRODUTO MISTO: 1200 de receita (so o item com custo entra na soma), 300 de custo,
+  -- margem 900 (75,0%) — a MAIOR margem em reais e o SEGUNDO pior percentual.
+  -- PRODUTO B: 1000 de receita, 200 de custo, margem 800 (80,0%) — o MELHOR percentual.
+  -- A ordem certa e A, MISTO, B. As duas primeiras assercoes travam as duas primeiras
+  -- posicoes: o MISTO tem a MAIOR margem em reais do cenario, entao uma ordenacao por
+  -- valor em reais poria ele em PRIMEIRO (e o A em segundo) — as duas ficariam
+  -- vermelhas. Sem a terceira linha, um `order by` por receita tambem passaria.
   perform teste_ok((select produto_id = v_p_a from margem_produtos(v_de, v_ate, 10) limit 1),
     'caso 1: o ranking comeca pelo PIOR percentual (o produto de margem 600 sobre receita de 900)');
-  perform teste_ok((select produto_id = v_p_b from margem_produtos(v_de, v_ate, 10) offset 1 limit 1),
-    'caso 1: o segundo e o de melhor percentual (margem 800 sobre receita de 1000) — a ordem NAO e pelo valor em reais');
-  -- Os dois numeros que ordenam o ranking, e a conta que os produziu: o A tem as
-  -- DUAS vendas somadas em UMA linha (2x + 1x = 3 unidades, 900 de receita).
+  perform teste_ok((select produto_id = v_p_misto from margem_produtos(v_de, v_ate, 10) offset 1 limit 1),
+    'caso 1: o segundo e o de MAIOR margem em reais e SEGUNDO pior percentual — a ordem NAO e pelo valor em reais');
+  perform teste_ok((select produto_id = v_p_b from margem_produtos(v_de, v_ate, 10) offset 2 limit 1),
+    'caso 1: o terceiro e o de MELHOR percentual — a ordem e por percentual crescente, nas tres posicoes');
+  -- Os numeros de cada posicao, e a conta que os produziu: o A tem as DUAS vendas
+  -- somadas em UMA linha (2x + 1x = 3 unidades, 900 de receita).
   perform teste_ok((select quantidade = 3 and receita = 900 and custo = 300 and margem = 600
                       from margem_produtos(v_de, v_ate, 10) limit 1),
     'caso 1: as duas vendas do mesmo produto sao somadas em uma linha (3 un, receita 900, custo 300, margem 600)');
-  perform teste_ok((select quantidade = 1 and receita = 1000 and custo = 200 and margem = 800
+  perform teste_ok((select quantidade = 1 and receita = 1200 and custo = 300 and margem = 900
                       from margem_produtos(v_de, v_ate, 10) offset 1 limit 1),
-    'caso 1: receita, custo e margem do segundo colocado batem com o cenario (1000, 200, 800)');
+    'caso 1: o MISTO soma SO o item com custo (receita 1200, custo 300, margem 900) — a receita do item sem custo fica fora');
+  perform teste_ok((select quantidade = 1 and receita = 1000 and custo = 200 and margem = 800
+                      from margem_produtos(v_de, v_ate, 10) offset 2 limit 1),
+    'caso 1: receita, custo e margem do terceiro colocado batem com o cenario (1000, 200, 800)');
   -- Margem e SEMPRE receita - custo, linha a linha: a invariante que pega uma
   -- agregacao furada (somar o custo de um produto na receita de outro).
   perform teste_ok((select bool_and(margem = receita - custo) from margem_produtos(v_de, v_ate, 10)),
     'caso 1: em toda linha, margem = receita - custo');
 
-  -- ================= caso 2: o produto sem custo NAO entra no ranking =================
-  -- Sao TRES produtos vendidos no periodo (A, B e o sem custo) e DUAS linhas no
-  -- ranking. O brief pedia `count(*) = 2` descrevendo "tres produtos com custo"; o
-  -- cenario aqui tem DOIS com custo e um sem (o brief contava um produto a mais do
-  -- que descrevia — ver o relatorio), e o numero 2 e o mesmo. O que a assercao
-  -- amarra e que o produto de `preco_custo = 0` ficou de fora.
-  perform teste_ok((select count(*) = 2 from margem_produtos(v_de, v_ate, 10)),
-    'caso 2: o produto sem custo NAO entra no ranking (2 linhas para 3 produtos vendidos)');
+  -- ================= caso 2: quem nao tem custo NAO entra no ranking =================
+  -- Sao CINCO produtos vendidos no periodo (A, B, o sem custo, o brinde e o misto) e
+  -- TRES linhas no ranking: A, B e o misto. Ficam de fora o sem custo (nenhum item
+  -- com custo) e o brinde (receita zero) — os dois contados no caso 3.
+  -- O brief pedia `count(*) = 2` descrevendo "tres produtos com custo"; o cenario
+  -- ganhou o PRODUTO MISTO depois da revisao (ruling R4), que entra no ranking, e o
+  -- numero passou a 3 (ver o relatorio).
+  perform teste_ok((select count(*) = 3 from margem_produtos(v_de, v_ate, 10)),
+    'caso 2: o produto sem custo NAO entra no ranking (3 linhas para 5 produtos vendidos)');
   perform teste_ok((select count(*) = 0 from margem_produtos(v_de, v_ate, 10) where produto_id = v_p_semcusto),
     'caso 2: e o produto que ficou de fora e exatamente o de preco_custo = 0');
-  -- O produto sem custo NAO some do banco: a venda dele esta la, com receita 400.
-  -- (Sem isto, "nao entrou no ranking" poderia ser apenas "nao existe".)
-  perform teste_ok((select coalesce(sum(i.total), 0) = 400 from venda_itens i
+  -- O produto sem custo NAO some do banco: as vendas dele estao la, com receita
+  -- (400 na venda B + 1000 na linha paga da venda do brinde). (Sem isto, "nao entrou
+  -- no ranking" poderia ser apenas "nao existe".)
+  perform teste_ok((select coalesce(sum(i.total), 0) = 1400 from venda_itens i
                      where i.produto_id = v_p_semcusto
-                       and i.venda_id in (v_venda_a, v_venda_b, v_venda_c)),
-    'caso 2: a venda do produto sem custo existe e tem receita 400 (ele so nao entra no ranking)');
+                       and i.venda_id in (v_venda_a, v_venda_b, v_venda_c, v_venda_brinde)),
+    'caso 2: as vendas do produto sem custo existem e somam 1400 (ele so nao entra no ranking)');
 
-  -- ================= caso 3: o sem custo e contado a parte =================
-  perform teste_ok((select sem_custo = 1 from margem_sem_custo(v_de, v_ate)),
-    'caso 3: o produto sem custo e contado a parte (1 produto)');
-  -- Os DOIS numeros na MESMA assercao, para o caso nao ser tautologico (a primeira
-  -- versao comparava a funcao com ela mesma — ver o relatorio):
-  --   * a contagem e de PRODUTOS distintos (o sem custo foi vendido UMA vez; se a
-  --     funcao contasse ITENS, uma segunda venda dele mudaria o numero sem mudar o
-  --     conjunto de produtos), e
-  --   * o brinde (receita zero, custo > 0) NAO entra nesta contagem: ele TEM custo,
-  --     so nao tem receita. Ele fica fora do ranking e fora desta contagem — e o
-  --     caso 6 que prova a primeira parte.
-  perform teste_ok((select (select sem_custo from margem_sem_custo(v_de, v_ate)) = 1
-                      and (select count(distinct i.produto_id) from venda_itens i
+  -- ================= caso 3: quem ficou fora do ranking e contado a parte =================
+  -- TRES produtos ficaram fora do ranking, e nao um (ruling R7): o SEM CUSTO, o
+  -- BRINDE (tem custo, nao tem receita) e... nenhum outro — o PRODUTO MISTO, que
+  -- tem um item sem custo, NAO entra nesta contagem, porque tem outro item com
+  -- custo. E o R4, e e a assercao que falharia com a contagem antiga (`i.preco_custo
+  -- = 0`), que devolvia 2 produtos contados como "fora do ranking" sendo que o misto
+  -- ESTAVA no ranking — o dono ouviria um numero maior que a verdade.
+  perform teste_ok((select sem_custo = 2 from margem_sem_custo(v_de, v_ate)),
+    'caso 3: dois produtos ficaram fora do ranking (o sem custo e o brinde), e nao tres');
+  -- Prova direta do R4: o produto com CUSTO MISTO esta no RANKING (uma linha, e so
+  -- com os itens que tem custo) e o total das duas contagens e o dos produtos
+  -- vendidos — ninguem aparece nos dois lados, e ninguem some. Esta e a assercao que
+  -- falhava com a contagem antiga: ela devolvia 3, contando o misto como "fora do
+  -- ranking" sendo que ele ESTAVA no ranking.
+  -- `bool_and(produto_id = v_p_misto)` e nao `min(produto_id)`: o Postgres NAO tem
+  -- `min`/`max` para `uuid` (a primeira versao levava "function min(uuid) does not
+  -- exist"), e comparar por agregado de uuid nao diria nada sobre ordem de ranking
+  -- de qualquer forma.
+  perform teste_ok((select count(*) = 1 and bool_and(produto_id = v_p_misto)
+                      from margem_produtos(v_de, v_ate, 10) where produto_id = v_p_misto),
+    'caso 3: o PRODUTO MISTO (item sem custo + item com custo) esta no ranking, em UMA linha');
+  perform teste_ok((select (select sem_custo from margem_sem_custo(v_de, v_ate))
+                         + (select count(*) from margem_produtos(v_de, v_ate, 10)) = 5),
+    'caso 3: fora do ranking + no ranking = os CINCO produtos vendidos (ninguem contado duas vezes, ninguem sumido)');
+  -- A contagem e de PRODUTOS, e nao de ITENS: o PRODUTO SEM CUSTO foi vendido duas
+  -- vezes no periodo (a venda B e a linha da venda do brinde) e conta UMA vez. Sem
+  -- esta assercao, uma contagem por item daria 3 (dois itens sem custo dele + o
+  -- brinde) e passaria pela de cima.
+  perform teste_ok((select (select sem_custo from margem_sem_custo(v_de, v_ate)) = 2
+                      and (select count(*) from venda_itens i
                              join vendas v on v.id = i.venda_id
                             where i.preco_custo = 0
                               and v.status = 'concluida'
-                              and (v.criado_em at time zone 'America/Sao_Paulo')::date between v_de and v_ate) = 1),
-    'caso 3: a contagem e de PRODUTOS distintos sem custo (1) — e o brinde, que tem custo, nao entra nela');
+                              and (v.criado_em at time zone 'America/Sao_Paulo')::date between v_de and v_ate
+                              and i.produto_id = v_p_semcusto) = 2),
+    'caso 3: a contagem e de PRODUTOS distintos — os DOIS itens sem custo do mesmo produto contam UM');
   -- A contagem respeita o periodo: uma janela que nao alcanca a venda devolve zero,
   -- e nao erro nem o numero da janela larga.
   perform teste_ok((select sem_custo = 0 from margem_sem_custo(v_dia_venda - 1, v_dia_venda - 1)),
@@ -300,30 +398,33 @@ begin
                    and (select produto_id from margem_produtos(v_de, v_ate, 1) limit 1)
                      = (select produto_id from margem_produtos(v_de, v_ate, 10) limit 1),
     'caso 4: com limite 1 volta so a primeira linha — o parametro e usado de verdade');
-  -- O limite de 10 (o teto) nao corta o cenario: as duas linhas vem.
-  perform teste_ok((select count(*) = 2 from margem_produtos(v_de, v_ate, 10)),
+  -- O limite de 10 (o teto) nao corta o cenario: as tres linhas vem.
+  perform teste_ok((select count(*) = 3 from margem_produtos(v_de, v_ate, 10)),
     'caso 4: o teto de 10 comporta o cenario inteiro');
 
-  -- ================= caso 5: periodo maior que 31 dias e recusado =================
+  -- ================= caso 5: periodo acima do teto e recusado =================
   -- O trecho comparado e `'ordem'`, e nao `'periodo'`: a mensagem gravada e
-  -- "Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias."
-  -- e "Período"/"inválido" tem ACENTO. Um literal acentuado depende do transporte
-  -- preservar acentuacao (foi o que quebrou o caso 030) e um literal sem acento que
-  -- "parece" a palavra (`'periodo'`) simplesmente NAO EXISTE na mensagem — o
-  -- `teste_erro` compara por `position`, entao o trecho tem de aparecer LITERALMENTE.
-  -- `'ordem'` aparece igual nos dois (com acento certo no banco ou corrompido) e e
-  -- exclusivo desta mensagem: as outras recusas nao tem "ordem" no texto. E
-  -- `'31 dias'` na mesma assercao prende a parte do teto, que e o que o caso 5 esta
-  -- testando (e nao so "recusou alguma coisa"). A palavra "máximo" NAO serve como
-  -- trecho: ela tem acento, e o `teste_erro` compara por `position`, byte a byte.
+  -- "Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias
+  -- (30 dias de intervalo)." e "Período"/"inválido" tem ACENTO. Um literal acentuado
+  -- depende do transporte preservar acentuacao (foi o que quebrou o caso 030) e um
+  -- literal sem acento que "parece" a palavra (`'periodo'`) simplesmente NAO EXISTE
+  -- na mensagem — o `teste_erro` compara por `position`, entao o trecho tem de
+  -- aparecer LITERALMENTE. `'ordem'` aparece igual nos dois (com acento certo no
+  -- banco ou corrompido) e e exclusivo desta mensagem: as outras recusas nao tem
+  -- "ordem" no texto. E `'31 dias'` prende a parte do teto, que e o que o caso 5
+  -- esta testando (e nao so "recusou alguma coisa"). A palavra "máximo" NAO serve
+  -- como trecho: ela tem acento, e a comparacao e byte a byte.
   --
-  -- O teto e o MESMO DIAS_MAXIMOS = 31 do agente, e e INCLUSIVO: 31 dias de
-  -- intervalo (32 datas) passam; 32 dias de intervalo nao. As duas pontas sao
-  -- provadas, senao "recusa periodo grande" poderia estar recusando qualquer coisa.
-  perform teste_ok((select count(*) = 2 from margem_produtos(v_ate - 31, v_ate, 10)),
-    'caso 5: o teto de 31 dias e inclusivo — 31 dias de intervalo passam');
-  perform teste_erro(format('select margem_produtos(%L, %L, 10)', v_ate - 32, v_ate), 'ordem',
-    'caso 5: 32 dias de intervalo (um dia a mais que o teto) e recusado');
+  -- O TETO E 30 DE INTERVALO, e nao 31 (ruling R5): o app conta DATAS INCLUSIVAS e
+  -- recusa `> 31` datas, isto e, aceita no maximo 31 datas (de 01/01 a 31/01), que e
+  -- `ate - de = 30`. A versao anterior deste caso aceitava 31 de intervalo (32
+  -- datas) — um dia a mais que o app. As DUAS PONTAS sao provadas, senao "recusa
+  -- periodo grande" poderia estar recusando qualquer coisa: a janela do caso (30 de
+  -- intervalo) passa, e 31 de intervalo e o primeiro que nao passa.
+  perform teste_ok((select count(*) = 3 from margem_produtos(v_ate - 30, v_ate, 10)),
+    'caso 5: o teto de 31 DATAS (30 de intervalo) passa — a janela do caso e o proprio limite');
+  perform teste_erro(format('select margem_produtos(%L, %L, 10)', v_ate - 31, v_ate), 'ordem',
+    'caso 5: 31 de intervalo (32 datas, um dia a mais que o teto) e recusado');
   perform teste_erro(format('select margem_produtos(%L, %L, 10)', v_ate - 40, v_ate), '31 dias',
     'caso 5: periodo bem maior que o teto e recusado, com a mensagem do teto de 31 dias');
   -- Nulo e invertido TAMBEM sao recusa: o contrario da funcao irma, que devolve
@@ -333,22 +434,30 @@ begin
     'caso 5: periodo nulo e recusado (ao contrario da funcao irma, que devolve zeros)');
   perform teste_erro(format('select margem_produtos(%L, %L, 10)', v_ate, v_de), 'ordem',
     'caso 5: periodo invertido e recusado');
-  perform teste_erro(format('select margem_sem_custo(%L, %L)', v_ate - 32, v_ate), '31 dias',
-    'caso 5: a contagem de sem custo recusa o MESMO periodo torto');
+  perform teste_erro(format('select margem_sem_custo(%L, %L)', v_ate - 31, v_ate), '31 dias',
+    'caso 5: a contagem de sem custo recusa o MESMO periodo acima do teto');
 
   -- ================= caso 6: receita zero nao divide por zero =================
-  -- A venda do brinde (receita 0, custo 300) esta na janela. Se ela entrasse no
-  -- ranking, `margem / receita` dividiria por zero — e o produto apareceria como o
-  -- PIOR de todos, ou a funcao estouraria. Ela fica de fora.
+  -- A venda do brinde (item de receita 0 com custo 300) esta na janela. Se ele
+  -- entrasse no ranking, `margem / receita` dividiria por zero — e o produto
+  -- apareceria como o PIOR de todos, ou a funcao estouraria. Ele fica de fora.
   perform teste_ok((select count(*) = 0 from margem_produtos(v_de, v_ate, 10) where receita = 0),
     'caso 6: produto com receita zero NAO entra no ranking de percentual');
   perform teste_ok((select count(*) = 0 from margem_produtos(v_de, v_ate, 10) where produto_id = v_p_brinde),
     'caso 6: e a linha que fica de fora e a do brinde, nao outra qualquer');
+  -- R7: e ele NAO desaparece da resposta — entra na contagem de fora do ranking,
+  -- porque com custo 300 e receita 0 ele tem margem -300, o PIOR caso de margem que
+  -- existe. Antes desta correcao ele nao aparecia em NENHUMA das duas respostas, e o
+  -- agente diria "nenhum produto com margem ruim" com ele na tela.
+  perform teste_ok((select count(*) = 1 from margem_sem_custo(v_de, v_ate) where sem_custo = 2),
+    'caso 6: o brinde nao entra no ranking MAS e contado fora dele (custo 300 e receita 0 = o pior caso)');
   perform teste_ok((select sem_custo >= 0 from margem_sem_custo(v_de, v_ate)),
     'caso 6: e a funcao de contagem nao explode com receita zero presente');
-  -- A soma do ranking continua sendo a dos produtos que entraram: 900 + 1000.
-  perform teste_ok((select coalesce(sum(receita), 0) = 1900 from margem_produtos(v_de, v_ate, 10)),
-    'caso 6: a receita do ranking e a dos produtos com custo e receita (900 + 1000), sem o brinde');
+  -- A soma do ranking continua sendo a dos ITENS com custo: A 900 + MISTO 1200 +
+  -- B 1000 (a receita do item sem custo do misto NAO entra na soma: somar receita sem
+  -- o custo correspondente inflaria a margem do produto).
+  perform teste_ok((select coalesce(sum(receita), 0) = 3100 from margem_produtos(v_de, v_ate, 10)),
+    'caso 6: a receita do ranking e a dos itens com custo (900 + 1200 + 1000), sem o brinde e sem o item sem custo do misto');
 
   -- ================= caso 7: so o dono le a margem =================
   -- A barreira e a checagem DENTRO da funcao, e nao a RLS: as duas sao `security
@@ -357,18 +466,21 @@ begin
   perform set_config('request.jwt.claims',
     jsonb_build_object('sub', v_atendente, 'role', 'authenticated')::text, true);
   -- Trecho SEM ACENTO de proposito, e que EXISTE literalmente na mensagem gravada
-  -- ("Só o dono vê o lucro."): `'dono v'` — o miolo de "dono vê". Um literal
-  -- acentuado depende de o transporte preservar acentuacao (foi o que quebrou o caso
-  -- 030 em 14/10/2026); e `'apenas o dono'`, que o despacho sugeria, NAO EXISTE no
-  -- texto (nem aqui, nem em `relatorio_lucro`, que usa a mesma mensagem) — a
-  -- comparacao do `teste_erro` e por `position`, byte a byte: um trecho que nao esta
-  -- na mensagem reprova o caso mesmo com a funcao correta (ver o relatorio).
+  -- ("Só o dono vê o lucro."): `'o lucro.'` — o fim da frase, com o ponto. E sem
+  -- acento, e e unico: nenhuma outra recusa desta funcao (nem a de periodo, nem a de
+  -- limite) termina em "o lucro.". Um literal acentuado depende de o transporte
+  -- preservar acentuacao (foi o que quebrou o caso 030 em 14/10/2026); trechos
+  -- anteriores foram descartados por medição: `'apenas o dono'` NAO EXISTE no texto
+  -- (nem aqui, nem em `relatorio_lucro`, que usa a mesma mensagem) e `'dono v'`
+  -- funcionava mas nao incluia a pontuacao final — a comparacao do `teste_erro` e por
+  -- `position`, byte a byte, entao um trecho que nao esta na mensagem reprova o caso
+  -- mesmo com a funcao correta (ver o relatorio).
   -- A mensagem GRAVADA no banco foi conferida a parte por sonda: `Só o dono vê o
   -- lucro.` esta INTEGRA (esta e a diferenca desta funcao para a `relatorio_lucro`,
   -- cujo texto esta corrompido no banco ate a Task 2 recriar).
-  perform teste_erro(format('select * from margem_produtos(%L, %L, 10)', v_de, v_ate), 'dono v',
+  perform teste_erro(format('select * from margem_produtos(%L, %L, 10)', v_de, v_ate), 'o lucro.',
     'caso 7: o atendente nao ve o ranking de margem (a recusa vem da funcao, nao da tela)');
-  perform teste_erro(format('select * from margem_sem_custo(%L, %L)', v_de, v_ate), 'dono v',
+  perform teste_erro(format('select * from margem_sem_custo(%L, %L)', v_de, v_ate), 'o lucro.',
     'caso 7: o atendente nao ve nem a contagem de produtos sem custo');
   -- E o atendente LE o resto do relatorio: a recusa e da margem, nao do relatorio.
   perform teste_ok((select count(*) >= 0 from relatorio_resumo(v_de, v_ate)),
@@ -377,7 +489,7 @@ begin
   -- assercoes seguintes (mesma observacao do caso 3 de 110_relatorios.sql).
   perform set_config('request.jwt.claims',
     jsonb_build_object('sub', v_dono, 'role', 'authenticated')::text, true);
-  perform teste_ok((select count(*) = 2 from margem_produtos(v_de, v_ate, 10)),
+  perform teste_ok((select count(*) = 3 from margem_produtos(v_de, v_ate, 10)),
     'caso 7: e o dono continua vendo o ranking normalmente');
 
   -- ================= permissoes (padrao das RPCs do projeto) =================

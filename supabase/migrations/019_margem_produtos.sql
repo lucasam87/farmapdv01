@@ -4,10 +4,11 @@
 -- POR QUE DUAS FUNCOES, e nao uma com um "modo": as duas respondem perguntas
 -- diferentes do mesmo periodo. `margem_produtos` responde "quais produtos estao
 -- perdendo margem" (ranking, com corte) e `margem_sem_custo` responde "quantos
--- produtos vendidos estao fora dessa conta por falta de custo cadastrado" (um
--- numero). A contagem NAO pode ser uma linha do ranking: o produto sem custo nao
--- tem percentual (o custo que o formaria e desconhecido), e o agente precisa dizer
--- em portugues que N produtos ficaram de fora — e nao inventar um percentual.
+-- produtos vendidos ficaram FORA do ranking" (um numero) — fora por falta de custo
+-- cadastrado OU por falta de receita (brinde). A contagem NAO pode ser uma linha do
+-- ranking: o produto sem custo nao tem percentual (o custo que o formaria e
+-- desconhecido) e o de receita zero dividiria por zero; o agente precisa dizer em
+-- portugues que N produtos ficaram de fora — e nao inventar um percentual para eles.
 --
 -- REGRAS QUE VALEM NAS DUAS (as mesmas das quatro de 016_relatorios.sql):
 --   * `v.status = 'concluida'` em toda agregacao: venda cancelada nao entra.
@@ -64,10 +65,16 @@
 --      com `preco_custo = 0` daria percentual 100% (o MELHOR lugar do ranking)
 --      para o produto cujo custo a farmacia desconhece: o ranking mentiria na
 --      direcao mais perigosa. Ele sai do ranking e entra na contagem de
---      `margem_sem_custo`.
+--      `margem_sem_custo`. ATENCAO ao escopo do filtro: ele e por ITEM, entao um
+--      produto com itens de custo MISTO no periodo entra no ranking COM os itens que
+--      tem custo (e nao entra na contagem) — o par ranking/contagem e decidido por
+--      PRODUTO, e nao item a item (ruling R4).
 --   2. `receita > 0` — brinde ou desconto de 100%. `margem / receita` DIVIDE POR
 --      ZERO nesta linha; ela nao pode entrar no ranking de percentual. E o caso
---      que o Review Focus 1 do plano exige.
+--      que o Review Focus 1 do plano exige. Quem fica de fora por este motivo
+--      TAMBEM e contado por `margem_sem_custo` (ruling R7): com custo 300 e receita
+--      zero o produto tem margem -300, e deixa-lo fora das duas respostas faria o
+--      agente dizer "nenhum produto com margem ruim" com ele na tela.
 --
 -- `p_limite` FORA DE 1..10 E RECUSA (ao contrario de `relatorio_mais_vendidos`,
 -- que corta em zero e devolve lista vazia): o limite aqui vem do agente, e um
@@ -91,11 +98,15 @@ declare
   v_papel text;
 begin
   -- ---- 1. periodo ANTES de tudo (mesma ordem de relatorio_lucro) ----
-  -- O teto de 31 dias e o DIAS_MAXIMOS da tela do agente: a margem e consultada
-  -- pelo mesmo periodo que o resto do agente, e um periodo maior traria uma
-  -- varredura que o orcamento do agente nao previu.
-  if p_de is null or p_ate is null or p_de > p_ate or (p_ate - p_de) > 31 then
-    raise exception 'Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias.';
+  -- O teto e o DIAS_MAXIMOS da tela do agente, e o app conta DATAS INCLUSIVAS: ele
+  -- recusa `> 31` em `logica.ts`, isto e, aceita no maximo 31 datas (de 01/01 a
+  -- 31/01), que e `ate - de <= 30`. O banco tem de recusar o MESMO conjunto, senao
+  -- sobra um periodo que o app manda e a funcao recusa — por isso `> 30`, e nao
+  -- `> 31` (ruling R5 da revisao). A mensagem diz "31 dias" (a contagem de datas do
+  -- app) e "30 dias de intervalo" (a conta que o banco faz): as duas leituras do
+  -- mesmo teto cabem no texto, e o caso 5 prende as duas.
+  if p_de is null or p_ate is null or p_de > p_ate or (p_ate - p_de) > 30 then
+    raise exception 'Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias (30 dias de intervalo).';
   end if;
 
   -- ---- 2. limite fora de 1..10 ----
@@ -139,7 +150,7 @@ begin
 end $$;
 
 comment on function public.margem_produtos(date, date, integer) is
-  'Ranking dos produtos com PIOR margem sobre a receita do periodo (fuso de Sao Paulo), pior percentual primeiro. Exclui produtos sem custo cadastrado (preco_custo = 0) e itens com receita zero. SO O DONO. Devolve so inteiros: o percentual e calculado em codigo, a partir de receita/custo/margem.';
+  'Ranking dos produtos com PIOR margem sobre a receita do periodo (fuso de Sao Paulo), pior percentual primeiro. Exclui produto sem custo cadastrado (nenhum item com preco_custo > 0 no periodo) e produto sem receita (brinde), que ficam na contagem de margem_sem_custo. SO O DONO. Devolve so inteiros: o percentual e calculado em codigo, a partir de receita/custo/margem.';
 
 -- ============================================================
 -- margem_sem_custo — quantos PRODUTOS vendidos no periodo ficaram fora do ranking.
@@ -149,16 +160,35 @@ comment on function public.margem_produtos(date, date, integer) is
 -- esta boa. Sem esta contagem, "nenhum produto com margem ruim" seria uma
 -- conclusao falsa a partir de um dado ausente.
 --
+-- A CONTAGEM E POR PRODUTO, e nao por item (ruling R4 da revisao). A primeira
+-- versao contava `i.preco_custo = 0`, e o ranking seleciona `i.preco_custo > 0`;
+-- um produto com itens de CUSTO MISTO no periodo — venda antes e depois de a
+-- importacao de precos preencher `produtos.preco_custo`, que e exatamente como o
+-- dado real chega — aparecia nos DOIS lados. O comentario "ficou fora do ranking"
+-- virava falso e o numero narrado ao dono SUPERESTIMAVA os produtos sem custo.
+-- Agora um produto entra nesta contagem quando NAO TEM NENHUM item que o ranking
+-- aceitaria; quem tem pelo menos um item com custo E receita esta no ranking, e so
+-- nele.
+--
+-- A CONDICAO E O COMPLEMENTO EXATO DO RANKING (correcao R7): o ranking aceita o item
+-- de `preco_custo > 0` E `total > 0`, entao esta contagem pega todo produto que nao
+-- tem nenhum item assim. Sao DUAS categorias, e o `not bool_or(...)` cobre as duas
+-- de uma vez, sem lista de casos:
+--   1. sem custo cadastrado (nenhum item com `preco_custo > 0`); e
+--   2. com custo e SEM RECEITA (brinde, desconto de 100%) — `margem / receita`
+--      dividiria por zero, entao o ranking nao pode te-lo. Sem isto, o PIOR caso de
+--      margem que existe (custo 300 e receita 0, margem -300) nao apareceria em
+--      resposta nenhuma, e o agente diria "nenhum produto com margem ruim" com ele
+--      na tela. Comparar o par (ranking, contagem) e o que garante que os dois
+--      NUNCA discordem: e o defeito que originou o R4, e um `having` que enumerasse
+--      casos (como o `max(i.preco_custo) = 0` da versao anterior) voltaria a
+--      divergir na proxima regra nova.
+--
 -- CONTA PRODUTOS DISTINTOS (`count(distinct produto_id)`) e nao itens: o mesmo
 -- produto sem custo vendido cinco vezes e UM produto sem custo. Conta pelo custo
--- gravado no ITEM (`venda_itens.preco_custo`, o mesmo campo que o ranking usa),
--- e nao pelo cadastro de hoje — o preco do dia da venda e o que a margem daquela
+-- gravado no ITEM (`venda_itens.preco_custo`, o mesmo campo que o ranking usa), e
+-- nao pelo cadastro de hoje — o preco do dia da venda e o que a margem daquela
 -- venda usaria.
---
--- NAO filtra receita zero: o brinde de um produto COM custo nao entra aqui (tem
--- custo; so nao tem receita) nem no ranking (a divisao por zero). Esse produto
--- nao aparece em nenhuma das duas — o que e correto, porque nao ha margem a
--- calcular sobre receita nenhuma.
 -- ============================================================
 create or replace function public.margem_sem_custo(p_de date, p_ate date)
 returns table (sem_custo bigint)
@@ -173,9 +203,9 @@ begin
   -- O MESMO periodo e a MESMA mensagem de margem_produtos: as duas funcoes sao
   -- chamadas com o periodo que o agente classificou, e recusar em uma e aceitar na
   -- outra daria uma resposta incoerente (a contagem de um periodo que o ranking
-  -- recusou).
-  if p_de is null or p_ate is null or p_de > p_ate or (p_ate - p_de) > 31 then
-    raise exception 'Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias.';
+  -- recusou). O teto e `> 30` pelo motivo escrito na primeira funcao (ruling R5).
+  if p_de is null or p_ate is null or p_de > p_ate or (p_ate - p_de) > 30 then
+    raise exception 'Período inválido: de e até são obrigatórios, em ordem, com no máximo 31 dias (30 dias de intervalo).';
   end if;
 
   select p.papel into v_papel from public.perfis p where p.id = auth.uid();
@@ -184,16 +214,30 @@ begin
   end if;
 
   return query
-    select count(distinct i.produto_id)::bigint
-    from public.venda_itens i
-    join public.vendas v on v.id = i.venda_id
-    where v.status = 'concluida'
-      and (v.criado_em at time zone 'America/Sao_Paulo')::date between p_de and p_ate
-      and i.preco_custo = 0;
+    select count(*)::bigint
+    from (
+      select i.produto_id
+      from public.venda_itens i
+      join public.vendas v on v.id = i.venda_id
+      where v.status = 'concluida'
+        and (v.criado_em at time zone 'America/Sao_Paulo')::date between p_de and p_ate
+      group by i.produto_id
+      -- "fora do ranking" = o produto NAO TEM NENHUM item que o ranking aceitaria,
+      -- e o ranking aceita o item de `preco_custo > 0` E `total > 0`. A condicao e o
+      -- complemento exato do `where`/`having` de `margem_produtos`, e nao uma lista
+      -- de casos: qualquer produto que o ranking deixe de fora cai aqui, hoje e em
+      -- qualquer regra futura (o par tem de ficar sempre coerente — ver a nota no
+      -- topo do arquivo).
+      -- A primeira versao testava SO `max(i.preco_custo) = 0`: ela pegava o produto
+      -- sem custo, mas deixava o brinde de fora desta contagem — justamente o pior
+      -- caso de margem (custo 300 e receita 0 = margem -300), que nao aparecia em
+      -- resposta nenhuma (ruling R7).
+      having not coalesce(bool_or(i.preco_custo > 0 and i.total > 0), false)
+    ) fora_do_ranking;
 end $$;
 
 comment on function public.margem_sem_custo(date, date) is
-  'Quantidade de PRODUTOS distintos vendidos no periodo (fuso de Sao Paulo) cujo custo nao esta cadastrado (preco_custo = 0 no item), isto e, que ficaram fora do ranking de margem. SO O DONO.';
+  'Quantidade de PRODUTOS distintos vendidos no periodo (fuso de Sao Paulo) que ficaram FORA do ranking de margem: sem nenhum item com custo cadastrado (preco_custo > 0) ou sem nenhum item com receita (brinde). A contagem e por produto, entao um produto com itens de custo misto no periodo entra no ranking e nao entra aqui. A condicao e o complemento exato do que margem_produtos aceita. SO O DONO.';
 
 -- ============================================================
 -- Permissoes: quem chama e o usuario logado (authenticated).
