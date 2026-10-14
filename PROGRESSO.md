@@ -29,6 +29,30 @@ orçamento; e (b) período no **futuro** é recusa, porque venda que ainda não 
 acerta "ontem" agora porque sabe que dia é hoje. Evidência local: 430/432 unidade, `tsc` 0, lint 0,
 build 0, suíte do agente **12/12**.
 
+## ✅ Telefone: o formulário aceita o código do país e o zero (14/10/2026, `d28d1f8`)
+
+O formulário recusava `+55 11 91234-5678` e `011 91234-5678` com "Telefone inválido"
+**enquanto a importação por planilha já aceitava o `55`** (`importar/analise.ts`): duas regras para o
+mesmo dado, e o operador não tinha onde digitar o número como estava no caderno do cliente. Agora os
+dois caminhos passam por `normalizarTelefone` (`clientes/validacao.ts`), que devolve **DDD + número** —
+o `55` do país só sai quando sobra telefone válido (12/13 dígitos), então o **DDD 55 do Rio Grande do
+Sul fica intacto**. O valor gravado é sempre canônico porque `linkWhatsApp` prefixa o `55`: guardar o
+país geraria `wa.me/5555...`.
+**Prova pela tela real:** os dois formatos foram digitados no formulário e gravados como
+`11912345678` (conferido no banco; os clientes de teste foram apagados). 434/434 testes, `tsc` 0,
+lint 0, build 0.
+
+## ⚠️ O BANCO AINDA NÃO ESTÁ PRONTO PARA O BALCÃO (medido em 14/10/2026)
+
+| item | valor | por que importa |
+|---|---|---|
+| **clientes cadastrados** | **0** | **maior bloqueio**: sem cliente não há crediário. A tela "Importar clientes com saldo devedor" nunca foi usada |
+| caixa do balcão | **aberto** desde 13/10 22:41, R$ 55,00 | é sessão de teste; fechar antes de operar |
+| produtos sem preço | **8** | não são produtos: `RECARGA CLARO/OI/TIM/VIVO`, `RETIRADA`, `edw`, `SAB` — vão aparecer na busca do balcão |
+| produtos com estoque negativo | **2** | amoxicilina em dois cadastros diferentes (duplicata) |
+| nomes quebrados no meio da palavra | amostra de 15: **4 defeito real** | `ATORVASTATIN A`, `CIPROFLOXACI NO`. O padrão cru acha 793, mas 11 de 15 eram nomes legítimos — **a estimativa real é da ordem de 200**, não confirmada |
+| vendas registradas | 2 | as duas de teste, de 13/10 |
+
 ## ⚠️ DOIS ACHADOS AINDA ABERTOS
 
 1. **Estoque negativo no banco:** `AMOXICILINA 250MG/5ML PO SUS FR 150ML OF: -1 em estoque`. A migration
