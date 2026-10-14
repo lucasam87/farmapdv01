@@ -273,6 +273,20 @@ git commit -m "agente: a quinta intencao, margem por produto"
 
 ### Task 4: A consulta, o papel e o caminho até a tela
 
+> **ATENCAO — dois fatos que a Tarefa 3 descobriu e que esta tarefa PRECISA saber:**
+>
+> 1. **APAGAR A PONTE DA TAREFA 3.** A Tarefa 3 adiciona `'margem_produto'` a `Intencao`, o que quebra
+>    o `tsc` em `orquestracao.ts:340` e `:351` (`IntencaoConsulta` e um enum proprio, `orquestracao.ts:51`,
+>    com as quatro views). Enquanto esta tarefa nao existir, ha um bloco marcado
+>    `PONTE DA TAREFA 3 — A TAREFA 4 APAGA` que devolve **400 fail-closed** para `margem_produto`.
+>    Sem ele, `classificada.intencao` cai no `else` do ternario da rota e devolve **estoque parado como se
+>    fosse margem** — resposta errada dita ao dono. Esta tarefa: **remover a ponte**, adicionar
+>    `'margem_produto'` a `IntencaoConsulta` e tratar o caso no `switch` de `montarDados`. Ruling R15.
+> 2. **A variante de margem de `DadosResposta` NAO tem `percentual` na entrada:**
+>    `{ intencao: 'margem_produto'; produtos: { nome, receita, custo, margem }[]; semCusto: number }`.
+>    E o **`montarResposta` que calcula o percentual** (R1: o banco nao devolve `percentual` porque
+>    `numeric` chega como string pelo PostgREST).
+
 **Files:**
 - Modify: `app/api/agente/route.ts:32` (`consultar`), `app/api/agente/orquestracao.ts`
 - Test: `app/api/agente/orquestracao.test.ts`
