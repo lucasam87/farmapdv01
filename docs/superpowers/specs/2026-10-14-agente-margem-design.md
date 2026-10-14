@@ -36,10 +36,20 @@ de vendas, o que eu estou perdendo."* Perguntado sobre qual perda importava prim
 A conversa falou em "view nova". Ao ler o padrão do projeto, **view não aceita período**: quem trata
 período no sistema é **RPC**, e são quatro (`relatorio_resumo`, `relatorio_lucro`,
 `relatorio_formas_pagamento`, `relatorio_mais_vendidos`, todas `(p_de date, p_ate date)` com
-`returns table`, **sem `security definer`**, com a checagem de papel DENTRO da função).
+`returns table` e a checagem de papel DENTRO da função).
 
 Então a fonte nova é **função**, não view. O espírito do caminho A fica igual — fonte nova por produto
 e o custo fechado — e o mecanismo passa a ser o que o projeto já usa.
+
+**CORREÇÃO DE 14/10/2026, achada na varredura de conflito do plano e MEDIDA no banco:** as quatro
+funções irmãs são `security invoker`, e este desenho copiou isso como regra. **Está errado para as
+funções que leem custo.** Medido: `relatorio_lucro` é `invoker` e só enxerga `preco_custo` **porque
+`authenticated` também enxerga** — ela depende do vazamento que este trabalho fecha. Fechar o vazamento
+sem tornar a função `definer` **quebraria o relatório de lucro em produção**.
+Portanto: `margem_produtos`, `margem_sem_custo` **e `relatorio_lucro`** são **`security definer`**, com
+a checagem de dono dentro — e aí a função passa a ser a única porta para o custo.
+⚠️ `security definer` roda como o dono do banco e **ignora RLS**: a checagem de papel dentro da função
+deixa de ser redundante e passa a ser a **única** barreira. Se ela falhar, o atendente vê custo.
 
 ## As duas funções
 

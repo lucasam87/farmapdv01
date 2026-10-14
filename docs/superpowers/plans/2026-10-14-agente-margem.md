@@ -21,10 +21,19 @@ Vitest (unitário) e o runner SQL próprio do projeto.
   banco quando a regra também existe lá.
 - **O modelo só classifica.** O texto da resposta é montado em código (`montarResposta`). Nenhum número
   exibido vem do modelo.
-- As funções novas **não** usam `security definer`: são `security invoker`, como as quatro irmãs.
+- As funções **que leem custo** (`margem_produtos`, `margem_sem_custo` e a `relatorio_lucro` que já
+  existe) são **`security definer`**, com a checagem de papel **dentro**. Isto CORRIGE o spec, que dizia
+  o contrário: `relatorio_lucro` é `security invoker` hoje e só funciona **porque o custo vaza** —
+  medido em 14/10/2026: `authenticated` lê `venda_itens.preco_custo` = `true`. Fechar o vazamento sem
+  tornar a função `definer` **quebraria o relatório de lucro em produção**.
+  ⚠️ `security definer` roda como o dono do banco e **ignora RLS**: por isso a checagem de papel dentro
+  da função deixa de ser redundante e passa a ser a **única** barreira. Errar aqui vaza custo.
 - Permissões, sempre as duas linhas: `revoke all on function ... from public, anon;` e
   `grant execute on function ... to authenticated, service_role;`
 - **Margem é só do dono.** Mensagem: `Só o dono vê o lucro.` (a que `relatorio_lucro` já usa).
+- **As funções devolvem SÓ INTEIROS.** `numeric` do Postgres chega pelo PostgREST como **string**, e o
+  percentual viraria `NaN` justamente no número que ordena o ranking. O percentual é calculado em
+  `montarResposta`, em código puro. A função **ordena** por percentual internamente sem devolvê-lo.
 - `DIAS_MAXIMOS = 31` e `LIMITE_RESULTADOS = 10` (`app/(app)/agente/logica.ts:53,56`).
 - **Margem sobre receita:** `(receita − custo) ÷ receita`. Ordenação pelo **percentual crescente**,
   desempate pelo valor em reais.
@@ -59,7 +68,7 @@ tarefa dona do código:
 - Consumes: `vendas`, `venda_itens` (tabelas existentes), o helper `criar_usuario_teste(p_id, p_email, p_papel)`
   e `teste_ok`/`teste_erro` de `tests/sql/_fixtures.sql` e `_helper.sql`.
 - Produces:
-  - `public.margem_produtos(p_de date, p_ate date, p_limite integer default 10) returns table (produto_id uuid, nome text, quantidade bigint, receita bigint, custo bigint, margem bigint, percentual numeric)`
+  - `public.margem_produtos(p_de date, p_ate date, p_limite integer default 10) returns table (produto_id uuid, nome text, quantidade bigint, receita bigint, custo bigint, margem bigint)` — **sem `percentual`**: o percentual é calculado em código (ver R1 no ledger). A função **ordena** por `margem::numeric / receita` crescente internamente.
   - `public.margem_sem_custo(p_de date, p_ate date) returns table (sem_custo bigint)`
 
 - [ ] **Step 1: Escrever o caso SQL que falha**
@@ -119,34 +128,48 @@ git commit -m "margem: as duas funcoes de margem por produto, com casos SQL"
 
 ---
 
-### Task 2: Fechar a leitura direta do custo histórico
+### Task 2: Fechar a leitura direta do custo — SEM quebrar o relatório de lucro
 
 **Files:**
 - Create: `supabase/migrations/020_fechar_custo_venda.sql`
 - Create: `tests/sql/casos/150_permissoes_custo.sql`
 
 **Interfaces:**
-- Consumes: `margem_produtos` da Task 1.
+- Consumes: `margem_produtos` da Task 1; `relatorio_lucro(date, date)` de `016_relatorios.sql`.
 - Produces: nada que outra tarefa consuma — é fechamento de permissão.
+
+**⚠️ ESTA TAREFA NÃO É UMA REVOGAÇÃO SOZINHA.** Medido em 14/10/2026: `relatorio_lucro` é
+`security invoker` e só enxerga `preco_custo` **porque `authenticated` também enxerga**. Revogar sem
+recriar a função **quebra o relatório de lucro que a farmácia usa**. A ordem dentro da migration é:
+primeiro recriar as funções como `security definer` com a checagem de dono dentro, **depois** revogar.
 
 - [ ] **Step 1: Escrever o caso SQL que falha**
 
-Provar que `authenticated` **não** lê `venda_itens.preco_custo` direto, e que o caminho legítimo
-continua funcionando:
-
 ```sql
+-- 1. o vazamento fecha
 perform teste_ok(not has_column_privilege('authenticated', 'venda_itens', 'preco_custo', 'select'),
   'caso 1: authenticated NAO le preco_custo de venda_itens direto');
+-- 2. o servidor continua lendo
 perform teste_ok(has_column_privilege('service_role', 'venda_itens', 'preco_custo', 'select'),
   'caso 2: service_role continua lendo (o servidor precisa)');
-perform teste_ok((select count(*) > 0 from margem_produtos(HOJE - 30, HOJE, 10)),
-  'caso 3: a margem continua funcionando depois do fechamento');
+-- 3. A GUARDA QUE IMPORTA: o relatorio de lucro continua funcionando para o dono
+perform set_config('request.jwt.claims', jsonb_build_object('sub', v_dono, 'role', 'authenticated')::text, true);
+perform teste_ok((select lucro > 0 from relatorio_lucro(HOJE - 30, HOJE)),
+  'caso 3: relatorio_lucro SEGUE funcionando depois do fechamento');
+-- 4. e continua recusando o atendente
+perform set_config('request.jwt.claims', jsonb_build_object('sub', v_atendente, 'role', 'authenticated')::text, true);
+perform teste_erro('select * from relatorio_lucro(HOJE - 30, HOJE)', 'apenas o dono',
+  'caso 4: o atendente continua sem ver o lucro');
+-- 5. o custo do CADASTRO segue legivel: a tela do produto depende disso
 perform teste_ok(has_column_privilege('authenticated', 'produtos', 'preco_custo', 'select'),
-  'caso 4: o custo do CADASTRO continua legivel (a tela do produto depende disso)');
+  'caso 5: produtos.preco_custo continua legivel (a tela do produto depende)');
+perform teste_ok((select count(*) > 0 from margem_produtos(HOJE - 30, HOJE, 10)),
+  'caso 6: a margem continua funcionando depois do fechamento');
 ```
 
-O caso 4 é a guarda contra o conserto virar defeito: `app/(app)/produtos/[id]/page.tsx:52` lê
-`produtos.preco_custo` e **não pode** ser fechado junto.
+O caso 5 é a guarda contra o conserto virar defeito: `app/(app)/produtos/[id]/page.tsx:52` lê
+`produtos.preco_custo` e **não pode** ser fechado junto. E o caso 3 é a razão desta tarefa existir
+reescrita: **sem ele, o conserto quebraria o relatório de lucro em silêncio.**
 
 - [ ] **Step 2: Rodar e ver falhar**
 
@@ -155,21 +178,26 @@ Expected: `FALHOU: caso 1 ...` (hoje o `authenticated` lê)
 
 - [ ] **Step 3: Escrever a migration `020_fechar_custo_venda.sql`**
 
-`revoke select (preco_custo) on public.venda_itens from authenticated;` — mantendo `service_role` e o
-papel de serviço. Antes de fechar `v_lucro_periodo`, **conferir** se alguma tela a lê direto (o
-levantamento da spec diz que só `relatorio_lucro` a usa); se alguma tela ler, **parar e reportar** em vez
-de fechar.
+Nesta ordem, e a ordem é o ponto:
+1. `create or replace function public.relatorio_lucro(...)` — **cópia literal da 016**, mudando só
+   `security invoker` → `security definer` e mantendo a checagem de papel que já existe dentro dela.
+2. `revoke select (preco_custo) on public.venda_itens from authenticated;`
+3. Repetir as duas linhas de permissão da função recriada (`revoke all ... from public, anon` e
+   `grant execute ... to authenticated, service_role`).
+Antes de fechar `v_lucro_periodo`, **conferir** se alguma tela a lê direto; se ler, **parar e reportar**
+em vez de fechar.
 
 - [ ] **Step 4: Rodar e ver passar**
 
-Run: `npm run test:sql -- 150`
-Expected: `4 OK, 0 FALHOU` (ou o número de asserções)
+Run: `npm run test:sql -- 150` e depois `npm run test:sql -- 110`
+Expected: o `150` verde **e** o `110_relatorios.sql` (que cobre lucro) **continuar** verde — é ele que
+prova que o conserto não quebrou o que já existia
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/020_fechar_custo_venda.sql tests/sql/casos/150_permissoes_custo.sql
-git commit -m "seguranca: fecha a leitura direta do custo historico da venda"
+git commit -m "seguranca: fecha a leitura direta do custo sem quebrar o relatorio de lucro"
 ```
 
 ---
