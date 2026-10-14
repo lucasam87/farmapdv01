@@ -37,10 +37,20 @@ export default async function LoginPage({
         {/* O logotipo entra como imagem DECORATIVA (`alt=""`): o nome já está no
             `h1`, e repetir faria o leitor de tela dizer "LaM Vendas" duas vezes.
             O `h1` é só para leitor de tela porque o desenho já traz o nome escrito
-            — mas uma página sem `h1` é uma página sem título. */}
+            — mas uma página sem `h1` é uma página sem título.
+
+            `mx-auto block` centraliza: `mx-auto` não faz nada num elemento inline,
+            e o `<img>` é inline por padrão. `max-w-full` impede que ele estoure o
+            cartão em tela estreita. O `h-24` (96 px) dá ~240 px de largura nesta
+            proporção de 2,5:1, dentro dos ~320 px úteis do cartão. */}
         <h1 className="sr-only">LaM Vendas — sistema da farmácia</h1>
-        <img src="/logo-lam-vendas.png" alt="" aria-hidden="true" className="h-12 w-auto" />
-        <p className="mt-1 text-sm text-muted-foreground">
+        <img
+          src="/logo-lam-vendas.png"
+          alt=""
+          aria-hidden="true"
+          className="mx-auto mb-5 block h-24 w-auto max-w-full"
+        />
+        <p className="text-center text-sm text-muted-foreground">
           Entre com seu e-mail e sua senha.
         </p>
 
