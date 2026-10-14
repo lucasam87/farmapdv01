@@ -37,7 +37,7 @@ import { ehRodape, LIMITE_DE_CENTAVOS, normalizarCabecalho, totalDoRodape } from
 // `parsearComSinal` e o `parsearCentavos` de lib/dinheiro.ts com o sinal lido
 // antes (ver clientes/validacao.ts): dinheiro da planilha passa pelo MESMO parser
 // do projeto, sem fator 100 e sem `Number()` cru.
-import { parsearComSinal } from '../validacao'
+import { normalizarTelefone, parsearComSinal } from '../validacao'
 import type { Tabela } from '@/lib/csv'
 
 export type LinhaCliente = {
@@ -155,7 +155,12 @@ function indiceDasColunas(colunas: string[]): { mapa: Record<string, number>; fa
 }
 
 /**
- * Digitos do telefone, sem o `55` do pais.
+ * Digitos do telefone, sem o `55` do pais e sem o zero de discagem.
+ *
+ * A normalizacao em si mora em `../validacao` (`normalizarTelefone`), que e a MESMA
+ * que a tela de clientes usa: antes desta unificacao a planilha aceitava o 55 e o
+ * formulario nao, e o operador ouvia "Telefone invalido" digitando o numero que a
+ * planilha teria aceitado. Aqui so fica a decisao de linha invalida.
  *
  * `erro: true` = o que sobrou nao e DDD + numero (10 ou 11 digitos). A linha fica
  * invalida de proposito: telefone torto no cadastro e um cliente que a tela de
@@ -163,16 +168,10 @@ function indiceDasColunas(colunas: string[]): { mapa: Record<string, number>; fa
  * dado (a mesma regra do codigo de barras em tabela.ts).
  */
 function lerTelefone(valor: string | undefined): { telefone: string | null; erro: boolean } {
-  const digitos = (valor ?? '').replace(/\D/g, '')
-  if (digitos === '') return { telefone: null, erro: false }
-
-  const semPais =
-    (digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55')
-      ? digitos.slice(2)
-      : digitos
-
-  if (semPais.length !== 10 && semPais.length !== 11) return { telefone: null, erro: true }
-  return { telefone: semPais, erro: false }
+  const telefone = normalizarTelefone(valor ?? '')
+  if (telefone === null) return { telefone: null, erro: false }
+  if (telefone.length !== 10 && telefone.length !== 11) return { telefone: null, erro: true }
+  return { telefone, erro: false }
 }
 
 /**

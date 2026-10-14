@@ -127,6 +127,41 @@ describe('validarCliente', () => {
       valores: { nome: 'ANA', telefone: null, cpf: null, limite: 0, saldoInicial: 0 },
     })
   })
+
+  // O formulario recusava o telefone com o codigo do pais e com o zero de discagem
+  // ENQUANTO a importacao por planilha ja aceitava o 55 (`importar/analise.ts`,
+  // `lerTelefone`). Duas regras para o mesmo dado: o operador digitava o numero como
+  // esta no caderno do cliente e ouvia "Telefone invalido". O telefone gravado tem
+  // de ser sempre DDD + numero, porque `linkWhatsApp` prefixa o 55 — guardar o pais
+  // geraria `wa.me/5555...`.
+  it('telefone: o codigo do pais e o zero de discagem sao aceitos e saem da gravacao', () => {
+    const esperado = {
+      ok: true,
+      valores: { nome: 'ANA', telefone: '11912345678', cpf: null, limite: 0, saldoInicial: 0 },
+    }
+    for (const escrito of [
+      '+55 11 91234-5678',
+      '5511912345678',
+      '5511 91234-5678',
+      '011 91234-5678',
+      '011912345678',
+    ]) {
+      expect(validarCliente({ ...vazio, nome: 'ANA', telefone: escrito }, true), escrito).toEqual(esperado)
+    }
+  })
+
+  // A guarda que impede o conserto de virar defeito: 55 e DDD de verdade no Rio
+  // Grande do Sul. Tirar o "55" de um numero de 10 digitos encurtaria o telefone.
+  it('telefone: o DDD 55 (Rio Grande do Sul) NAO e confundido com o codigo do pais', () => {
+    expect(validarCliente({ ...vazio, nome: 'ANA', telefone: '55 3222-1234' }, true)).toEqual({
+      ok: true,
+      valores: { nome: 'ANA', telefone: '5532221234', cpf: null, limite: 0, saldoInicial: 0 },
+    })
+    expect(validarCliente({ ...vazio, nome: 'ANA', telefone: '55 93222-1234' }, true)).toEqual({
+      ok: true,
+      valores: { nome: 'ANA', telefone: '55932221234', cpf: null, limite: 0, saldoInicial: 0 },
+    })
+  })
 })
 
 describe('validarRecebimento', () => {

@@ -73,6 +73,35 @@ function normalizarDigitos(bruto: string): string | null {
 }
 
 /**
+ * Telefone brasileiro na forma canonica: DDD + numero, SEM o codigo do pais e SEM
+ * o zero de discagem. `null` quando nao ha digito nenhum.
+ *
+ * POR QUE ISTO EXISTE: o formulario recusava "+55 11 91234-5678" e
+ * "011 91234-5678" ENQUANTO a importacao por planilha ja aceitava o 55
+ * (`importar/analise.ts`, `lerTelefone`). Eram duas regras para o mesmo dado, e o
+ * operador ouvia "Telefone invalido" digitando o numero como estava no caderno do
+ * cliente. Agora os dois caminhos passam por aqui.
+ *
+ * O valor gravado e sempre DDD + numero porque `linkWhatsApp` prefixa o 55: se o
+ * pais ficasse gravado, o link sairia `wa.me/5555...`.
+ *
+ * O "55" so sai quando SOBRA telefone valido (12 ou 13 digitos). Numero de 10 ou
+ * 11 digitos comecando com 55 e o DDD do Rio Grande do Sul, e fica intacto.
+ */
+export function normalizarTelefone(bruto: string): string | null {
+  const digitos = (bruto ?? '').replace(/\D/g, '')
+  if (digitos === '') return null
+
+  const semPais =
+    (digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55')
+      ? digitos.slice(2)
+      : digitos
+
+  // Zero de discagem: "011 91234-5678" e o mesmo numero que "11 91234-5678".
+  return semPais.startsWith('0') ? semPais.slice(1) : semPais
+}
+
+/**
  * `parsearCentavos` do sinal: `lib/dinheiro.ts` le dinheiro DIGITADO e recusa o
  * '-', entao "-5" chega la como texto invalido. Nao da para tratar os dois casos
  * com a mesma mensagem: "Digite em reais" e um erro de digitacao, "nao pode ser
@@ -119,7 +148,7 @@ export function validarCliente(entrada: ClienteEntrada, ehDono: boolean): Result
     return { ok: false, mensagem: 'CPF inválido. Use 11 dígitos.' }
   }
 
-  const telefone = normalizarDigitos(entrada.telefone)
+  const telefone = normalizarTelefone(entrada.telefone)
   if (telefone !== null && telefone.length !== 10 && telefone.length !== 11) {
     return { ok: false, mensagem: 'Telefone inválido. Use DDD + número, como 11 91234-5678.' }
   }
@@ -179,7 +208,7 @@ export function validarRecebimento(valor: string, divida: number): ResultadoRece
 
 /** "11912345678" -> "(11) 91234-5678". Nao e telefone valido -> `null`. */
 export function formatarTelefone(bruto: string): string | null {
-  const digitos = normalizarDigitos(bruto)
+  const digitos = normalizarTelefone(bruto)
   if (digitos === null) return null
 
   if (digitos.length === 11) {
@@ -200,7 +229,7 @@ export function formatarTelefone(bruto: string): string | null {
  * Nome vazio nao vira "Olá, !" — a saudacao perde a virgula e o nome.
  */
 export function linkWhatsApp(telefone: string | null, nome: string, saldo: number): string | null {
-  const digitos = normalizarDigitos(telefone ?? '')
+  const digitos = normalizarTelefone(telefone ?? '')
   if (digitos === null) return null
 
   const nomeLimpo = (nome ?? '').trim()

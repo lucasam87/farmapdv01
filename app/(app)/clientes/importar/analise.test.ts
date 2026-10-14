@@ -109,14 +109,20 @@ describe('analisarClientes', () => {
         [
           ['A', '11144477735', '55 11 91234-5678'],
           ['B', '22255588846', '551191234567'],
+          // Zero de discagem: a planilha aceita desde a unificacao com
+          // `normalizarTelefone` (14/10/2026). Antes disso a planilha recusava e o
+          // formulario tambem — e o operador nao tinha onde digitar esse numero.
+          ['C', '33366699957', '011912345678'],
         ],
       ),
     )
 
     expect(r.linhas[0].telefone).toBe('11912345678')
     expect(r.linhas[1].telefone).toBe('1191234567')
+    expect(r.linhas[2].telefone).toBe('11912345678')
     expect(r.linhas[0].erros).toEqual([])
     expect(r.linhas[1].erros).toEqual([])
+    expect(r.linhas[2].erros).toEqual([])
   })
 
   it('trata como inválido o telefone que não sobra 10/11 dígitos', () => {
@@ -126,13 +132,12 @@ describe('analisarClientes', () => {
         [
           ['A', '11144477735', '123'],
           ['B', '22255588846', '5511'],
-          ['C', '33366699957', '011912345678'],
         ],
       ),
     )
 
     const msg = 'Telefone inválido. Use DDD + número, como 11 91234-5678.'
-    expect(r.linhas.map((l) => l.erros)).toEqual([[msg], [msg], [msg]])
+    expect(r.linhas.map((l) => l.erros)).toEqual([[msg], [msg]])
     expect(JSON.parse(r.json)).toHaveLength(0)
   })
 
