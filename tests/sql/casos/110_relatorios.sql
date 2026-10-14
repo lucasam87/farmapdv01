@@ -416,13 +416,23 @@ begin
                    and has_function_privilege('authenticated', 'relatorio_mais_vendidos(date,date,integer)', 'execute'),
     'permissoes: authenticated executa as quatro funcoes do relatorio');
 
-  -- As quatro sao `security invoker`: a RLS continua valendo para quem chama, que
+  -- TRES das quatro sao `security invoker`: a RLS continua valendo para quem chama, que
   -- e o oposto do `security definer` (mesmo espirito da migration 013 nas views).
+  --
+  -- `relatorio_lucro` e a EXCECAO, e isto MUDOU na Task 2 do plano do agente de margem
+  -- (migration 020): ela virou `security definer` porque a leitura direta de
+  -- `venda_itens.preco_custo` foi FECHADA para `authenticated` (o custo que a farmacia
+  -- nao mostra ao balcao). Como `invoker`, ela passaria a estourar
+  -- `permission denied for table venda_itens` em producao. Esta assercao nasceu
+  -- VERMELHA com a mudanca, de proposito: e ela que denuncia a inversao — voltar
+  -- `relatorio_lucro` para `invoker` quebra o relatorio de lucro da tela.
+  -- O preco do `definer` (a RLS NAO vale dentro dela) e coberto pelos casos de papel
+  -- do 150_permissoes_custo.sql, que chamam a funcao com o role trocado.
   perform teste_ok(not (select prosecdef from pg_proc where oid = 'relatorio_resumo(date,date)'::regprocedure)
-                   and not (select prosecdef from pg_proc where oid = 'relatorio_lucro(date,date)'::regprocedure)
+                   and (select prosecdef from pg_proc where oid = 'relatorio_lucro(date,date)'::regprocedure)
                    and not (select prosecdef from pg_proc where oid = 'relatorio_formas_pagamento(date,date)'::regprocedure)
                    and not (select prosecdef from pg_proc where oid = 'relatorio_mais_vendidos(date,date,integer)'::regprocedure),
-    'seguranca: as quatro funcoes NAO sao security definer (a RLS de quem chama vale)');
+    'seguranca: so relatorio_lucro E security definer — as outras tres sao invoker (a RLS de quem chama vale)');
 
   -- ================= a chave publica nao LE o relatorio =================
   -- `has_function_privilege` olha o catalogo; isto TROCA DE ROLE e tenta ler de
