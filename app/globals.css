@@ -1,20 +1,106 @@
 @import "tailwindcss";
 
-/* A v1 é SEMPRE clara. Não seguimos o tema do sistema de propósito:
-   - a interface tem poucas telas e precisa ter a mesma cara no balcão e no celular
-   - sem isso, o texto herdado fica claro sobre fundo claro quando o Windows está
-     em modo escuro, e o que o usuário digita some (bug encontrado no login)
-   O `color-scheme: light` também impede o navegador de pintar campos de
-   formulário em escuro. */
+/* ============================================================================
+   TOKENS DO SISTEMA — claro e escuro.
+
+   POR QUE ISTO EXISTE: até 14/10/2026 as telas usavam cor fixa do Tailwind
+   (`bg-white`, `text-slate-800`, `border-slate-200`) em 509 lugares espalhados por
+   22 arquivos. Com cor fixa não há tema: o escuro exigiria escrever a variante
+   `dark:` 509 vezes, e cada tela nova repetiria o problema. Com token, o escuro é
+   só um segundo conjunto de valores e nenhum componente muda.
+
+   O TEMA NÃO SEGUE O SISTEMA OPERACIONAL — é escolha do operador, e o padrão é o
+   claro. Isso é deliberado: o bug original (o texto digitado sumindo no login)
+   acontecia porque o Windows estava em modo escuro e o navegador pintava os campos
+   nativos em escuro enquanto a página seguia clara. Por isso `color-scheme` é
+   declarado POR TEMA, junto com as cores: os dois lados andam sempre juntos.
+   ========================================================================= */
+
+@custom-variant dark (&:is(.dark *));
+
 :root {
   color-scheme: light;
-  --background: #ffffff;
-  --foreground: #171717;
+
+  --background: #f8fafc;
+  --foreground: #0f172a;
+
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+
+  /* `--border` é DECORATIVO (divisor, régua) e não carrega informação.
+     `--input` É a informação que identifica o campo, e por isso precisa dos 3:1
+     da WCAG 1.4.11 — o valor de mercado para borda de campo é o `#94A3B8`, que
+     mede 2,56:1 no branco e REPROVA. */
+  --border: #e2e8f0;
+  --input: #7c8ca0;
+
+  /* Marca: 5,02:1 no branco. Usada só em item ativo, botão principal e foco. */
+  --primary: #15803d;
+  --primary-foreground: #ffffff;
+  --ring: #15803d;
+
+  --destructive: #dc2626;
+  --success: #15803d;
+  --warning: #b45309;
+  --info: #0369a1;
+
+  --radius: 0.5rem;
+}
+
+/* Escuro. Contraste MEDIDO par a par (não é o claro invertido de olho):
+   texto 16,30:1 no fundo e 13,35:1 no cartão · secundário 6,96 / 5,71 / 4,83
+   (o 4,83 é o pior caso, sobre a superfície rebaixada) · borda de campo 4,83 no
+   pior caso · foco 10,25 · texto do botão 6,54 · erro 6,45 · aviso 10,69. */
+.dark {
+  color-scheme: dark;
+
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+
+  --card: #1e293b;
+  --card-foreground: #f1f5f9;
+
+  /* No escuro a superfície rebaixada é MAIS CLARA que o cartão, ao contrário do
+     claro. `#293548` é o candidato mais claro que ainda passa: com `#334155` (o
+     valor "óbvio") o texto secundário cai para 4,04:1 e REPROVA. */
+  --muted: #293548;
+  --muted-foreground: #94a3b8;
+
+  --border: #334155;
+  --input: #94a3b8;
+
+  /* No escuro a marca clareia; o texto do botão é verde quase preto. */
+  --primary: #22c55e;
+  --primary-foreground: #052e16;
+  --ring: #4ade80;
+
+  --destructive: #f87171;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --info: #38bdf8;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  --radius-lg: var(--radius);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
