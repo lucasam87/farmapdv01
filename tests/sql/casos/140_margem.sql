@@ -300,10 +300,12 @@ begin
   --   * uma venda ANTES de o custo ser cadastrado: item PAGO com `preco_custo = 0`;
   --   * uma venda DEPOIS: item pago com `preco_custo = 400`.
   -- MEDIDO na janela de UM DIA desse produto: a funcao NOVA devolve 0 (o produto ESTA no
-  -- ranking, pelo item com custo) e a funcao ANTIGA devolve 2 — a prova por execucao, com
-  -- a assercao abaixo, esta no relatorio ("no dia do PRODUTO ISOLADO a contagem e 0").
-  -- Nao escreva aqui um numero do criterio antigo que voce nao mediu: eu ja errei isto
-  -- duas vezes nesta rodada, e a segunda foi justamente por supor o valor do bug.
+  -- ranking, pelo item com custo) e a funcao ANTIGA devolve 1 — numero medido contra a
+  -- definicao real do commit `2972376` (a revisao da rodada 2 fez essa medicao; eu havia
+  -- escrito "2" aqui, por supor o valor do bug, e estava errado). A prova por execucao,
+  -- com a assercao abaixo, esta no relatorio ("no dia do PRODUTO ISOLADO a contagem e 0").
+  -- Nao escreva aqui um numero do criterio antigo que voce nao mediu: foi exatamente
+  -- supor esse valor que produziu a afirmacao falsa.
   v_p_isolado := criar_produto('PRODUTO ISOLADO', 1000, 100);
   update produtos set preco_custo = 400 where id = v_p_isolado;
 
@@ -321,10 +323,12 @@ begin
   --   `bool_or(preco_custo = 0)`             = TRUE  (a venda X) -> criterio ANTIGO CONTA;
   --   `bool_or(preco_custo > 0 and total > 0)` = TRUE  (a venda Y) -> criterio NOVO NAO CONTA.
   -- E este o par que faz o numero da funcao diferir entre as versoes (1 contra 0). A
-  -- primeira versao deste cenario usava um BRINDE (`total = 0`) no lugar da venda X, e
-  -- nao discriminava: o brinde tem `total = 0`, entao o criterio antigo (que olha
-  -- `preco_custo = 0`) nao o via, e os dois criterios davam 0. Medido, e por isso o
-  -- cenario final usa a venda ANTES do cadastro.
+  -- primeira versao deste cenario usava um BRINDE no lugar da venda X, e nao discriminava
+  -- por um motivo que nao tem nada a ver com `total`: o criterio ANTIGO so olha
+  -- `preco_custo = 0`, e o item de brinde usado ali tinha `preco_custo = 300` (o brinde
+  -- tem CUSTO; o que ele nao tem e receita) — entao a antiga nao o via e as duas versoes
+  -- davam 0. O cenario final usa a venda ANTES do cadastro, cujo item tem `preco_custo = 0`
+  -- de verdade, que e o que a antiga conta.
   insert into vendas (chave_idempotencia, caixa_sessao_id, usuario_id,
                       subtotal, desconto, total, valor_pago, troco, criado_em)
   values (gen_random_uuid(), v_caixa, v_dono, 2000, 0, 2000, 2000, 0,
@@ -406,20 +410,24 @@ begin
   -- POR QUE A CONTAGEM SOZINHA NAO PROVA NADA (ruling R9), e isto esta MEDIDO:
   --   funcao ANTIGA (`count(distinct produto_id) ... preco_custo = 0`): 2, {SEM CUSTO, MISTO}
   --   funcao NOVA (complemento do ranking):                              2, {SEM CUSTO, BRINDE}
-  -- O mesmo numero, conjuntos diferentes: `sem_custo = 2` passa nas DUAS versoes. A
-  -- assercao que discrimina e a da PARTICAO, mais abaixo — ela amarra o numero ao
-  -- ranking, entao nao ha como acertar o total por coincidencia.
+  -- O mesmo numero, conjuntos diferentes: `sem_custo = 2` passa nas DUAS versoes. Neste
+  -- cenario NENHUMA assercao de contagem discrimina — nem esta, nem a da PARTICAO logo
+  -- abaixo (que tambem da 2 nas duas: ver a nota dela). Quem discrimina o R4/R7 neste
+  -- arquivo e UMA assercao, a do dia isolado (`v_dia_isolado`), no fim do caso 3.
   perform teste_ok((select sem_custo = 2 from margem_sem_custo(v_de, v_ate)),
     'caso 3: dois produtos ficaram fora do ranking (o sem custo e o brinde)');
-  -- ---- A ASSERCAO DE IDENTIDADE (R9): a PARTICAO, e nao a cardinalidade ----
-  -- O cenario tem CINCO produtos, TRES no ranking (A, MISTO, B) e DOIS fora. Quais dois
-  -- fora? Justamente os que NAO estao no ranking — e e isso que a assercao exige:
-  --   sem_custo = 5 - (produtos no ranking) = 5 - 3 = 2
-  -- Com a funcao ANTIGA o conjunto de fora e {SEM CUSTO, MISTO}: o MISTO aparece nos DOIS
-  -- lados (na contagem E no ranking) e o BRINDE nao aparece em nenhum — a particao nao
-  -- fecha, o numero nao bate e a assercao fica VERMELHA, mesmo com `sem_custo = 2`
-  -- continuando verdadeiro. E esta a prova de que a assercao discrimina (a execucao com a
-  -- funcao antiga esta no relatorio).
+  -- ---- A PARTICAO: invariante de consistencia, NAO assercao que discrimina ----
+  -- O cenario tem CINCO produtos, TRES no ranking (A, MISTO, B) e DOIS fora, entao
+  -- `sem_custo` tem de ser o complemento exato do ranking (5 - 3 = 2). Vale a pena manter:
+  -- e a invariante que pega uma linha contada duas vezes ou sumida (o defeito do R4 tinha
+  -- essa cara).
+  --
+  -- MAS ELA NAO DISCRIMINA O BUG, e isto esta medido: com a funcao ANTIGA o conjunto de
+  -- fora e {SEM CUSTO, MISTO} e o ranking continua {A, MISTO, B} — as DUAS listas ainda
+  -- somam 5 (o MISTO aparece nos dois lados E o BRINDE em nenhum, e os dois erros se
+  -- cancelam na conta), entao 5 - 3 = 2 e a particao fica VERDE com a funcao antiga. A
+  -- rodada 1 escreveu aqui que ela ficaria vermelha; era falso, e era exatamente a crenca
+  -- que o R9 derrubou. Invariante util e assercao discriminante sao coisas diferentes.
   perform teste_ok((
     (select sem_custo from margem_sem_custo(v_de, v_ate)) =
     (select count(distinct i.produto_id) from public.venda_itens i
@@ -427,13 +435,12 @@ begin
       where v.status = 'concluida'
         and (v.criado_em at time zone 'America/Sao_Paulo')::date between v_de and v_ate)
     - (select count(*) from margem_produtos(v_de, v_ate, 10))
-  ), 'caso 3: a contagem e EXATAMENTE os produtos vendidos que NAO estao no ranking (as duas listas particionam os 5 produtos)');
+  ), 'caso 3: INVARIANTE (nao discrimina o R4/R7): a contagem e os produtos no ranking particionam os 5 vendidos');
   -- O MISTO e o caso que separa os dois criterios: ele tem um item de custo zero, entao
   -- qualquer contagem que decida por ITEM o incluiria. Aqui ele TEM de estar no ranking
-  -- (uma linha, e so com o item que tem custo) e NAO pode estar na contagem. Com a funcao
-  -- antiga esta assercao fica vermelha junto com a de cima.
-  -- `bool_and(produto_id = v_p_misto)` e nao `min(produto_id)`: o Postgres NAO tem
-  -- `min`/`max` para `uuid` (a primeira versao levava "function min(uuid) does not exist").
+  -- (uma linha, e so com o item que tem custo). `bool_and(produto_id = v_p_misto)` e nao
+  -- `min(produto_id)`: o Postgres NAO tem `min`/`max` para `uuid` (a primeira versao levava
+  -- "function min(uuid) does not exist").
   perform teste_ok((select count(*) = 1 and bool_and(produto_id = v_p_misto)
                       from margem_produtos(v_de, v_ate, 10) where produto_id = v_p_misto),
     'caso 3: o PRODUTO MISTO (item sem custo + item com custo) esta no ranking, em UMA linha');
@@ -441,15 +448,15 @@ begin
                      where produto_id in (v_p_semcusto, v_p_brinde)),
     'caso 3: e os DOIS contados como fora do ranking NAO estao no ranking');
 
-  -- A assercao que DISCRIMINA (e a razao de o cenario isolado existir): na janela de UM
-  -- DIA do PRODUTO ISOLADO, o criterio novo devolve 0 (o produto esta no ranking: tem um
-  -- item com custo e receita) e o criterio antigo devolveria 1 (existe item com custo
-  -- zero). Este e o unico numero do caso que separa as duas versoes — os cinco produtos
-  -- principais dao 2 nas duas. Ver a prova por execucao no relatorio.
+  -- ---- A UNICA ASSERCAO QUE DISCRIMINA O R4/R7 (ruling R9) ----
+  -- Na janela de UM DIA do PRODUTO ISOLADO o criterio novo devolve 0 (o produto esta no
+  -- ranking: tem item com custo e receita) e o criterio ANTIGO devolve 1 (existe item com
+  -- `preco_custo = 0`, e a antiga nao olha `total`) — o 1 foi medido contra a definicao
+  -- real do commit `2972376`. Este e o unico numero do caso que separa as duas versoes: os
+  -- cinco produtos principais dao 2 nas duas, e ate a particao da 2 nas duas. Ver a prova
+  -- por execucao no relatorio.
   perform teste_ok((select sem_custo = 0 from margem_sem_custo(v_dia_isolado, v_dia_isolado)),
     'caso 3: no dia do PRODUTO ISOLADO a contagem e 0 — ele tem item PAGO sem custo, mas TEM item no ranking');
-  perform teste_ok((select sem_custo = 0 from margem_sem_custo(v_dia_isolado, v_dia_isolado)),
-    'caso 3: produto com item sem custo E item no ranking, no MESMO dia, NAO e contado (o criterio e por produto, nao por item)');
   -- A contagem respeita o periodo: uma janela que nao alcanca a venda devolve zero,
   -- e nao erro nem o numero da janela larga.
   perform teste_ok((select sem_custo = 0 from margem_sem_custo(v_dia_venda - 1, v_dia_venda - 1)),
