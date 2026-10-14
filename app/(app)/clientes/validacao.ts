@@ -234,7 +234,7 @@ export function linkWhatsApp(telefone: string | null, nome: string, saldo: numbe
 
   const nomeLimpo = (nome ?? '').trim()
   const saudacao = nomeLimpo === '' ? 'Olá!' : `Olá, ${nomeLimpo}!`
-  const mensagem = `${saudacao} Seu saldo na farmácia é ${formatarMoeda(saldo)}. Podemos acertar?`
+  const mensagem = `${saudacao} Seu saldo na farmácia é ${formatarMoeda(saldo)}. Regularize para evitar multa e juros.`
 
   return `https://wa.me/55${digitos}?text=${encodeURIComponent(mensagem)}`
 }

@@ -256,39 +256,39 @@ describe('linkWhatsApp', () => {
   it('monta o wa.me com a mensagem pronta e codificada', () => {
     expect(linkWhatsApp('11912345678', 'ANA', 5000)).toBe(
       'https://wa.me/5511912345678?text=' +
-        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 50,00. Podemos acertar?'),
+        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 50,00. Regularize para evitar multa e juros.'),
     )
   })
 
   it('a mensagem leva o saldo formatado em reais, inclusive saldo credor anomalo', () => {
     expect(linkWhatsApp('11912345678', 'ANA', 123456)).toBe(
       'https://wa.me/5511912345678?text=' +
-        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 1.234,56. Podemos acertar?'),
+        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 1.234,56. Regularize para evitar multa e juros.'),
     )
     // Saldo credor e anomalia (o estorno do cancelamento pode deixar um gravado),
     // mas a cobranca nao pode virar "R$ NaN" nem perder o sinal: o numero sai
     // formatado como qualquer outro. O sinal fica antes do "R$" (Intl).
     expect(linkWhatsApp('11912345678', 'ANA', -2000)).toBe(
       'https://wa.me/5511912345678?text=' +
-        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é -R$ 20,00. Podemos acertar?'),
+        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é -R$ 20,00. Regularize para evitar multa e juros.'),
     )
   })
 
   it('nome com espacos em volta e aparado; sem nome, a saudacao nao fica com virgula solta', () => {
     expect(linkWhatsApp('11912345678', '  ANA  ', 5000)).toBe(
       'https://wa.me/5511912345678?text=' +
-        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 50,00. Podemos acertar?'),
+        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 50,00. Regularize para evitar multa e juros.'),
     )
     expect(linkWhatsApp('11912345678', '   ', 5000)).toBe(
       'https://wa.me/5511912345678?text=' +
-        encodeURIComponent('Olá! Seu saldo na farmácia é R$ 50,00. Podemos acertar?'),
+        encodeURIComponent('Olá! Seu saldo na farmácia é R$ 50,00. Regularize para evitar multa e juros.'),
     )
   })
 
   it('telefone ja pontuado tambem vira link (digito puro ate o wa.me)', () => {
     expect(linkWhatsApp('(11) 91234-5678', 'ANA', 5000)).toBe(
       'https://wa.me/5511912345678?text=' +
-        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 50,00. Podemos acertar?'),
+        encodeURIComponent('Olá, ANA! Seu saldo na farmácia é R$ 50,00. Regularize para evitar multa e juros.'),
     )
   })
 
