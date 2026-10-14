@@ -41,14 +41,16 @@ export default async function LoginPage({
 
             `mx-auto block` centraliza: `mx-auto` não faz nada num elemento inline,
             e o `<img>` é inline por padrão. `max-w-full` impede que ele estoure o
-            cartão em tela estreita. O `h-24` (96 px) dá ~240 px de largura nesta
-            proporção de 2,5:1, dentro dos ~320 px úteis do cartão. */}
+            cartão em tela estreita. O `h-32` (128 px) dá ~320 px de largura nesta
+            proporção de 2,5:1 — ou seja, o logotipo ocupa a largura ÚTIL INTEIRA do
+            cartão (o `max-w-sm` de 384 px menos os 32 px de `p-8` de cada lado).
+            Para crescer mais que isso, o cartão é que precisa alargar. */}
         <h1 className="sr-only">LaM Vendas — sistema da farmácia</h1>
         <img
           src="/logo-lam-vendas.png"
           alt=""
           aria-hidden="true"
-          className="mx-auto mb-5 block h-24 w-auto max-w-full"
+          className="mx-auto mb-6 block h-32 w-auto max-w-full"
         />
         <p className="text-center text-sm text-muted-foreground">
           Entre com seu e-mail e sua senha.
