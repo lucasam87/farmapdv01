@@ -7,8 +7,14 @@ import {
   mensagemRecusa,
   mesSaoPaulo,
   montarResposta,
+  respostaFinanceiro,
+  validarAssunto,
   validarClassificacao,
+  validarConsultaFinanceiro,
   validarPergunta,
+  type Assunto,
+  type ConsultaFinanceiroValidada,
+  type DadosFinanceiro,
   type DadosResposta,
 } from '@/app/(app)/agente/logica'
 import { bytesDoPayload, type ResultadoClassificacao } from '@/lib/agente/deepseek'
@@ -98,6 +104,20 @@ export type Deps = {
    * responde sobre o dia chutado (achado de 14/10/2026).
    */
   classificar(pergunta: string, hoje: string): Promise<ResultadoClassificacao>
+  /**
+   * As DUAS chamadas do grafo. Sao **opcionais de proposito**: sem elas a
+   * orquestracao segue exatamente o caminho de uma chamada so, com a reserva de
+   * sempre — entao ligar o grafo e uma **ativacao explicita**, e nao um
+   * comportamento novo que aparece sozinho quando alguem mexer na rota.
+   */
+  classificarAssunto?(pergunta: string, hoje: string): Promise<ResultadoClassificacao>
+  classificarFinanceiro?(pergunta: string, hoje: string): Promise<ResultadoClassificacao>
+  /**
+   * Recebe a consulta JA VALIDADA e devolve os dados JA no formato do montador,
+   * para que a orquestracao nao precise conhecer `relatorio_resumo`,
+   * `relatorio_lucro` nem `relatorio_formas_pagamento` — quem conhece e a rota.
+   */
+  consultarFinanceiro?(consulta: ConsultaFinanceiroValidada): Promise<DadosFinanceiro | null>
   reservar(mes: string, micros: number): Promise<ResultadoReserva>
   reconciliar(id: string, micros: number): Promise<void>
   liberar(id: string): Promise<void>
@@ -135,6 +155,28 @@ function semAcento(texto: string): string {
 
 function erro(mensagem: string): { erro: string } {
   return { erro: mensagem }
+}
+
+/**
+ * Soma os custos das chamadas feitas NESTA pergunta.
+ *
+ * ⚠️ **Nunca reconciliar duas vezes na mesma reserva.** `reconciliar` SUBSTITUI o
+ * valor reservado pelo custo real: duas chamadas reconciliadas em separado
+ * substituiriam uma a outra em vez de somar, e o mes pagaria por uma so.
+ *
+ * `null` em QUALQUER parcela significa custo DESCONHECIDO e derruba o total para
+ * `null` — a mesma regra conservadora de `custoDaChamada`: reserva que ficou
+ * consumida e melhor que reserva liberada sobre tokens que podem ter sido
+ * faturados. Com UMA parcela a funcao devolve exatamente o que `custoDaChamada`
+ * devolveria, entao o caminho sem grafo nao muda de comportamento.
+ */
+function somaDeCustos(custos: (number | null)[]): number | null {
+  let total = 0
+  for (const custo of custos) {
+    if (custo === null) return null
+    total += custo
+  }
+  return total
 }
 
 /**
@@ -327,9 +369,18 @@ export async function processarPergunta(
   //    primeiro dia: a RPC do banco recusa qualquer outro valor.
   const mes = mesSaoPaulo(agora)
 
+  // O grafo so roda com as TRES dependencias ligadas. A reserva DOBRA quando ele
+  // roda, porque a pergunta passa a gastar duas chamadas: o coordenador e (o
+  // especialista OU o classificador de hoje, no ramo de assunto ainda nao ligado).
+  // Sem as dependencias, isto e `false` e nada abaixo muda.
+  const grafo =
+    deps.classificarAssunto !== undefined &&
+    deps.classificarFinanceiro !== undefined &&
+    deps.consultarFinanceiro !== undefined
+
   let reserva: ResultadoReserva
   try {
-    reserva = await deps.reservar(mes, RESERVA_MICROS)
+    reserva = await deps.reservar(mes, grafo ? RESERVA_MICROS * 2 : RESERVA_MICROS)
   } catch {
     reserva = { ok: false, motivo: 'falha' }
   }
@@ -338,6 +389,89 @@ export async function processarPergunta(
     return reserva.motivo === 'esgotado'
       ? { status: 429, corpo: erro(MENSAGEM_ORCAMENTO) }
       : { status: 502, corpo: erro(MENSAGEM_LEDGER) }
+  }
+
+  // 4. O GRAFO, quando ligado: o COORDENADOR escolhe o especialista (chamada 1).
+  let custoDoCoordenador: number | null = null
+  let assunto: Assunto | null = null
+
+  if (grafo && deps.classificarAssunto !== undefined) {
+    let primeira: ResultadoClassificacao
+    try {
+      primeira = await deps.classificarAssunto(pergunta, hoje)
+    } catch {
+      primeira = { ok: false, fase: 'ambigua' }
+    }
+
+    if (!primeira.ok) {
+      if (primeira.fase === 'pre_envio') await liberarEmSilencio(deps, reserva.id)
+      return { status: 502, corpo: erro(MENSAGEM_PROVEDOR) }
+    }
+
+    custoDoCoordenador = custoDaChamada(primeira.uso)
+    assunto = validarAssunto(primeira.conteudo)
+
+    // `fora_escopo` e um veredito LEGITIMO do coordenador — nao ha especialista
+    // para esta pergunta. Gastar a segunda chamada para o classificador de hoje
+    // so repetiria a decisao: aqui a recusa sai com UMA chamada, e a reserva e
+    // reconciliada pelo custo dela (nunca liberada: o provedor ja respondeu).
+    if (assunto === 'fora_escopo') {
+      const custo = somaDeCustos([custoDoCoordenador])
+      if (custo !== null) await reconciliarEmSilencio(deps, reserva.id, custo)
+      return { status: 400, corpo: erro(mensagemRecusa('classificacao')) }
+    }
+  }
+
+  // 4a. Especialista LIGADO — hoje so o de Vendas e financeiro. A chamada 2 escolhe
+  //     a consulta e o periodo, e o texto e montado em CODIGO: o modelo nao escreve
+  //     numero nenhum, nem aqui nem no coordenador.
+  //
+  //     Qualquer outro assunto NAO entra neste bloco: ele desce para o caminho de
+  //     hoje, logo abaixo, que ja funciona. E o que impede os quatro especialistas
+  //     ainda nao ligados de regredirem.
+  if (
+    assunto === 'financeiro' &&
+    deps.classificarFinanceiro !== undefined &&
+    deps.consultarFinanceiro !== undefined
+  ) {
+    let segunda: ResultadoClassificacao
+    try {
+      segunda = await deps.classificarFinanceiro(pergunta, hoje)
+    } catch {
+      segunda = { ok: false, fase: 'ambigua' }
+    }
+
+    if (!segunda.ok) {
+      if (segunda.fase === 'pre_envio') await liberarEmSilencio(deps, reserva.id)
+      return { status: 502, corpo: erro(MENSAGEM_PROVEDOR) }
+    }
+
+    // UMA reconciliacao, com a SOMA das duas chamadas. Ver `somaDeCustos`.
+    const custo = somaDeCustos([custoDoCoordenador, custoDaChamada(segunda.uso)])
+    if (custo !== null) await reconciliarEmSilencio(deps, reserva.id, custo)
+
+    const consulta = validarConsultaFinanceiro(segunda.conteudo, hoje)
+    if (consulta === null) {
+      return { status: 400, corpo: erro(mensagemRecusa('classificacao')) }
+    }
+
+    // O lucro e do dono. A recusa sai ANTES de a rota ler qualquer dado — o banco
+    // tambem recusa (a funcao e `security definer` e checa o papel), mas aqui nao
+    // se le nada.
+    if (consulta.consulta === 'lucro' && perfil.papel !== 'dono') {
+      return { status: 403, corpo: erro(MENSAGEM_SO_DONO) }
+    }
+
+    let dados: DadosFinanceiro | null
+    try {
+      dados = await deps.consultarFinanceiro(consulta)
+    } catch {
+      dados = null
+    }
+
+    if (dados === null) return { status: 500, corpo: erro(MENSAGEM_LEITURA) }
+
+    return { status: 200, corpo: { resposta: respostaFinanceiro(dados) } }
   }
 
   // 4. Classificacao no provedor.
@@ -361,7 +495,12 @@ export async function processarPergunta(
   //     custo e desconhecido e liberar abriria espaco que pode ter sido faturado.
   //     Isso vale TAMBEM quando o conteudo veio vazio ou invalido: os tokens
   //     foram gastos do mesmo jeito.
-  const custo = custoDaChamada(classificacao.uso)
+  // Quando o grafo rodou e o assunto caiu no caminho de hoje, esta e a SEGUNDA
+  // chamada da MESMA reserva: a reconciliacao leva a SOMA, nunca duas chamadas a
+  // `reconciliar` (a segunda substituiria a primeira e o mes pagaria por uma so).
+  const custo = grafo
+    ? somaDeCustos([custoDoCoordenador, custoDaChamada(classificacao.uso)])
+    : custoDaChamada(classificacao.uso)
   if (custo !== null) await reconciliarEmSilencio(deps, reserva.id, custo)
 
   // 5. Validacao ESTRITA do que o modelo devolveu. Qualquer coisa fora do
