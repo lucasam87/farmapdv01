@@ -76,24 +76,31 @@ o valida contra o teto do mês; `agente_orcamento_reconciliar(p_reserva_id, p_cu
 Então basta: **reservar `N × RESERVA_MICROS`** (hoje `RESERVA_MICROS = 1.373`, o pior caso de uma
 chamada) e **reconciliar a soma** dos custos reais das N chamadas. Nenhuma migration.
 
-## ⚠️ O RISCO NÚMERO UM: o limite de 10 s do Hobby
+## O limite de 10 s do Hobby — MEDIDO E RESOLVIDO A FAVOR DO DESENHO
 
-**As funções serverless no plano Hobby cortam em 10 s** — o `PROGRESSO.md` já registra isso para a
-importação do catálogo (26 s não cabe). Hoje `/api/agente` faz **uma** chamada ao modelo e leva **~3 s**.
+As funções serverless no plano Hobby cortam em 10 s. Eu tratei isso como o risco número um, **estimando
+~3 s por chamada**. **A medição diz outra coisa** (sonda em 15/10/2026, contra a API real, modelo
+`deepseek-flash`, `temperature: 0`, JSON mode):
 
-Com o grafo são **duas chamadas sequenciais** (~6 s) **mais as consultas ao banco**. Isso encosta no teto,
-e a margem de segurança vira quase nada.
+| etapa | tempo | tokens |
+|---|---|---|
+| chamada do **coordenador** | **791 ms** | 231 de entrada, 71 de saída |
+| chamada do **especialista** | **525 ms** | 160 de entrada, 120 de saída |
+| **as duas, sequenciais** | **1.316 ms** | — |
+| **sobra do teto de 10 s** | **8.684 ms** | — |
 
-**O que isso exige de quem implementar:**
-1. **Medir** o tempo real de ponta a ponta antes de qualquer outra coisa. Não estimar.
-2. **Reduzir o timeout por chamada** de 10 s para algo que caiba nas duas — ou aceitar que, no Hobby,
-   pergunta com especialista lento falha.
-3. Considerar **paralelizar** o que der (as consultas, não as chamadas ao modelo: o especialista depende
-   do coordenador).
-4. Se não couber, é **decisão de plano** (Pro, 60 s) — a mesma decisão que a importação do catálogo já
-   espera.
+**O desenho cabe com folga.** Sobram quase 9 segundos para as consultas e o resto da rota. A estimativa de
+~3 s por chamada estava errada por um fator de 4 — provavelmente ela media a **rota inteira** (autenticação,
+banco, montagem), não a chamada ao modelo.
 
-**Isto não é um detalhe de implementação: é o que decide se o desenho é viável no plano atual.**
+**O que continua valendo para quem implementar:**
+1. **Medir o tempo de ponta a ponta da rota depois de pronta** — a sonda mediu as chamadas, não a rota com
+   as duas dentro. O teto é 10 s, e a soma real importa.
+2. O `TIMEOUT_MS = 10_000` por chamada **continua maior que o teto da função**: uma chamada que pendure
+   sozinha estoura o limite do Hobby antes do próprio timeout disparar. Isso **já é verdade hoje**, com uma
+   chamada só, e não é regressão deste desenho — mas o grafo acrescenta uma segunda chance de acontecer.
+3. Não confundir com o problema da **importação do catálogo** (26 s), que é de outra natureza: lá o tempo é
+   de trabalho de banco em lote, não de chamadas ao modelo.
 
 ## A tensão do prompt, herdada do projeto anterior
 
