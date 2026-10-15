@@ -57,6 +57,30 @@ async function consultar(
     return { ok: true, linhas: data ?? [] }
   }
 
+  if (intencao === 'margem_produto') {
+    const de = filtro?.de
+    const ate = filtro?.ate
+    if (de === undefined || ate === undefined || limite === null) return { ok: false }
+
+    // As duas funcoes sao `security definer` e checam o papel do dono por dentro.
+    const [ranking, fora] = await Promise.all([
+      supabase.rpc('margem_produtos', { p_de: de, p_ate: ate, p_limite: limite }),
+      supabase.rpc('margem_sem_custo', { p_de: de, p_ate: ate }),
+    ])
+    if (ranking.error || fora.error) return { ok: false }
+
+    // `margem_sem_custo` devolve uma linha com `sem_custo`; qualquer outra coisa e falha,
+    // nunca "zero produtos fora" (seria dizer que o ranking esta completo).
+    const contagem = Number((fora.data as { sem_custo: unknown }[] | null)?.[0]?.sem_custo)
+    if (!Number.isFinite(contagem)) return { ok: false }
+
+    return {
+      ok: true,
+      linhas: (ranking.data ?? []) as unknown as LinhaConsulta[],
+      semCusto: contagem,
+    }
+  }
+
   // As tres views sem data NAO aceitam periodo (o modelo ja teria virado
   // `fora_escopo`) e a ordem e a que a propria view define.
   const alvo =

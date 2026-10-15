@@ -3,7 +3,7 @@
 //
 // Tudo o que decide antes de gastar dinheiro mora aqui: o que o usuario pode
 // perguntar, o que o modelo pode responder, quanto a chamada pode custar e como
-// as quatro respostas sao escritas. A rota `POST /api/agente` (Tarefa 3) so
+// as cinco respostas sao escritas. A rota `POST /api/agente` (Tarefa 3) so
 // orquestra: ela chama estas funcoes na ordem, consulta a view e nao reimplementa
 // nenhuma regra que ja esteja neste arquivo.
 //
@@ -52,6 +52,18 @@ export const TETO_MENSAL_MICROS = 5_000_000
 /** Intervalo maximo de um periodo explicito, inclusive nas duas pontas. */
 export const DIAS_MAXIMOS = 31
 
+/**
+ * Periodo padrao da consulta de margem, em DATAS INCLUSIVAS — a mesma contagem do
+ * app (`DIAS_MAXIMOS`), e nao os "dias de intervalo" que a funcao do banco soma.
+ *
+ * Sao duas leituras do MESMO teto (`> 30` no banco e `> 31` aqui, ruling R5 da
+ * revisao da Task 1) e o padrao fica deliberadamente um dia DENTRO do teto: um
+ * padrao colado na borda faria a consulta mais comum do agente ser a unica que nao
+ * pode crescer nem um dia. Com `DIAS_PADRAO_MARGEM = 30`, o padrao e
+ * `hoje - 29 .. hoje`, que sao 30 datas com hoje numa das pontas.
+ */
+export const DIAS_PADRAO_MARGEM = 30
+
 /** Linhas que a rota pede a view. */
 export const LIMITE_RESULTADOS = 10
 
@@ -75,14 +87,35 @@ export type Intencao =
   | 'mais_vendidos'
   | 'estoque_baixo'
   | 'estoque_parado'
+  | 'margem_produto'
   | 'fora_escopo'
 
 export type Classificacao =
   | { intencao: 'fora_escopo' }
   | { intencao: 'mais_vendidos' | 'estoque_baixo' | 'estoque_parado'; limite: number }
   | { intencao: 'vendas_dia'; de: string; ate: string }
+  // A unica intencao que filtra data E corta em N: a margem e sempre de um periodo
+  // (padrao de 30 dias) e o ranking tem no maximo 10 linhas.
+  | { intencao: 'margem_produto'; de: string; ate: string; limite: number }
 
 export type MotivoRecusa = 'vazia' | 'longa' | 'payload' | 'clinica' | 'pessoal' | 'classificacao'
+
+/**
+ * Uma linha do ranking de margem — EXATAMENTE o que `public.margem_produtos`
+ * devolve: nome, receita, custo e margem, em CENTAVOS INTEIROS.
+ *
+ * ⚠️ `percentual` NAO esta aqui de proposito (R1 do ledger): `numeric` do Postgres
+ * chega pelo PostgREST como STRING em JSON, e o percentual — que e justamente o
+ * numero que ORDENA o ranking — viraria `NaN` ao ser tratado como number. A funcao
+ * do banco ordena por percentual sem devolve-lo, e o percentual e calculado aqui,
+ * em codigo puro, por `percentualDeMargem`.
+ */
+export type LinhaDeMargem = {
+  nome: string
+  receita: number
+  custo: number
+  margem: number
+}
 
 export type DadosResposta =
   | {
@@ -93,6 +126,18 @@ export type DadosResposta =
   | {
       intencao: 'estoque_baixo' | 'estoque_parado'
       linhas: { nome: string; estoque_atual: number }[]
+    }
+  // `semCusto` e a contagem de `public.margem_sem_custo`: os produtos que ficaram
+  // FORA do ranking por falta de custo cadastrado OU por falta de receita. Ela nao
+  // e uma linha do ranking (o produto sem custo nao tem percentual e o de receita
+  // zero dividiria por zero) — e o numero que impede o agente de dizer "nenhum
+  // produto com margem ruim" quando o que houve foi dado faltando.
+  | {
+      intencao: 'margem_produto'
+      produtos: LinhaDeMargem[]
+      semCusto: number
+      /** Periodo consultado (YYYY-MM-DD); quando presente, o titulo o declara. */
+      periodo?: { de: string; ate: string }
     }
 
 // ============================================================
@@ -130,6 +175,11 @@ const VAZIO_VENDAS = 'Não há vendas registradas no período consultado.'
 const VAZIO_MAIS_VENDIDOS = 'Ainda não há produtos vendidos registrados.'
 const VAZIO_ESTOQUE_BAIXO = 'Nenhum produto precisa de reposição no momento.'
 const VAZIO_ESTOQUE_PARADO = 'Nenhum produto está parado no momento.'
+// O ranking vazio da margem NAO pode dizer "não houve venda no período" (pode ter
+// havido, sem custo cadastrado) nem "nenhum produto com margem ruim" (o dado e que
+// falta). A frase nomeia as DUAS condicoes que o ranking exige para aceitar um
+// produto: custo e receita registrados.
+const VAZIO_MARGEM = 'Não houve venda com custo e receita registrados no período.'
 
 /** Texto fixo em portugues para cada motivo de recusa. */
 export function mensagemRecusa(motivo: MotivoRecusa): string {
@@ -157,7 +207,112 @@ function listaVazia(dados: DadosResposta): string {
       return VAZIO_ESTOQUE_BAIXO
     case 'estoque_parado':
       return VAZIO_ESTOQUE_PARADO
+    case 'margem_produto':
+      return VAZIO_MARGEM
   }
+}
+
+// ============================================================
+// Margem: o unico numero que a resposta calcula, e o unico que nao pode sair
+// torto. `receita` vem em centavos inteiros e o percentual e DERIVADO dela (R1:
+// a funcao do banco nao devolve `percentual`).
+// ============================================================
+
+/**
+ * Percentual de margem sobre a receita, em FRACAO (0.5 = 50%), ou `null` quando
+ * ele nao existe.
+ *
+ * `null` cobre as maneiras de nao existir percentual, e todas chegariam ao dono
+ * como um numero falso:
+ *   1. `receita <= 0`: `margem / receita` divide por zero (brinde, desconto de
+ *      100%). O banco ja exclui o produto de receita zero do ranking — a guarda
+ *      e a segunda linha de defesa, e nao um caminho que deva acontecer;
+ *   2. valor que nao e numero finito (`NaN`, `Infinity`, ou um `numeric` do
+ *      PostgREST que chegou como string): nao ha conta a fazer;
+ *   3. a conta nao resultar em numero finito. INALCANCAVEL enquanto (1) e (2)
+ *      valerem — com dois finitos e divisor positivo o quociente e finito. Fica
+ *      como cerca, pela mesma razao da guarda de payload de `validarPergunta`: e
+ *      a ultima linha antes de o numero virar texto na tela do dono.
+ */
+export function percentualDeMargem(linha: { receita: number; margem: number }): number | null {
+  const { receita, margem } = linha
+  if (!Number.isFinite(receita) || !Number.isFinite(margem)) return null
+  if (receita <= 0) return null
+
+  const fracao = margem / receita
+  return Number.isFinite(fracao) ? fracao : null
+}
+
+/**
+ * Fracao -> "50,0%" (uma casa decimal, virgula do portugues).
+ *
+ * O arredondamento acontece ANTES de o numero virar texto, e e ele que mata o zero
+ * negativo: uma margem de -1 centavo sobre R$ 1.000,00 e -0,001%, que com uma casa
+ * decimal e "0,0%" — e nao "-0,0%". Formatar a porcentagem direto com `toFixed(1)`
+ * imprimiria `(-0.001).toFixed(1)` = "-0.0", um numero negativo que nao existe.
+ */
+function formatarPercentual(fracao: number): string {
+  // Arredonda pelo modulo e devolve o sinal: Math.round empata para +infinito, o que
+  // faria -0,05% e +0,05% divergirem ("0,0%" x "0,1%").
+  const arredondado = (Math.sign(fracao) * Math.round(Math.abs(fracao) * 1000)) / 10
+  const pontos = arredondado === 0 ? 0 : arredondado
+  return `${pontos.toFixed(1).replace('.', ',')}%`
+}
+
+/**
+ * Uma linha do ranking: os DOIS numeros da margem, sempre. O percentual e o
+ * criterio de ORDEM (ruling do controlador), mas e o valor em reais que mostra
+ * quanto o produto tira do caixa em volume — e por isso os dois vao para a tela,
+ * mesmo quando discordam.
+ *
+ * A linha de receita zero (que o banco nao manda) sai sem o percentual: um "-R$ 3,00
+ * de margem" num produto que nao faturou nada nao tem percentual para mostrar, e
+ * inventar "0,0%" ali seria dizer que ele empatou.
+ */
+function linhaDeMargem(linha: LinhaDeMargem, posicao: number): string {
+  const fracao = percentualDeMargem(linha)
+  const percentual = fracao === null ? '' : ` (${formatarPercentual(fracao)})`
+
+  return (
+    `${posicao}. ${linha.nome}: receita de ${formatarMoeda(linha.receita)}, ` +
+    `custo de ${formatarMoeda(linha.custo)}, ` +
+    `margem de ${formatarMoeda(linha.margem)}${percentual}`
+  )
+}
+
+/**
+ * A linha dos excluidos. Sem ela, um ranking curto (ou vazio) parece boa noticia:
+ * o dono leria "nenhum produto com margem ruim" quando o que existe e um cadastro
+ * sem custo. O texto e o fixado do plano, com a concordancia de UM produto — o
+ * mesmo cuidado que `vendas_dia` ja tem com "1 venda" / "3 vendas".
+ */
+function linhaForaDoRanking(fora: number): string {
+  return fora === 1
+    ? '1 produto ficou fora do ranking por falta de custo ou de receita.'
+    : `${fora} produtos ficaram fora do ranking por falta de custo ou de receita.`
+}
+
+function dataBr(dia: string): string {
+  const [a, m, d] = dia.split('-')
+  return `${d}/${m}/${a}`
+}
+
+function respostaDeMargem(dados: {
+  produtos: LinhaDeMargem[]
+  semCusto: number
+  periodo?: { de: string; ate: string }
+}): string {
+  const linhas = dados.produtos.map((linha, i) => linhaDeMargem(linha, i + 1))
+  const fora = dados.semCusto > 0 ? [linhaForaDoRanking(dados.semCusto)] : []
+
+  // Ranking vazio NAO quer dizer "nada a dizer": quando ha produtos fora, a
+  // resposta leva as duas frases — a do vazio e a da contagem.
+  if (linhas.length === 0) return [VAZIO_MARGEM, ...fora].join('\n')
+
+  const titulo = dados.periodo
+    ? `Produtos com pior margem (${dataBr(dados.periodo.de)} a ${dataBr(dados.periodo.ate)})`
+    : 'Produtos com pior margem'
+  return [titulo, ...linhas, ...fora].join('\n')
 }
 
 /**
@@ -165,6 +320,7 @@ function listaVazia(dados: DadosResposta): string {
  * escreve este texto. Dinheiro entra em CENTAVOS e sai por `formatarMoeda`.
  */
 export function montarResposta(dados: DadosResposta): string {
+  if (dados.intencao === 'margem_produto') return respostaDeMargem(dados)
   if (dados.linhas.length === 0) return listaVazia(dados)
 
   switch (dados.intencao) {
@@ -640,6 +796,7 @@ const INTENCOES: readonly Intencao[] = [
   'mais_vendidos',
   'estoque_baixo',
   'estoque_parado',
+  'margem_produto',
   'fora_escopo',
 ]
 
@@ -685,6 +842,15 @@ function diasInclusivos(de: string, ate: string): number {
   return (diaEmUtc(ate) - diaEmUtc(de)) / 86_400_000 + 1
 }
 
+/**
+ * Anda `passo` dias no calendario (negativo anda para tras), por aritmetica e em
+ * UTC — pelo mesmo motivo de `diaEmUtc`: o fuso do processo nao pode mudar o dia.
+ * Usado so pelo periodo PADRAO da margem, que parte de uma data valida e proxima.
+ */
+function somarDias(dia: string, passo: number): string {
+  return new Date(diaEmUtc(dia) + passo * 86_400_000).toISOString().slice(0, 10)
+}
+
 function validarLimite(valor: unknown): number | null {
   if (!presente(valor)) return LIMITE_RESULTADOS
   if (typeof valor !== 'number') return null
@@ -693,13 +859,25 @@ function validarLimite(valor: unknown): number | null {
   return valor
 }
 
-function validarVendasDia(objeto: Record<string, unknown>, hoje: string): Classificacao | null {
+type Periodo = { de: string; ate: string }
+
+/**
+ * Le o periodo de uma intencao que filtra data, com as MESMAS regras para as duas
+ * que filtram (`vendas_dia` e `margem_produto`) — o teto tem que ser um so, senao
+ * o app mandaria a margem um periodo que ele mesmo recusa nas vendas.
+ *
+ * `padrao` e o que vale quando o modelo nao citou data nenhuma (nulo nas duas
+ * pontas): "hoje" para as vendas, os ultimos 30 dias para a margem. Uma ponta SO
+ * preenchida e recusa nas duas: chutar a outra seria inventar o periodo que o
+ * usuario pediu.
+ */
+function lerPeriodo(objeto: Record<string, unknown>, hoje: string, padrao: Periodo): Periodo | null {
   const temDe = presente(objeto.de)
   const temAte = presente(objeto.ate)
 
-  // Nenhuma das pontas: a pergunta e "hoje", e hoje e a data injetada — o
-  // modulo nao olha o relogio.
-  if (!temDe && !temAte) return { intencao: 'vendas_dia', de: hoje, ate: hoje }
+  // Nenhuma das pontas: vale o padrao da intencao, com `hoje` injetado — o modulo
+  // nao olha o relogio.
+  if (!temDe && !temAte) return padrao
 
   // Uma ponta so e ambigua: recusa em vez de chutar a outra.
   if (!temDe || !temAte) return null
@@ -717,7 +895,33 @@ function validarVendasDia(objeto: Record<string, unknown>, hoje: string): Classi
 
   if (diasInclusivos(de, ate) > DIAS_MAXIMOS) return null
 
-  return { intencao: 'vendas_dia', de, ate }
+  return { de, ate }
+}
+
+function validarVendasDia(objeto: Record<string, unknown>, hoje: string): Classificacao | null {
+  const periodo = lerPeriodo(objeto, hoje, { de: hoje, ate: hoje })
+  if (periodo === null) return null
+
+  return { intencao: 'vendas_dia', de: periodo.de, ate: periodo.ate }
+}
+
+/**
+ * O periodo PADRAO da margem: as ultimas `DIAS_PADRAO_MARGEM` datas, com hoje numa
+ * das pontas. `DIAS_PADRAO_MARGEM - 1` dias para tras porque a contagem e inclusiva
+ * nas duas pontas — contar 30 dias a partir de hoje e andar 29.
+ */
+function periodoPadraoDaMargem(hoje: string): Periodo {
+  return { de: somarDias(hoje, -(DIAS_PADRAO_MARGEM - 1)), ate: hoje }
+}
+
+function validarMargem(objeto: Record<string, unknown>, hoje: string): Classificacao | null {
+  // `hoje` torto faria o periodo padrao lancar RangeError; vira recusa.
+  if (!Number.isFinite(diaEmUtc(hoje))) return null
+  const periodo = lerPeriodo(objeto, hoje, periodoPadraoDaMargem(hoje))
+  const limite = validarLimite(objeto.limite)
+  if (periodo === null || limite === null) return null
+
+  return { intencao: 'margem_produto', de: periodo.de, ate: periodo.ate, limite }
 }
 
 function validarSemPeriodo(
@@ -773,6 +977,10 @@ export function validarClassificacao(bruto: unknown, hoje: string): Classificaca
     case 'estoque_baixo':
     case 'estoque_parado':
       return validarSemPeriodo(intencao as 'mais_vendidos' | 'estoque_baixo' | 'estoque_parado', registro)
+    case 'margem_produto':
+      // A unica que filtra data E corta em N, e a unica com periodo padrao maior
+      // que um dia: sem data, os ultimos `DIAS_PADRAO_MARGEM` dias.
+      return validarMargem(registro, hoje)
   }
 }
 

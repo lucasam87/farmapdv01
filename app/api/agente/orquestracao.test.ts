@@ -606,3 +606,70 @@ describe('leitura e resposta', () => {
     }
   })
 })
+
+// ============================================================
+// Margem: so o dono, e a recusa do atendente sai ANTES do gasto.
+// ============================================================
+describe('margem_produto', () => {
+  const ATENDENTE = { id: 'perfil-2', nome: 'Beto', papel: 'atendente' } as const
+  const CLASSIFICACAO_MARGEM: ResultadoClassificacao = {
+    ok: true,
+    conteudo: '{"intencao":"margem_produto","de":null,"ate":null,"limite":null}',
+    uso: { prompt_tokens: 400, completion_tokens: 40 },
+  }
+
+  it('atendente perguntando margem recebe 403 e nada e reservado nem enviado', async () => {
+    const { deps, chamadas } = montarDeps({ classificacao: CLASSIFICACAO_MARGEM })
+    const resposta = await processarPergunta(entrada('Onde estou perdendo margem?', ATENDENTE), deps)
+
+    expect(resposta.status).toBe(403)
+    expect(resposta.corpo).toEqual({ erro: 'Só o dono vê o lucro.' })
+    expect(nadaFoiChamado(chamadas)).toBe(true)
+  })
+
+  it('atendente com pergunta sem a palavra-chave e barrado depois da classificacao, sem consulta', async () => {
+    const { deps, chamadas } = montarDeps({ classificacao: CLASSIFICACAO_MARGEM })
+    const resposta = await processarPergunta(entrada('Quais produtos dao menos retorno?', ATENDENTE), deps)
+
+    expect(resposta.status).toBe(403)
+    expect(chamadas.consultar).toHaveLength(0)
+  })
+
+  it('dono com ranking vazio recebe 200 com a frase de vazio', async () => {
+    const { deps, chamadas } = montarDeps({
+      classificacao: CLASSIFICACAO_MARGEM,
+      leitura: { ok: true, linhas: [], semCusto: 0 },
+    })
+    const resposta = await processarPergunta(entrada('Onde estou perdendo margem?'), deps)
+
+    expect(resposta.status).toBe(200)
+    expect((resposta.corpo as { resposta: string }).resposta).toBe(
+      'Não houve venda com custo e receita registrados no período.',
+    )
+    expect(chamadas.consultar[0].intencao).toBe('margem_produto')
+    expect(chamadas.consultar[0].filtro).toEqual({ de: '2026-09-10', ate: HOJE })
+  })
+
+  it('dono recebe o ranking com percentual (aceita numeros como string) e o periodo', async () => {
+    const { deps } = montarDeps({
+      classificacao: CLASSIFICACAO_MARGEM,
+      leitura: {
+        ok: true,
+        linhas: [{ nome: 'Dipirona', receita: '200', custo: 100, margem: '100' }],
+        semCusto: 2,
+      },
+    })
+    const resposta = await processarPergunta(entrada('Onde estou perdendo margem?'), deps)
+    const texto = (resposta.corpo as { resposta: string }).resposta
+
+    expect(texto).toContain('(10/09/2026 a 09/10/2026)')
+    expect(texto).toContain('50,0%')
+    expect(texto).toContain('2 produtos ficaram fora do ranking')
+  })
+
+  it('falha na leitura da margem vira 500, nunca um ranking vazio', async () => {
+    const { deps } = montarDeps({ classificacao: CLASSIFICACAO_MARGEM, leitura: { ok: false } })
+    const resposta = await processarPergunta(entrada('Onde estou perdendo margem?'), deps)
+    expect(resposta.status).toBe(500)
+  })
+})

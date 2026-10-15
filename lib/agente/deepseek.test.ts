@@ -71,7 +71,7 @@ afterEach(() => {
 // ============================================================
 
 describe('prompt fixo', () => {
-  it('contem a palavra json, o exemplo literal do objeto e as cinco intencoes', () => {
+  it('contem a palavra json, o exemplo literal do objeto e as seis saidas do enum', () => {
     const prompt = PROMPT_CLASSIFICACAO.toLowerCase()
 
     // A doc do JSON Output exige as duas coisas: a palavra "json" e um exemplo
@@ -81,9 +81,29 @@ describe('prompt fixo', () => {
     expect(PROMPT_CLASSIFICACAO).toContain('"de"')
     expect(PROMPT_CLASSIFICACAO).toContain('"ate"')
     expect(PROMPT_CLASSIFICACAO).toContain('"limite"')
-    for (const intencao of ['vendas_dia', 'mais_vendidos', 'estoque_baixo', 'estoque_parado', 'fora_escopo']) {
+    for (const intencao of [
+      'vendas_dia',
+      'mais_vendidos',
+      'estoque_baixo',
+      'estoque_parado',
+      'margem_produto',
+      'fora_escopo',
+    ]) {
       expect(PROMPT_CLASSIFICACAO).toContain(intencao)
     }
+  })
+
+  // A quinta intencao (margem por produto) entra no prompt como as outras: e o
+  // modelo so classifica; quem calcula percentual e monta o texto e `logica.ts`.
+  it('o prompt de hoje ensina a intencao de margem e o periodo padrao dela', () => {
+    const prompt = promptClassificacao(HOJE)
+
+    expect(prompt).toContain('"margem_produto"')
+    expect(prompt).toContain('margem')
+    // "de"/"ate" aceitam AAAA-MM-DD e o padrao dela sao os ultimos 30 dias.
+    expect(prompt).toContain('30 dias')
+    // O teto continua o mesmo das outras intencoes com periodo.
+    expect(prompt).toContain('31 dias')
   })
 
   it('as mensagens sao so o prompt fixo e a pergunta, nessa ordem', () => {

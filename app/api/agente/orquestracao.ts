@@ -47,16 +47,27 @@ export type Entrada = {
   pergunta: unknown
 }
 
-/** As quatro intencoes que consultam view. `fora_escopo` nao consulta nada. */
-export type IntencaoConsulta = 'vendas_dia' | 'mais_vendidos' | 'estoque_baixo' | 'estoque_parado'
+/** As cinco intencoes que consultam o banco. `fora_escopo` nao consulta nada. */
+export type IntencaoConsulta =
+  | 'vendas_dia'
+  | 'mais_vendidos'
+  | 'estoque_baixo'
+  | 'estoque_parado'
+  | 'margem_produto'
 
-/** Periodo explicito da consulta de vendas; `null` nas views que nao filtram data. */
+/** Periodo explicito da consulta de vendas/margem; `null` nas views que nao filtram data. */
 export type FiltroConsulta = { de: string; ate: string } | null
 
 /** Uma linha crua da view. A conversao para `DadosResposta` e feita aqui. */
 export type LinhaConsulta = Record<string, unknown>
 
-export type ResultadoConsulta = { ok: true; linhas: LinhaConsulta[] } | { ok: false }
+/**
+ * `semCusto` so existe na margem: e a contagem de `margem_sem_custo` (produtos que
+ * ficaram fora do ranking). Ausente nas demais intencoes.
+ */
+export type ResultadoConsulta =
+  | { ok: true; linhas: LinhaConsulta[]; semCusto?: number }
+  | { ok: false }
 
 export type ResultadoReserva = { ok: true; id: string } | { ok: false; motivo: 'esgotado' | 'falha' }
 
@@ -110,9 +121,17 @@ const MENSAGEM_ORCAMENTO =
   'O limite mensal do assistente foi atingido. Tente novamente no próximo mês.'
 const MENSAGEM_PROVEDOR = 'O assistente está indisponível agora. Tente novamente em instantes.'
 const MENSAGEM_LEDGER = 'Não foi possível iniciar a consulta agora. Tente novamente em instantes.'
-const MENSAGEM_LEITURA = 'Não foi possível ler os dados agora. Tente novamente em instantes.'
+const MENSAGEM_SO_DONO = 'Só o dono vê o lucro.'
+const MENSAGEM_LEITURA ='Não foi possível ler os dados agora. Tente novamente em instantes.'
 
 const PAPEIS_PERMITIDOS: readonly string[] = ['dono', 'atendente']
+
+// Triagem local para o atendente: palavras que so o dono pode perguntar.
+const PERGUNTA_DE_LUCRO = /\b(margem|margens|lucro|lucros|lucratividade|custo|custos)\b/
+
+function semAcento(texto: string): string {
+  return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
 
 function erro(mensagem: string): { erro: string } {
   return { erro: mensagem }
@@ -181,8 +200,27 @@ function texto(valor: unknown): string {
   return typeof valor === 'string' ? valor : ''
 }
 
-function montarDados(intencao: IntencaoConsulta, linhas: LinhaConsulta[]): DadosResposta {
+function montarDados(
+  intencao: IntencaoConsulta,
+  linhas: LinhaConsulta[],
+  semCusto: number,
+  periodo: FiltroConsulta,
+): DadosResposta {
   switch (intencao) {
+    case 'margem_produto':
+      // `numero` aceita number e string numerica (PostgREST manda `numeric` como
+      // string); o que nao for finito vira 0, nunca NaN na tela.
+      return {
+        intencao: 'margem_produto',
+        produtos: linhas.map((linha) => ({
+          nome: texto(linha.nome),
+          receita: numero(linha.receita),
+          custo: numero(linha.custo),
+          margem: numero(linha.margem),
+        })),
+        semCusto,
+        ...(periodo === null ? {} : { periodo }),
+      }
     case 'vendas_dia':
       return {
         intencao: 'vendas_dia',
@@ -256,6 +294,14 @@ export async function processarPergunta(
   if (!validada.ok) return { status: 400, corpo: erro(mensagemRecusa(validada.motivo)) }
   const pergunta = validada.pergunta
 
+  // 2b. Atendente perguntando de margem/lucro/custo: recusa LOCAL, antes da reserva
+  //     e do provedor (mesmo tratamento da pergunta clinica). Sem isto o atendente
+  //     gastaria orcamento para ouvir um "nao". A checagem pos-classificacao (5b)
+  //     fica como segunda barreira para o que a triagem nao pegar.
+  if (perfil.papel !== 'dono' && PERGUNTA_DE_LUCRO.test(semAcento(pergunta))) {
+    return { status: 403, corpo: erro(MENSAGEM_SO_DONO) }
+  }
+
   // O limite de 4.096 bytes vale para o payload REAL (prompt do sistema + pergunta),
   // nao so para a pergunta — que sozinha nunca chegaria perto do teto.
   //
@@ -326,9 +372,15 @@ export async function processarPergunta(
     return { status: 400, corpo: erro(mensagemRecusa('classificacao')) }
   }
 
+  // 5b. Margem e custo sao do dono. O banco tambem recusa (a funcao e `security
+  //     definer` e checa o papel), mas aqui a recusa sai antes de a rota ler.
+  if (classificada.intencao === 'margem_produto' && perfil.papel !== 'dono') {
+    return { status: 403, corpo: erro(MENSAGEM_SO_DONO) }
+  }
+
   // 6. UMA consulta, na view da intencao, com o cliente da sessao.
   const filtro: FiltroConsulta =
-    classificada.intencao === 'vendas_dia'
+    classificada.intencao === 'vendas_dia' || classificada.intencao === 'margem_produto'
       ? { de: classificada.de, ate: classificada.ate }
       : null
   // Vendas por dia nao leva limite: 31 dias e o teto do periodo, e cortar em 10
@@ -348,6 +400,6 @@ export async function processarPergunta(
   //    modelo (o JSON de classificacao) nunca chega ao usuario.
   return {
     status: 200,
-    corpo: { resposta: montarResposta(montarDados(classificada.intencao, leitura.linhas)) },
+    corpo: { resposta: montarResposta(montarDados(classificada.intencao, leitura.linhas, leitura.semCusto ?? 0, filtro)) },
   }
 }

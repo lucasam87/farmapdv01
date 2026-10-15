@@ -9,6 +9,7 @@ import {
   MODELO,
   TETO_MENSAL_MICROS,
   DIAS_MAXIMOS,
+  DIAS_PADRAO_MARGEM,
   LIMITE_RESULTADOS,
   TARIFA_ENTRADA_MICROS_POR_MILHAO,
   TARIFA_SAIDA_MICROS_POR_MILHAO,
@@ -20,9 +21,15 @@ import {
   mesSaoPaulo,
   montarResposta,
   mensagemRecusa,
+  percentualDeMargem,
 } from './logica'
 
 const HOJE = '2026-10-09'
+
+/** Datas inclusivas nas duas pontas, a contagem que o app usa (nao a do banco). */
+function diasInclusivos(de: string, ate: string): number {
+  return (Date.parse(ate) - Date.parse(de)) / 86_400_000 + 1
+}
 
 describe('constantes do contrato', () => {
   it('fixa os limites do plano', () => {
@@ -33,6 +40,7 @@ describe('constantes do contrato', () => {
     expect(MODELO).toBe('deepseek-flash')
     expect(TETO_MENSAL_MICROS).toBe(5_000_000)
     expect(DIAS_MAXIMOS).toBe(31)
+    expect(DIAS_PADRAO_MARGEM).toBe(30)
     expect(LIMITE_RESULTADOS).toBe(10)
     expect(TARIFA_ENTRADA_MICROS_POR_MILHAO).toBe(300_000)
     expect(TARIFA_SAIDA_MICROS_POR_MILHAO).toBe(1_200_000)
@@ -368,7 +376,7 @@ describe('recusaLocal — PII', () => {
 })
 
 describe('validarClassificacao — JSON valido', () => {
-  it('aceita as quatro intencoes e fora_escopo', () => {
+  it('aceita as cinco intencoes de consulta e fora_escopo', () => {
     expect(validarClassificacao({ intencao: 'vendas_dia' }, HOJE)).toEqual({
       intencao: 'vendas_dia',
       de: HOJE,
@@ -386,7 +394,51 @@ describe('validarClassificacao — JSON valido', () => {
       intencao: 'estoque_parado',
       limite: LIMITE_RESULTADOS,
     })
+    // A quinta: margem por produto. Ela e a unica que filtra data E corta em N.
+    expect(validarClassificacao({ intencao: 'margem_produto' }, HOJE)).toEqual({
+      intencao: 'margem_produto',
+      de: '2026-09-10',
+      ate: HOJE,
+      limite: LIMITE_RESULTADOS,
+    })
     expect(validarClassificacao({ intencao: 'fora_escopo' }, HOJE)).toEqual({ intencao: 'fora_escopo' })
+  })
+
+  // A margem e a PRIMEIRA intencao com periodo padrao: as outras ou sao de hoje
+  // (vendas_dia) ou nao filtram data nenhuma. O padrao conta DATAS INCLUSIVAS, a
+  // mesma contagem do app (`DIAS_MAXIMOS`), e nao os "30 dias de intervalo" que o
+  // banco soma — sao a mesma familia de numeros lida de duas formas, e o padrao
+  // fica um dia DENTRO do teto, nunca na borda dele.
+  it('margem_produto sem data usa os ultimos 30 dias, com hoje na ponta', () => {
+    const padrao = { intencao: 'margem_produto', de: '2026-09-10', ate: HOJE, limite: LIMITE_RESULTADOS }
+
+    expect(validarClassificacao({ intencao: 'margem_produto' }, HOJE)).toEqual(padrao)
+    expect(
+      validarClassificacao({ intencao: 'margem_produto', de: null, ate: null, limite: null }, HOJE),
+    ).toEqual(padrao)
+    expect(diasInclusivos(padrao.de, padrao.ate)).toBe(DIAS_PADRAO_MARGEM)
+    // A borda do teto, para o padrao nao ser confundido com ela: 31 datas cabem
+    // (2026-09-09 a 2026-10-09) e sao exatamente `DIAS_MAXIMOS`.
+    expect(diasInclusivos('2026-09-09', HOJE)).toBe(DIAS_MAXIMOS)
+    expect(validarClassificacao({ intencao: 'margem_produto', de: '2026-09-09', ate: HOJE }, HOJE)).toEqual({
+      intencao: 'margem_produto',
+      de: '2026-09-09',
+      ate: HOJE,
+      limite: LIMITE_RESULTADOS,
+    })
+  })
+
+  it('aceita periodo explicito e limite na margem', () => {
+    expect(
+      validarClassificacao({ intencao: 'margem_produto', de: '2026-10-01', ate: '2026-10-05', limite: 5 }, HOJE),
+    ).toEqual({ intencao: 'margem_produto', de: '2026-10-01', ate: '2026-10-05', limite: 5 })
+
+    expect(validarClassificacao('{"intencao":"margem_produto","de":null,"ate":null,"limite":3}', HOJE)).toEqual({
+      intencao: 'margem_produto',
+      de: '2026-09-10',
+      ate: HOJE,
+      limite: 3,
+    })
   })
 
   it('aceita o objeto com as quatro chaves, nulas e preenchidas', () => {
@@ -587,6 +639,31 @@ describe('validarClassificacao — recusas', () => {
     }
   })
 
+  // Review Focus 5 do plano: o teto do periodo e o MESMO das vendas, e o banco
+  // recusa `ate - de > 30` (31 datas). Um periodo que o app aceitasse e o banco
+  // recusasse viraria uma resposta de erro em vez de uma resposta de margem.
+  it('a margem recusa periodo maior que 31 dias, com o mesmo teto de vendas', () => {
+    // 2026-09-08 a HOJE sao 32 datas — uma a mais que o teto.
+    expect(validarClassificacao({ intencao: 'margem_produto', de: '2026-09-08', ate: HOJE }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'margem_produto', de: '2026-01-01', ate: '2026-02-01' }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'margem_produto', de: '2026-10-05', ate: '2026-10-01' }, HOJE)).toBeNull()
+  })
+
+  it('a margem recusa uma ponta so, data torta e periodo no futuro', () => {
+    // Uma ponta so e ambigua: recusa em vez de chutar a outra, como em vendas.
+    expect(validarClassificacao({ intencao: 'margem_produto', de: '2026-10-01', ate: null }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'margem_produto', de: null, ate: HOJE }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'margem_produto', de: '2026-02-30', ate: HOJE }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'margem_produto', de: '01/10/2026', ate: HOJE }, HOJE)).toBeNull()
+    expect(validarClassificacao({ intencao: 'margem_produto', de: HOJE, ate: '2026-10-10' }, HOJE)).toBeNull()
+  })
+
+  it('a margem recusa limite fora de 1..10', () => {
+    for (const limite of [0, 11, -1, 2.5, '5', NaN, Infinity]) {
+      expect(validarClassificacao({ intencao: 'margem_produto', limite }, HOJE), `limite ${limite}`).toBeNull()
+    }
+  })
+
   it('recusa limite fora de 1..10, nao-inteiro ou numero em texto', () => {
     expect(validarClassificacao({ intencao: 'mais_vendidos', limite: 0 }, HOJE)).toBeNull()
     expect(validarClassificacao({ intencao: 'mais_vendidos', limite: 11 }, HOJE)).toBeNull()
@@ -685,6 +762,36 @@ describe('mesSaoPaulo', () => {
   })
 })
 
+// R1 do ledger: a funcao do banco NAO devolve `percentual` (`numeric` chega pelo
+// PostgREST como string e viraria NaN no numero que ORDENA o ranking). O percentual
+// e calculado aqui, em codigo puro — e estas sao as bordas que o texto nao pode
+// deixar passar: divisao por zero e arredondamento para zero negativo.
+describe('percentualDeMargem', () => {
+  it('calcula a fracao da margem sobre a receita', () => {
+    expect(percentualDeMargem({ receita: 200, margem: 100 })).toBe(0.5)
+    expect(percentualDeMargem({ receita: 20000, margem: 1000 })).toBe(0.05)
+    expect(percentualDeMargem({ receita: 1000, margem: -300 })).toBe(-0.3)
+    expect(percentualDeMargem({ receita: 1000, margem: 1000 })).toBe(1)
+  })
+
+  it('receita zero ou negativa nao vira NaN nem Infinity: nao ha percentual', () => {
+    // `margem / receita` divide por zero aqui. O banco ja exclui essas linhas do
+    // ranking; esta guarda existe para o codigo nao produzir um numero que nao
+    // existe se receber uma linha assim.
+    expect(percentualDeMargem({ receita: 0, margem: -300 })).toBeNull()
+    expect(percentualDeMargem({ receita: -5, margem: -300 })).toBeNull()
+  })
+
+  it('numero que nao e finito nao vira percentual', () => {
+    for (const receita of [NaN, Infinity, -Infinity]) {
+      expect(percentualDeMargem({ receita, margem: 1 })).toBeNull()
+    }
+    for (const margem of [NaN, Infinity, -Infinity]) {
+      expect(percentualDeMargem({ receita: 100, margem })).toBeNull()
+    }
+  })
+})
+
 describe('montarResposta', () => {
   it('monta as vendas por dia em centavos formatados por lib/format.ts', () => {
     const texto = montarResposta({
@@ -747,6 +854,97 @@ describe('montarResposta', () => {
     expect(parado).toContain('9')
   })
 
+  // O ruling do controlador: a resposta mostra os DOIS numeros, mesmo o ranking
+  // sendo ordenado por percentual. O produto de R$ 2 com margem de R$ 1 (50%) fica
+  // acima do de R$ 200 com margem de R$ 10 (5%) — e e o SEGUNDO que esvazia o caixa
+  // em volume. Sem o valor em reais na linha, o dono leria so o criterio de ordem.
+  it('monta o ranking de margem com os dois numeros: reais e percentual', () => {
+    const texto = montarResposta({
+      intencao: 'margem_produto',
+      produtos: [
+        { nome: 'Dipirona 500mg', receita: 200, custo: 100, margem: 100 },
+        { nome: 'Amoxicilina 500mg', receita: 20000, custo: 19000, margem: 1000 },
+      ],
+      semCusto: 0,
+    })
+
+    expect(texto).toContain('Dipirona 500mg')
+    expect(texto).toContain('receita de R$ 2,00')
+    expect(texto).toContain('custo de R$ 1,00')
+    expect(texto).toContain('margem de R$ 1,00 (50,0%)')
+
+    expect(texto).toContain('Amoxicilina 500mg')
+    expect(texto).toContain('receita de R$ 200,00')
+    expect(texto).toContain('custo de R$ 190,00')
+    expect(texto).toContain('margem de R$ 10,00 (5,0%)')
+
+    // A ordem e a que o banco mandou (percentual crescente), e `montarResposta`
+    // nao a reordena: ordenar em dois lugares e como as duas listas divergem.
+    expect(texto.indexOf('Dipirona 500mg')).toBeLessThan(texto.indexOf('Amoxicilina 500mg'))
+  })
+
+  it('diz quantos produtos ficaram fora do ranking, so quando houver', () => {
+    const comExcluidos = montarResposta({
+      intencao: 'margem_produto',
+      produtos: [{ nome: 'Dipirona 500mg', receita: 200, custo: 100, margem: 100 }],
+      semCusto: 3,
+    })
+    expect(comExcluidos).toContain('3 produtos ficaram fora do ranking por falta de custo ou de receita.')
+
+    const semExcluidos = montarResposta({
+      intencao: 'margem_produto',
+      produtos: [{ nome: 'Dipirona 500mg', receita: 200, custo: 100, margem: 100 }],
+      semCusto: 0,
+    })
+    expect(semExcluidos).not.toContain('fora do ranking')
+  })
+
+  it('a linha dos excluidos fala no singular quando e um produto so', () => {
+    const texto = montarResposta({ intencao: 'margem_produto', produtos: [], semCusto: 1 })
+    expect(texto).toContain('1 produto ficou fora do ranking por falta de custo ou de receita.')
+  })
+
+  it('ranking de margem vazio devolve a frase fixa, nunca string vazia', () => {
+    expect(montarResposta({ intencao: 'margem_produto', produtos: [], semCusto: 0 })).toBe(
+      'Não houve venda com custo e receita registrados no período.',
+    )
+  })
+
+  // Os dois numeros juntos: a frase do vazio E a contagem dos excluidos. So a
+  // primeira esconderia que a farmacia tem produtos fora do ranking — que e
+  // exatamente o que a contagem existe para dizer.
+  it('ranking de margem vazio com produtos fora mostra as duas frases', () => {
+    expect(montarResposta({ intencao: 'margem_produto', produtos: [], semCusto: 4 })).toBe(
+      'Não houve venda com custo e receita registrados no período.\n' +
+        '4 produtos ficaram fora do ranking por falta de custo ou de receita.',
+    )
+  })
+
+  // Review Focus 1 do plano. O banco exclui a linha de receita zero do ranking,
+  // mas o montador nao pode produzir um numero que nao existe se ela chegar:
+  // `margem / receita` daria Infinity (receita 0) e o arredondamento daria "-0,0%"
+  // (margem de -1 centavo sobre R$ 1.000,00).
+  it('nao escreve NaN, Infinity nem -0,0% na margem', () => {
+    const texto = montarResposta({
+      intencao: 'margem_produto',
+      produtos: [
+        { nome: 'Caneta', receita: 100000, custo: 100001, margem: -1 },
+        { nome: 'Amostra grátis', receita: 0, custo: 300, margem: -300 },
+      ],
+      semCusto: 1,
+    })
+
+    expect(texto).not.toContain('NaN')
+    expect(texto).not.toContain('Infinity')
+    expect(texto).not.toContain('-0,0%')
+    expect(texto).toContain('margem de -R$ 0,01 (0,0%)')
+    // Sem percentual valido, a linha mostra os outros numeros em vez de inventar
+    // um percentual para o brinde.
+    expect(texto).toContain('Amostra grátis')
+    expect(texto).toContain('receita de R$ 0,00')
+    expect(texto).toContain('margem de -R$ 3,00')
+  })
+
   it('devolve mensagem fixa em portugues quando nao ha linha', () => {
     const vazio = montarResposta({ intencao: 'vendas_dia', linhas: [] })
     const vazioMais = montarResposta({ intencao: 'mais_vendidos', linhas: [] })
@@ -760,6 +958,7 @@ describe('montarResposta', () => {
       vazioMais,
       montarResposta({ intencao: 'estoque_baixo', linhas: [] }),
       montarResposta({ intencao: 'estoque_parado', linhas: [] }),
+      montarResposta({ intencao: 'margem_produto', produtos: [], semCusto: 0 }),
     ]) {
       expect(texto).toMatch(/n[aã]o|nenhum|sem /i)
     }

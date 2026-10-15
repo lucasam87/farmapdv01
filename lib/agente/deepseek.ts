@@ -51,7 +51,7 @@ export const PROMPT_CLASSIFICACAO =
   'Responda SOMENTE com um objeto json, sem texto antes ou depois.\n' +
   'Exemplo do formato exato: {"intencao": "vendas_dia", "de": null, "ate": null, "limite": null}\n' +
   '\n' +
-  '"intencao" tem que ser exatamente uma destas cinco:\n' +
+  '"intencao" tem que ser exatamente uma destas seis:\n' +
   '- "vendas_dia": vendas por dia. "de" e "ate" aceitam "AAAA-MM-DD"; use null nas duas para hoje. ' +
   'O periodo tem no maximo 31 dias. "limite" sempre null.\n' +
   '- "mais_vendidos": produtos mais vendidos. "de" e "ate" sempre null. "limite" de 1 a 10, ou null para 10.\n' +
@@ -59,6 +59,9 @@ export const PROMPT_CLASSIFICACAO =
   '"limite" de 1 a 10, ou null para 10.\n' +
   '- "estoque_parado": produtos sem venda recente. "de" e "ate" sempre null. ' +
   '"limite" de 1 a 10, ou null para 10.\n' +
+  '- "margem_produto": produtos com pior margem (lucro) sobre a receita. ' +
+  '"de" e "ate" aceitam "AAAA-MM-DD"; use null nas duas para os ultimos 30 dias. ' +
+  'O periodo tem no maximo 31 dias. "limite" de 1 a 10, ou null para 10.\n' +
   '- "fora_escopo": qualquer outra pergunta, inclusive pedido de conselho de saude, ' +
   'diagnostico, remedio, dose ou tratamento. Nesse caso "de", "ate" e "limite" sao null.\n' +
   '\n' +
