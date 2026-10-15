@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { CONSULTAS_FINANCEIRO, mensagemRecusa, validarConsultaFinanceiro, validarAssunto } from './logica'
+import {
+  CONSULTAS_FINANCEIRO,
+  DIAS_MAXIMOS,
+  mensagemRecusa,
+  validarConsultaFinanceiro,
+  validarAssunto,
+} from './logica'
 import { PROMPT_FINANCEIRO, promptFinanceiro } from '@/lib/agente/deepseek'
 
 // ============================================================
@@ -123,8 +129,10 @@ describe('validarConsultaFinanceiro — motivo PERIODO (recusa honesta)', () => 
 
   it('a mensagem do periodo diz o que fazer, e usa o TETO REAL', () => {
     // Se ela citasse um numero solto, mudar `DIAS_MAXIMOS` deixaria a mensagem
-    // mentindo. A assercao prende os dois juntos.
-    expect(mensagemRecusa('periodo')).toContain('31')
+    // mentindo. A assercao prende a CONSTANTE — `toContain('31')` nao prenderia
+    // nada: uma mensagem presa em '31' passaria com o teto ja movido (achado M6 da
+    // revisao da rodada 2).
+    expect(mensagemRecusa('periodo')).toContain(String(DIAS_MAXIMOS))
     expect(mensagemRecusa('periodo')).toContain('período menor')
   })
 

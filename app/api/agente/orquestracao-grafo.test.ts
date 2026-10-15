@@ -228,8 +228,17 @@ describe('com o grafo ligado', () => {
     expect(r.status).toBe(400)
     expect(JSON.stringify(r.corpo)).toContain('período menor')
     expect(JSON.stringify(r.corpo)).not.toContain('Não entendi')
-    // E o dinheiro ja foi fechado: nada e lido do banco.
+    // Nada e lido do banco...
     expect(chamadas.consultarFinanceiro).toBe(0)
+    // ...e o DINHEIRO JA FECHOU: as duas chamadas foram pagas e sao reconciliadas
+    // pela SOMA antes da validacao.
+    //
+    // ⚠️ Achado M3 da revisao da rodada 2: sem estas duas assercoes, mover a
+    // reconciliacao para DEPOIS da validacao deixava a suite INTEIRA verde (55/55)
+    // — a ordem correta nao estava presa por nada. `consultarFinanceiro === 0`
+    // prova que nada foi LIDO, nao que a reserva foi liquidada.
+    expect(chamadas.reconciliar).toHaveLength(1)
+    expect(chamadas.reconciliar[0]?.micros).toBe(custoDaChamada(USO_A)! * 2)
   })
 
   it('lucro e do dono: o atendente recebe 403 ANTES de qualquer leitura', async () => {

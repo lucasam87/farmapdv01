@@ -88,10 +88,8 @@ describe.skipIf(!REAL)('as referencias relativas de tempo, contra a API real', (
   }, 60_000)
 })
 
-// Guarda contra o arquivo virar letra morta: se a variavel nao estiver ligada, ele
-// precisa estar PULADO — e nao falhando nem passando em silencio.
-describe('a ancora so roda quando pedida', () => {
-  it('sem AGENTE_PROMPT_REAL=1, os casos reais sao pulados', () => {
-    expect(REAL).toBe(process.env.AGENTE_PROMPT_REAL === '1')
-  })
-})
+// ⚠️ Achado M5 da revisao da rodada 2: aqui existia um `it` que fazia
+// `expect(REAL).toBe(process.env.AGENTE_PROMPT_REAL === '1')` — como `REAL` E essa
+// expressao, aquilo era `x === x`: nunca falhava e nao protegia nada. A protecao de
+// verdade e o `describe.skipIf` acima, e ela e verificada rodando a suite (o arquivo
+// reporta "2 skipped") — nao por uma assercao tautologica.

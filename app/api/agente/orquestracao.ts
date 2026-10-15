@@ -16,6 +16,9 @@ import {
   type ConsultaFinanceiroValidada,
   type DadosFinanceiro,
   type DadosResposta,
+  type MotivoConsultaInvalida,
+  type MotivoRecusa,
+  type ResultadoConsultaFinanceiro,
 } from '@/app/(app)/agente/logica'
 import { bytesDoPayload, type ResultadoClassificacao } from '@/lib/agente/deepseek'
 import type { Perfil } from '@/lib/auth/perfil'
@@ -170,6 +173,20 @@ function erro(mensagem: string): { erro: string } {
  * faturados. Com UMA parcela a funcao devolve exatamente o que `custoDaChamada`
  * devolveria, entao o caminho sem grafo nao muda de comportamento.
  */
+/**
+ * Mapa EXAUSTIVO do motivo da recusa da consulta para o texto ao usuario.
+ *
+ * ⚠️ Achado da revisao da rodada 2 (M1): antes era um ternario com `else`, e o
+ * `else` era catch-all — um TERCEIRO motivo em `ResultadoConsultaFinanceiro`
+ * cairia em silencio em "Nao entendi a pergunta", que e exatamente a classe de
+ * defeito que essa rodada consertou. Com `Record` sobre a uniao, nascer um motivo
+ * novo **quebra a compilacao** em vez de mentir para o dono.
+ */
+const MOTIVO_DA_RECUSA: Record<MotivoConsultaInvalida, MotivoRecusa> = {
+  periodo: 'periodo',
+  formato: 'classificacao',
+}
+
 function somaDeCustos(custos: (number | null)[]): number | null {
   let total = 0
   for (const custo of custos) {
@@ -486,7 +503,7 @@ export async function processarPergunta(
       // porque a recusa e deterministica.
       return {
         status: 400,
-        corpo: erro(mensagemRecusa(validada.motivo === 'periodo' ? 'periodo' : 'classificacao')),
+        corpo: erro(mensagemRecusa(MOTIVO_DA_RECUSA[validada.motivo])),
       }
     }
 

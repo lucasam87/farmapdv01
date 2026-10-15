@@ -206,9 +206,11 @@ export type ConsultaFinanceiroValidada = {
  * - `'formato'`: o JSON nao segue o contrato (chave a mais, consulta fora da lista,
  *   uma ponta so, invertido, futuro, data inexistente). Ai "nao entendi" e verdade.
  */
+export type MotivoConsultaInvalida = 'formato' | 'periodo'
+
 export type ResultadoConsultaFinanceiro =
   | { ok: true; consulta: ConsultaFinanceiroValidada }
-  | { ok: false; motivo: 'formato' | 'periodo' }
+  | { ok: false; motivo: MotivoConsultaInvalida }
 
 /**
  * O periodo PADRAO das consultas por periodo: as ultimas `DIAS_PADRAO_MARGEM`
