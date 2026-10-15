@@ -98,6 +98,52 @@ export type Classificacao =
   // (padrao de 30 dias) e o ranking tem no maximo 10 linhas.
   | { intencao: 'margem_produto'; de: string; ate: string; limite: number }
 
+// ============================================================
+// COORDENADOR do agente em grafo (spec `2026-10-15-agente-grafo-design.md`).
+//
+// O coordenador SO ROTEIA: escolhe um dos cinco especialistas e o texto final
+// continua sendo montado em CODIGO pelo especialista. **O modelo nao escreve
+// numero, em nenhum dos dois niveis** — e a mesma propriedade que impede o bug da
+// data (o modelo inventando um dia) de voltar por outra porta.
+// ============================================================
+
+export type Assunto = 'estoque' | 'financeiro' | 'clientes' | 'caixa' | 'compras' | 'fora_escopo'
+
+/** A lista FECHADA do coordenador. A ordem e a do prompt. */
+export const ASSUNTOS: readonly Assunto[] = [
+  'estoque',
+  'financeiro',
+  'clientes',
+  'caixa',
+  'compras',
+  'fora_escopo',
+]
+
+const ASSUNTO_ACEITO = new Set<string>(ASSUNTOS)
+
+/**
+ * Le a etiqueta do coordenador. Qualquer coisa fora do contrato vira `null`.
+ *
+ * O contrato e EXATAMENTE `{ "assunto": "<um dos seis>" }`. Chave a mais e
+ * recusa, e o formato do ESPECIALISTA (`{"intencao": ...}`) tambem: aceitar os
+ * dois deixaria o grafo pular um no e mandar a consulta a um especialista que o
+ * coordenador nunca escolheu.
+ *
+ * Chave herdada NAO conta — `Object.keys` so enxerga as proprias. Um `assunto`
+ * vindo do prototipo nao pode virar roteamento.
+ */
+export function validarAssunto(bruto: unknown): Assunto | null {
+  if (typeof bruto !== 'object' || bruto === null) return null
+  if (Array.isArray(bruto)) return null
+
+  const chaves = Object.keys(bruto)
+  if (chaves.length !== 1 || chaves[0] !== 'assunto') return null
+
+  const valor = (bruto as Record<string, unknown>).assunto
+  if (typeof valor !== 'string') return null
+  return ASSUNTO_ACEITO.has(valor) ? (valor as Assunto) : null
+}
+
 export type MotivoRecusa = 'vazia' | 'longa' | 'payload' | 'clinica' | 'pessoal' | 'classificacao'
 
 /**

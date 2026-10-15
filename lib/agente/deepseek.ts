@@ -115,6 +115,54 @@ export function promptClassificacao(hoje: string): string {
   )
 }
 
+/**
+ * Prompt FIXO do COORDENADOR do agente em grafo (spec
+ * `2026-10-15-agente-grafo-design.md`). Ele nao responde nada: escolhe QUAL dos
+ * cinco especialistas deve responder.
+ *
+ * As mesmas duas exigencias do modo JSON valem aqui: a palavra "json" precisa
+ * aparecer e o formato tem que vir com um EXEMPLO LITERAL.
+ *
+ * Ele e MENOR que o prompt do especialista de proposito: uma lista de seis itens
+ * curtos e onde o `deepseek-flash` erra menos. Foi medido em 15/10/2026 que as
+ * duas chamadas sequenciais (coordenador + especialista) levam **1.316 ms** —
+ * 791 ms o coordenador (231 tokens de entrada) e 525 ms o especialista —, com
+ * 8.684 ms de sobra no teto de 10 s da funcao.
+ */
+export const PROMPT_ASSUNTO =
+  'Voce escolhe QUAL especialista da farmacia deve responder a pergunta.\n' +
+  'Responda SOMENTE com um objeto json, sem texto antes ou depois.\n' +
+  'Exemplo do formato exato: {"assunto": "estoque"}\n' +
+  '\n' +
+  '"assunto" tem que ser exatamente um destes seis:\n' +
+  '- "estoque": estoque baixo, produtos zerados, produtos parados, margem por produto.\n' +
+  '- "financeiro": faturamento, ticket medio, formas de pagamento, lucro do periodo, ' +
+  'comparacao entre periodos.\n' +
+  '- "clientes": quem deve, quanto ha a receber no crediario, historico de um cliente.\n' +
+  '- "caixa": estado da gaveta, movimentos do dia, o que falta para fechar.\n' +
+  '- "compras": o que comprar, sugestao de reposicao.\n' +
+  '- "fora_escopo": qualquer outra pergunta, inclusive pedido de conselho de saude, ' +
+  'diagnostico, remedio, dose ou tratamento.\n' +
+  '\n' +
+  'Use somente a chave "assunto". Nunca responda com outro assunto.'
+
+/**
+ * O prompt do coordenador COM a data de hoje, pelo mesmo motivo do prompt de
+ * classificacao: sem saber que dia e hoje, o modelo chuta uma data — e foi
+ * exatamente esse chute que fez a MESMA pergunta responder o dia 13 numa
+ * execucao e "nao ha vendas" na outra (medido em producao em 14/10/2026).
+ */
+export function promptAssunto(hoje: string): string {
+  return (
+    PROMPT_ASSUNTO +
+    '\n' +
+    '\n' +
+    `Hoje e ${hoje} (fuso de America/Sao_Paulo). Use esta data para interpretar as ` +
+    'referencias de tempo da pergunta ("hoje", "ontem", "mes passado") ao escolher o ' +
+    'especialista. Nao devolva data na resposta.'
+  )
+}
+
 /** As duas mensagens enviadas, nesta ordem: prompt do sistema e pergunta. */
 export function mensagensDeClassificacao(pergunta: string, hoje: string): Mensagem[] {
   return [
