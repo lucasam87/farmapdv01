@@ -1,5 +1,5 @@
 import 'server-only'
-import { MAX_TOKENS_SAIDA, MODELO } from '@/app/(app)/agente/logica'
+import { DIAS_PADRAO_MARGEM, MAX_TOKENS_SAIDA, MODELO } from '@/app/(app)/agente/logica'
 
 // O UNICO lugar do sistema que fala com o DeepSeek — e o unico que tem o direito
 // de conhecer `DEEPSEEK_API_KEY`. Fica marcado como `server-only`: o Next
@@ -160,6 +160,46 @@ export function promptAssunto(hoje: string): string {
     `Hoje e ${hoje} (fuso de America/Sao_Paulo). Use esta data para interpretar as ` +
     'referencias de tempo da pergunta ("hoje", "ontem", "mes passado") ao escolher o ' +
     'especialista. Nao devolva data na resposta.'
+  )
+}
+
+/**
+ * Prompt FIXO do ESPECIALISTA de Vendas e financeiro. Ele le `relatorio_resumo`,
+ * `relatorio_lucro` e `relatorio_formas_pagamento` — as tres ja existem, entao
+ * esta e a unica area do grafo que nao precisa de banco nenhum.
+ *
+ * Como o coordenador, ele NAO responde: escolhe a consulta e o periodo. O texto
+ * com os numeros e montado em codigo.
+ */
+export const PROMPT_FINANCEIRO =
+  'Voce classifica uma pergunta sobre VENDAS E FINANCEIRO da farmacia em UMA das consultas permitidas.\n' +
+  'Responda SOMENTE com um objeto json, sem texto antes ou depois.\n' +
+  'Exemplo do formato exato: {"consulta": "faturamento", "de": null, "ate": null}\n' +
+  '\n' +
+  '"consulta" tem que ser exatamente uma destas cinco:\n' +
+  '- "faturamento": quanto entrou no periodo (total de vendas, faturamento).\n' +
+  '- "ticket_medio": quanto cada venda vale em media.\n' +
+  '- "formas_pagamento": como o dinheiro entrou (dinheiro, cartao, Pix).\n' +
+  '- "lucro": receita, custo e lucro do periodo.\n' +
+  '- "comparacao": comparar o periodo com o anterior de mesmo tamanho.\n' +
+  '\n' +
+  'Use somente as tres chaves "consulta", "de" e "ate". Nunca responda com outra consulta.'
+
+/**
+ * O prompt do especialista COM a data de hoje e com as duas regras de periodo
+ * que o modelo nao tem como adivinhar: o PADRAO (30 dias, quando nao citou data)
+ * e o TETO (31 dias). Sem elas, o modelo chuta um periodo — e a resposta sai
+ * sobre um periodo que ninguem pediu.
+ */
+export function promptFinanceiro(hoje: string): string {
+  return (
+    PROMPT_FINANCEIRO +
+    '\n' +
+    '\n' +
+    `Hoje e ${hoje} (fuso de America/Sao_Paulo). "de" e "ate" aceitam "AAAA-MM-DD" e ` +
+    'as DUAS tem que vir: use null nas duas quando a pergunta nao citar data, e ai o ' +
+    `periodo sao os ultimos ${DIAS_PADRAO_MARGEM} dias. Nunca preencha so uma das duas. ` +
+    'O periodo tem no maximo 31 dias. Nunca devolva data no futuro.'
   )
 }
 

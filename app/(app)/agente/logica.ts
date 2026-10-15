@@ -131,17 +131,123 @@ const ASSUNTO_ACEITO = new Set<string>(ASSUNTOS)
  *
  * Chave herdada NAO conta — `Object.keys` so enxerga as proprias. Um `assunto`
  * vindo do prototipo nao pode virar roteamento.
+ *
+ * Aceita a STRING de conteudo do modelo, e nao so o objeto ja parseado, pela
+ * mesma razao de `validarClassificacao` (que faz `JSON.parse`): e a string que a
+ * rota entrega. Recusar string deixaria o coordenador recusando a saida real do
+ * modelo — o grafo nunca andaria, e o defeito so apareceria em producao.
  */
 export function validarAssunto(bruto: unknown): Assunto | null {
-  if (typeof bruto !== 'object' || bruto === null) return null
-  if (Array.isArray(bruto)) return null
+  let objeto: unknown = bruto
 
-  const chaves = Object.keys(bruto)
+  if (typeof bruto === 'string') {
+    try {
+      objeto = JSON.parse(bruto)
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof objeto !== 'object' || objeto === null) return null
+  if (Array.isArray(objeto)) return null
+
+  const chaves = Object.keys(objeto)
   if (chaves.length !== 1 || chaves[0] !== 'assunto') return null
 
-  const valor = (bruto as Record<string, unknown>).assunto
+  const valor = (objeto as Record<string, unknown>).assunto
   if (typeof valor !== 'string') return null
   return ASSUNTO_ACEITO.has(valor) ? (valor as Assunto) : null
+}
+
+// ============================================================
+// ESPECIALISTA de Vendas e financeiro — a primeira area do grafo.
+//
+// Ele le `relatorio_resumo`, `relatorio_lucro` e `relatorio_formas_pagamento`,
+// que JA EXISTEM: e a unica area que nao precisa de banco nenhum.
+//
+// Como no coordenador, o modelo so escolhe a CONSULTA e o PERIODO. Todo numero
+// que o dono le e escrito em codigo, a partir do que a funcao do banco devolveu.
+// ============================================================
+
+export type ConsultaFinanceiro =
+  | 'faturamento'
+  | 'ticket_medio'
+  | 'formas_pagamento'
+  | 'lucro'
+  | 'comparacao'
+
+/** A lista FECHADA do especialista. A ordem e a do prompt. */
+export const CONSULTAS_FINANCEIRO: readonly ConsultaFinanceiro[] = [
+  'faturamento',
+  'ticket_medio',
+  'formas_pagamento',
+  'lucro',
+  'comparacao',
+]
+
+const CONSULTA_FINANCEIRA_ACEITA = new Set<string>(CONSULTAS_FINANCEIRO)
+
+const CHAVES_FINANCEIRO = ['consulta', 'de', 'ate'] as const
+
+export type ConsultaFinanceiroValidada = {
+  consulta: ConsultaFinanceiro
+  de: string
+  ate: string
+}
+
+/**
+ * O periodo PADRAO das consultas por periodo: as ultimas `DIAS_PADRAO_MARGEM`
+ * datas, com hoje numa das pontas — a mesma conta da margem, e de proposito:
+ * duas telas do mesmo sistema nao podem ter padroes diferentes de 30 dias.
+ */
+function periodoPadraoDe30Dias(hoje: string): Periodo {
+  return { de: somarDias(hoje, -(DIAS_PADRAO_MARGEM - 1)), ate: hoje }
+}
+
+/**
+ * Valida a consulta do especialista de financeiro. `null` e RECUSA.
+ *
+ * As TRES chaves do contrato tem que estar presentes e nenhuma a mais. Chave
+ * ausente nao e o mesmo que `null`: uma resposta truncada (`{"consulta":"lucro"}`)
+ * viraria "os ultimos 30 dias" em silencio, e o dono receberia um periodo que
+ * ninguem pediu.
+ *
+ * As regras de periodo sao as MESMAS de `vendas_dia` e `margem_produto`, por
+ * `lerPeriodo`: uma ponta so e recusa, invertido e recusa, futuro e recusa, e o
+ * teto de `DIAS_MAXIMOS` e um so — senao o app pediria a uma tela um periodo que
+ * ele mesmo recusa na outra.
+ */
+export function validarConsultaFinanceiro(
+  bruto: unknown,
+  hoje: string,
+): ConsultaFinanceiroValidada | null {
+  let objeto: unknown = bruto
+
+  if (typeof bruto === 'string') {
+    try {
+      objeto = JSON.parse(bruto)
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof objeto !== 'object' || objeto === null || Array.isArray(objeto)) return null
+
+  const registro = objeto as Record<string, unknown>
+  const chaves = Object.keys(registro)
+  if (chaves.length !== CHAVES_FINANCEIRO.length) return null
+  if (chaves.some((chave) => !(CHAVES_FINANCEIRO as readonly string[]).includes(chave))) return null
+
+  const consulta = registro.consulta
+  if (typeof consulta !== 'string' || !CONSULTA_FINANCEIRA_ACEITA.has(consulta)) return null
+
+  // `hoje` torto faria o periodo padrao lancar `RangeError`; vira recusa.
+  if (!Number.isFinite(diaEmUtc(hoje))) return null
+
+  const periodo = lerPeriodo(registro, hoje, periodoPadraoDe30Dias(hoje))
+  if (periodo === null) return null
+
+  return { consulta: consulta as ConsultaFinanceiro, de: periodo.de, ate: periodo.ate }
 }
 
 export type MotivoRecusa = 'vazia' | 'longa' | 'payload' | 'clinica' | 'pessoal' | 'classificacao'
