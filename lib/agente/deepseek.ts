@@ -270,7 +270,10 @@ function lerConteudo(corpo: unknown): string {
  * Timeout, queda de conexao, 429 e 5xx sao ambiguos, porque o provedor pode ter
  * recebido e faturado o pedido.
  */
-export async function classificar(pergunta: string, hoje: string): Promise<ResultadoClassificacao> {
+async function enviarClassificacao(
+  pergunta: string,
+  promptDeSistema: string,
+): Promise<ResultadoClassificacao> {
   const chave = chaveDaApi()
   if (chave === null) return { ok: false, fase: 'pre_envio' }
 
@@ -287,7 +290,10 @@ export async function classificar(pergunta: string, hoje: string): Promise<Resul
 
   const corpo = {
     model: MODELO,
-    messages: mensagensDeClassificacao(pergunta, hoje),
+    messages: [
+      { role: 'system', content: promptDeSistema },
+      { role: 'user', content: pergunta },
+    ],
     response_format: { type: 'json_object' },
     // R12 — o `deepseek-flash` LIGA o thinking mode por padrao, com effort high,
     // e devolve `reasoning_content` antes do `content`. Com 120 tokens de saida,
@@ -340,4 +346,38 @@ export async function classificar(pergunta: string, hoje: string): Promise<Resul
   }
 
   return { ok: true, conteudo: lerConteudo(corpoResposta), uso: campo(corpoResposta, 'usage') ?? null }
+}
+
+/**
+ * O caminho de HOJE, com uma chamada so: o modelo classifica a pergunta na lista
+ * unica de intencoes.
+ *
+ * Ele continua existindo, e nao e so compatibilidade: enquanto o grafo nao cobre
+ * os cinco especialistas, o coordenador que escolher um deles AINDA NAO LIGADO
+ * cai aqui — assim o agente que ja funciona nao regride em nada.
+ */
+export function classificar(pergunta: string, hoje: string): Promise<ResultadoClassificacao> {
+  return enviarClassificacao(pergunta, promptClassificacao(hoje))
+}
+
+/**
+ * A chamada 1 do grafo: o COORDENADOR escolhe o especialista.
+ *
+ * O corpo enviado e o MESMO de `classificar` — muda so o prompt do sistema. Nao
+ * ha caminho paralelo: uma segunda implementacao de `fetch`, timeout e da
+ * fronteira pre-envio/ambigua divergiria da primeira no dia em que uma mudasse.
+ */
+export function classificarAssunto(pergunta: string, hoje: string): Promise<ResultadoClassificacao> {
+  return enviarClassificacao(pergunta, promptAssunto(hoje))
+}
+
+/**
+ * A chamada 2 do grafo: o ESPECIALISTA de Vendas e financeiro escolhe a consulta
+ * e o periodo. Mesmo corpo, mesmo destino, mesmo teto.
+ *
+ * A reserva do mes cobre as DUAS chamadas (`2 x RESERVA_MICROS`), porque uma
+ * pergunta do grafo gasta dois pedidos.
+ */
+export function classificarFinanceiro(pergunta: string, hoje: string): Promise<ResultadoClassificacao> {
+  return enviarClassificacao(pergunta, promptFinanceiro(hoje))
 }
