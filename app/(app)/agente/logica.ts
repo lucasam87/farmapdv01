@@ -250,6 +250,121 @@ export function validarConsultaFinanceiro(
   return { consulta: consulta as ConsultaFinanceiro, de: periodo.de, ate: periodo.ate }
 }
 
+/** Uma forma de pagamento, como `relatorio_formas_pagamento` devolve. */
+export type FormaPagamento = { forma: string; quantidade: number; total: number }
+
+/** O resumo do periodo, como `relatorio_resumo` devolve. Tudo em CENTAVOS. */
+export type ResumoVendas = { faturamento: number; vendas: number; ticket_medio: number }
+
+/** Receita, custo e lucro, como `relatorio_lucro` devolve. Tudo em CENTAVOS. */
+export type ResultadoLucro = { receita: number; custo: number; lucro: number }
+
+/**
+ * O que o especialista de financeiro sabe responder. E a FRONTEIRA do desenho: os
+ * numeros chegam aqui ja prontos do banco, e daqui para a tela eles so viram texto
+ * por `respostaFinanceiro` — o modelo nao participa desta etapa.
+ */
+export type DadosFinanceiro =
+  | { consulta: 'faturamento' | 'ticket_medio'; periodo: Periodo; resumo: ResumoVendas }
+  | { consulta: 'formas_pagamento'; periodo: Periodo; formas: FormaPagamento[] }
+  | { consulta: 'lucro'; periodo: Periodo; lucro: ResultadoLucro }
+  | {
+      consulta: 'comparacao'
+      periodo: Periodo
+      atual: ResumoVendas
+      anteriorPeriodo: Periodo
+      anterior: ResumoVendas
+    }
+
+/** "1 venda" / "3 vendas" — o mesmo cuidado de concordancia de `vendas_dia`. */
+function vendasTexto(quantidade: number): string {
+  return quantidade === 1 ? '1 venda' : `${quantidade} vendas`
+}
+
+function tituloDoPeriodo(nome: string, periodo: Periodo): string {
+  return `${nome} (${dataBr(periodo.de)} a ${dataBr(periodo.ate)})`
+}
+
+/**
+ * Monta a resposta do especialista de financeiro. **Todo numero aqui e escrito em
+ * codigo** — e a peca que sustenta a decisao do desenho (o coordenador so roteia).
+ *
+ * Periodo sem venda NAO vira "R$ 0,00": zero e um valor, e "nao houve venda" e
+ * ausencia de dado. Dizer "R$ 0,00 de faturamento" afirmaria que a farmacia
+ * faturou zero depois de medir — e o que houve foi nao medir nada.
+ *
+ * O lucro reusa `percentualDeMargem`: a conta e a mesma (lucro sobre receita), e
+ * duplicar a formula faria as duas divergirem no dia em que uma mudasse.
+ */
+export function respostaFinanceiro(dados: DadosFinanceiro): string {
+  switch (dados.consulta) {
+    case 'faturamento': {
+      if (dados.resumo.vendas === 0) return VAZIO_VENDAS
+      return [
+        tituloDoPeriodo('Faturamento', dados.periodo),
+        `${formatarMoeda(dados.resumo.faturamento)} em ${vendasTexto(dados.resumo.vendas)}.`,
+      ].join('\n')
+    }
+
+    case 'ticket_medio': {
+      if (dados.resumo.vendas === 0) return VAZIO_VENDAS
+      return [
+        tituloDoPeriodo('Ticket médio', dados.periodo),
+        `${formatarMoeda(dados.resumo.ticket_medio)} por venda, em ${vendasTexto(dados.resumo.vendas)}.`,
+      ].join('\n')
+    }
+
+    case 'formas_pagamento': {
+      const cabecalho = tituloDoPeriodo('Formas de pagamento', dados.periodo)
+      if (dados.formas.length === 0) return [cabecalho, VAZIO_VENDAS].join('\n')
+
+      const linhas = dados.formas.map(
+        (forma, i) =>
+          `${i + 1}. ${forma.forma}: ${formatarMoeda(forma.total)} em ${vendasTexto(forma.quantidade)}.`,
+      )
+      return [cabecalho, ...linhas].join('\n')
+    }
+
+    case 'lucro': {
+      const cabecalho = tituloDoPeriodo('Lucro', dados.periodo)
+      // Receita zero: nao ha percentual para mostrar (dividir por zero), e o que
+      // houve foi ausencia de venda.
+      if (!(dados.lucro.receita > 0)) return [cabecalho, VAZIO_VENDAS].join('\n')
+
+      const fracao = percentualDeMargem({ receita: dados.lucro.receita, margem: dados.lucro.lucro })
+      const percentual = fracao === null ? '' : ` (${formatarPercentual(fracao)})`
+
+      return [
+        cabecalho,
+        `Receita de ${formatarMoeda(dados.lucro.receita)}, ` +
+          `custo de ${formatarMoeda(dados.lucro.custo)}, ` +
+          `lucro de ${formatarMoeda(dados.lucro.lucro)}${percentual}.`,
+      ].join('\n')
+    }
+
+    case 'comparacao': {
+      const cabecalho =
+        `Comparação (${dataBr(dados.periodo.de)} a ${dataBr(dados.periodo.ate)} contra ` +
+        `${dataBr(dados.anteriorPeriodo.de)} a ${dataBr(dados.anteriorPeriodo.ate)})`
+
+      // Empate NAO e "R$ 0,00 a mais": dizer "a mais" afirmaria crescimento que nao
+      // houve. A diferenca sai em modulo e a direcao vira palavra.
+      const diferenca = dados.atual.faturamento - dados.anterior.faturamento
+      const comparacao =
+        diferenca === 0
+          ? 'mesmo faturamento.'
+          : `${formatarMoeda(Math.abs(diferenca))} ${diferenca > 0 ? 'a mais' : 'a menos'}.`
+
+      return [
+        cabecalho,
+        `Faturamento de ${formatarMoeda(dados.atual.faturamento)} contra ` +
+          `${formatarMoeda(dados.anterior.faturamento)}: ${comparacao}`,
+        `Vendas: ${dados.atual.vendas} contra ${dados.anterior.vendas}.`,
+      ].join('\n')
+    }
+  }
+}
+
 export type MotivoRecusa = 'vazia' | 'longa' | 'payload' | 'clinica' | 'pessoal' | 'classificacao'
 
 /**
