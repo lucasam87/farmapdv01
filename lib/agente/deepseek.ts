@@ -186,10 +186,14 @@ export const PROMPT_FINANCEIRO =
   'Use somente as tres chaves "consulta", "de" e "ate". Nunca responda com outra consulta.'
 
 /**
- * O prompt do especialista COM a data de hoje e com as duas regras de periodo
- * que o modelo nao tem como adivinhar: o PADRAO (30 dias, quando nao citou data)
- * e o TETO (31 dias). Sem elas, o modelo chuta um periodo — e a resposta sai
- * sobre um periodo que ninguem pediu.
+ * O prompt do especialista COM a data de hoje e com as tres regras de periodo que
+ * o modelo nao tem como adivinhar: o PADRAO (30 dias, quando nao citou data), o
+ * TETO (31 dias) e a CONVERSAO das referencias relativas.
+ *
+ * Achado do aceite real de 16/10/2026: *"Como o pessoal pagou ESSA SEMANA?"* caiu
+ * no padrao de 30 dias. A resposta saiu CERTA para o periodo ERRADO — o pior tipo
+ * de erro, porque nao parece erro. Sem a tabela abaixo o modelo so sabe converter
+ * o que o prompt de classificacao ja ensinava (dia e periodo com data escrita).
  */
 export function promptFinanceiro(hoje: string): string {
   return (
@@ -197,9 +201,20 @@ export function promptFinanceiro(hoje: string): string {
     '\n' +
     '\n' +
     `Hoje e ${hoje} (fuso de America/Sao_Paulo). "de" e "ate" aceitam "AAAA-MM-DD" e ` +
-    'as DUAS tem que vir: use null nas duas quando a pergunta nao citar data, e ai o ' +
-    `periodo sao os ultimos ${DIAS_PADRAO_MARGEM} dias. Nunca preencha so uma das duas. ` +
-    'O periodo tem no maximo 31 dias. Nunca devolva data no futuro.'
+    'as DUAS tem que vir: use null nas duas SOMENTE quando a pergunta nao citar ' +
+    `periodo nenhum, e ai o padrao sao os ultimos ${DIAS_PADRAO_MARGEM} dias. Nunca ` +
+    'preencha so uma das duas. O periodo tem no maximo 31 dias. Nunca devolva data no ' +
+    'futuro.\n' +
+    '\n' +
+    'Quando a pergunta citar um periodo, CONVERTA para as duas datas usando a data de ' +
+    'hoje acima — NAO use o padrao:\n' +
+    '- "hoje": de e ate iguais a hoje.\n' +
+    '- "ontem": de e ate iguais a ontem.\n' +
+    '- "essa semana": de = a segunda-feira da semana de hoje, ate = hoje.\n' +
+    '- "semana passada": de = a segunda-feira anterior, ate = o domingo que passou.\n' +
+    '- "esse mes": de = dia 1 do mes de hoje, ate = hoje.\n' +
+    '- "mes passado": de = dia 1 do mes anterior, ate = o ultimo dia desse mes.\n' +
+    '- "esse ano": de = 1 de janeiro, ate = hoje.'
   )
 }
 
