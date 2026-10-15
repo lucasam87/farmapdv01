@@ -196,6 +196,21 @@ export type ConsultaFinanceiroValidada = {
 }
 
 /**
+ * O resultado da validacao da consulta. **Discriminado, e nao `null`** (achado da
+ * re-revisao de 16/10/2026): saber POR QUE falhou e o que separa uma recusa
+ * honesta de uma mentira.
+ *
+ * - `'periodo'`: o pedido foi ENTENDIDO e as duas datas sao validas — o unico
+ *   problema e passarem de `DIAS_MAXIMOS`. A mensagem propria diz o que fazer
+ *   ("peca um periodo menor").
+ * - `'formato'`: o JSON nao segue o contrato (chave a mais, consulta fora da lista,
+ *   uma ponta so, invertido, futuro, data inexistente). Ai "nao entendi" e verdade.
+ */
+export type ResultadoConsultaFinanceiro =
+  | { ok: true; consulta: ConsultaFinanceiroValidada }
+  | { ok: false; motivo: 'formato' | 'periodo' }
+
+/**
  * O periodo PADRAO das consultas por periodo: as ultimas `DIAS_PADRAO_MARGEM`
  * datas, com hoje numa das pontas — a mesma conta da margem, e de proposito:
  * duas telas do mesmo sistema nao podem ter padroes diferentes de 30 dias.
@@ -217,37 +232,62 @@ function periodoPadraoDe30Dias(hoje: string): Periodo {
  * teto de `DIAS_MAXIMOS` e um so — senao o app pediria a uma tela um periodo que
  * ele mesmo recusa na outra.
  */
+/**
+ * O periodo pedido e VALIDO e o UNICO problema e o tamanho?
+ *
+ * Reusa `lerData` e `diasInclusivos` — os MESMOS helpers de `lerPeriodo` —, e nao
+ * uma segunda regra escrita a parte: duas fontes de validacao divergem no dia em que
+ * uma mudar, que e o defeito mais comum deste projeto. Aqui so se RESPONDE POR QUE a
+ * validacao ja declarou falha; quem decide se e valido continua sendo um lugar so.
+ */
+function soOTamanho(objeto: Record<string, unknown>, hoje: string): boolean {
+  const de = lerData(objeto.de, hoje)
+  const ate = lerData(objeto.ate, hoje)
+  if (de === null || ate === null) return false
+  if (de > ate) return false
+  if (de > hoje || ate > hoje) return false
+  return diasInclusivos(de, ate) > DIAS_MAXIMOS
+}
+
 export function validarConsultaFinanceiro(
   bruto: unknown,
   hoje: string,
-): ConsultaFinanceiroValidada | null {
+): ResultadoConsultaFinanceiro {
+  const formato = { ok: false, motivo: 'formato' } as const
+
   let objeto: unknown = bruto
 
   if (typeof bruto === 'string') {
     try {
       objeto = JSON.parse(bruto)
     } catch {
-      return null
+      return formato
     }
   }
 
-  if (typeof objeto !== 'object' || objeto === null || Array.isArray(objeto)) return null
+  if (typeof objeto !== 'object' || objeto === null || Array.isArray(objeto)) return formato
 
   const registro = objeto as Record<string, unknown>
   const chaves = Object.keys(registro)
-  if (chaves.length !== CHAVES_FINANCEIRO.length) return null
-  if (chaves.some((chave) => !(CHAVES_FINANCEIRO as readonly string[]).includes(chave))) return null
+  if (chaves.length !== CHAVES_FINANCEIRO.length) return formato
+  if (chaves.some((chave) => !(CHAVES_FINANCEIRO as readonly string[]).includes(chave))) {
+    return formato
+  }
 
   const consulta = registro.consulta
-  if (typeof consulta !== 'string' || !CONSULTA_FINANCEIRA_ACEITA.has(consulta)) return null
+  if (typeof consulta !== 'string' || !CONSULTA_FINANCEIRA_ACEITA.has(consulta)) return formato
 
   // `hoje` torto faria o periodo padrao lancar `RangeError`; vira recusa.
-  if (!Number.isFinite(diaEmUtc(hoje))) return null
+  if (!Number.isFinite(diaEmUtc(hoje))) return formato
 
   const periodo = lerPeriodo(registro, hoje, periodoPadraoDe30Dias(hoje))
-  if (periodo === null) return null
+  if (periodo === null) {
+    // A UNICA falha que merece mensagem propria: o pedido foi entendido e as datas
+    // sao reais — o que nao cabe e o tamanho.
+    return soOTamanho(registro, hoje) ? { ok: false, motivo: 'periodo' } : formato
+  }
 
-  return { consulta: consulta as ConsultaFinanceiro, de: periodo.de, ate: periodo.ate }
+  return { ok: true, consulta: { consulta: consulta as ConsultaFinanceiro, de: periodo.de, ate: periodo.ate } }
 }
 
 /** Uma forma de pagamento, como `relatorio_formas_pagamento` devolve. */

@@ -478,10 +478,19 @@ export async function processarPergunta(
     const custo = somaDeCustos([custoDoCoordenador, custoDaChamada(segunda.uso)])
     if (custo !== null) await reconciliarEmSilencio(deps, reserva.id, custo)
 
-    const consulta = validarConsultaFinanceiro(segunda.conteudo, hoje)
-    if (consulta === null) {
-      return { status: 400, corpo: erro(mensagemRecusa('classificacao')) }
+    const validada = validarConsultaFinanceiro(segunda.conteudo, hoje)
+    if (!validada.ok) {
+      // A recusa por TAMANHO tem mensagem propria e honesta: o pedido foi entendido
+      // e as datas sao reais — o que nao cabe e o periodo. Dizer "nao entendi" ali
+      // faria o dono reformular a pergunta inteira e falhar de novo do mesmo jeito,
+      // porque a recusa e deterministica.
+      return {
+        status: 400,
+        corpo: erro(mensagemRecusa(validada.motivo === 'periodo' ? 'periodo' : 'classificacao')),
+      }
     }
+
+    const consulta = validada.consulta
 
     // O lucro e do dono. A recusa sai ANTES de a rota ler qualquer dado — o banco
     // tambem recusa (a funcao e `security definer` e checa o papel), mas aqui nao

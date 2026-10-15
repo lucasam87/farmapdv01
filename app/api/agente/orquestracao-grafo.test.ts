@@ -212,6 +212,26 @@ describe('com o grafo ligado', () => {
     expect(chamadas.consultarFinanceiro).toBe(0)
   })
 
+  it('periodo GRANDE DEMAIS recebe a mensagem de periodo, nao "nao entendi"', async () => {
+    // ⚠️ Achado da re-revisao (16/10/2026). Ate aqui o dono que pedia "esse ano"
+    // (284 dias) lia "Nao entendi a pergunta. Tente reformular com vendas, produtos
+    // mais vendidos, estoque baixo ou produtos parados" — DUAS falsidades: o modelo
+    // ENTENDEU, e a sugestao manda quem perguntou de dinheiro perguntar de outra
+    // coisa. A recusa e deterministica: reformular igual nunca passa, e cada
+    // tentativa repaga o par de chamadas.
+    const { deps, chamadas } = montar({
+      assunto: classificacao('{"assunto":"financeiro"}'),
+      financeiro: classificacao('{"consulta":"faturamento","de":"2026-01-01","ate":"2026-10-09"}'),
+    })
+    const r = await processarPergunta(entrada(), deps)
+
+    expect(r.status).toBe(400)
+    expect(JSON.stringify(r.corpo)).toContain('período menor')
+    expect(JSON.stringify(r.corpo)).not.toContain('Não entendi')
+    // E o dinheiro ja foi fechado: nada e lido do banco.
+    expect(chamadas.consultarFinanceiro).toBe(0)
+  })
+
   it('lucro e do dono: o atendente recebe 403 ANTES de qualquer leitura', async () => {
     const { deps, chamadas } = montar({
       assunto: classificacao('{"assunto":"financeiro"}'),
