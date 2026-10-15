@@ -426,4 +426,56 @@ test.describe('camada B — a rota REAL, so o que nao depende das chaves', () =>
       expect(visivel, `a tela mostrou o marcador tecnico ${marcador}`).not.toContain(marcador)
     }
   })
+
+  test('(13) logado: o grafo responde e a JANELA e a pedida, nao 30 dias', async ({ page }) => {
+    // A unica trava que pega regressao de ROTEAMENTO e de PERIODO.
+    //
+    // O agente virou um GRAFO: o coordenador escolhe o especialista (chamada 1) e o
+    // especialista escolhe a consulta e o periodo (chamada 2). Nada disso aparece no
+    // teste unitario, que nao ve o prompt contra o modelo — e o aceite manual que
+    // pegou o defeito nao ficou no repositorio.
+    //
+    // O defeito que este teste existe para prender: "essa semana" respondia 30 DIAS,
+    // com o texto CERTO para o periodo ERRADO — o pior tipo, porque nao parece erro.
+    //
+    // Custa DUAS chamadas pagas por execucao (~0,0003 US$). E o preco da trava.
+    await abrirAgente(page)
+
+    await page.getByTestId('pergunta').fill('Como o pessoal pagou essa semana?')
+    await page.getByTestId('enviar').click()
+
+    await expect(page.getByTestId('resultado').or(page.getByTestId('erro'))).toBeVisible()
+
+    // Ambiente sem `DEEPSEEK_API_KEY` responde erro, e isso NAO e falha do teste —
+    // mas fica anotado, para um verde sem chave nao passar por verde com trava.
+    if ((await page.getByTestId('resultado').count()) === 0) {
+      test
+        .info()
+        .annotations.push({ type: 'sem-chave', description: 'ambiente sem DEEPSEEK_API_KEY' })
+      return
+    }
+
+    const texto = await page.getByTestId('resultado').innerText()
+    // Roteou para o especialista de financeiro (se caísse no caminho de hoje, a
+    // "essa semana" nao teria intencao e a resposta seria outra).
+    expect(texto).toContain('Formas de pagamento (')
+
+    const janela = /(\d{2})\/(\d{2})\/(\d{4}) a (\d{2})\/(\d{2})\/(\d{4})/.exec(texto)
+    expect(janela, `sem periodo no titulo: ${texto.slice(0, 140)}`).not.toBeNull()
+
+    const [, d1, m1, a1, d2, m2, a2] = janela!
+    const de = new Date(`${a1}-${m1}-${d1}T12:00:00Z`)
+    const ate = new Date(`${a2}-${m2}-${d2}T12:00:00Z`)
+    const dias = Math.round((ate.getTime() - de.getTime()) / 86_400_000) + 1
+
+    // "essa semana" e no MAXIMO 7 dias e comeca numa SEGUNDA-FEIRA. O defeito
+    // respondia 30 dias — este numero e o que separa os dois.
+    //
+    // ⚠️ DISCRIMINACAO PROVADA (16/10/2026): com o limite trocado para 2, este teste
+    // fica VERMELHO com "janela de 4 dias (12/10 a 15/10)" — ou seja, a assercao e
+    // ALCANCADA (a chave existe e o grafo roteia) e a janela e a certa. Sem essa
+    // prova, um verde poderia ser so o caminho "sem chave" saindo cedo.
+    expect(dias, `janela de ${dias} dias (${d1}/${m1} a ${d2}/${m2})`).toBeLessThanOrEqual(7)
+    expect(de.getUTCDay(), `o inicio ${d1}/${m1} nao e segunda-feira`).toBe(1)
+  })
 })
