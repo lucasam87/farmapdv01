@@ -365,7 +365,30 @@ export function respostaFinanceiro(dados: DadosFinanceiro): string {
   }
 }
 
-export type MotivoRecusa = 'vazia' | 'longa' | 'payload' | 'clinica' | 'pessoal' | 'classificacao'
+export type MotivoRecusa =
+  | 'vazia'
+  | 'longa'
+  | 'payload'
+  | 'clinica'
+  | 'pessoal'
+  | 'classificacao'
+  // ⚠️ ACHADO DA RE-REVISAO (16/10/2026): a recusa por PERIODO GRANDE DEMAIS e
+  // honesta e nao pode ser confundida com "nao entendi". Antes dela, quem pedia
+  // "esse ano" (ou "ultimos 6 meses", "esse trimestre", "desde janeiro") recebia
+  // `classificacao` — que diz duas coisas FALSAS: que o modelo nao entendeu (ele
+  // entendeu; o periodo e que nao cabe em 31 dias) e que a pessoa deveria
+  // reformular "com vendas, produtos mais vendidos, estoque baixo ou produtos
+  // parados" (as intencoes do CLASSIFICADOR, mandando quem perguntou de dinheiro
+  // perguntar de outra coisa). A recusa e DETERMINISTICA: reformular do mesmo jeito
+  // nunca passa, e cada tentativa repaga o par de chamadas.
+  //
+  // O motivo existe aqui; quem o EMITE e a proxima fatia — ver o desenho no ledger:
+  // `validarConsultaFinanceiro` precisa devolver resultado DISCRIMINADO
+  // (`{ok:false, motivo:'formato'|'periodo'}`), e nao `null`, para a orquestracao
+  // escolher a mensagem. Reusar `lerData`/`diasInclusivos` dentro do proprio
+  // validador — NUNCA reparsear na orquestracao, que criaria a segunda fonte de
+  // validacao (a classe de divergencia mais comum deste projeto).
+  | 'periodo'
 
 /**
  * Uma linha do ranking de margem — EXATAMENTE o que `public.margem_produtos`
@@ -436,6 +459,10 @@ const MENSAGENS_RECUSA: Record<MotivoRecusa, string> = {
   classificacao:
     'Não entendi a pergunta. Tente reformular com vendas, produtos mais vendidos, ' +
     'estoque baixo ou produtos parados.',
+  // Diz a VERDADE: o pedido foi entendido, o que nao cabe e o tamanho. E diz o que
+  // fazer — pedir um periodo menor — em vez de mandar reformular a pergunta inteira.
+  periodo:
+    `Consigo olhar no máximo ${DIAS_MAXIMOS} dias por vez. Peça um período menor.`,
 }
 
 const VAZIO_VENDAS = 'Não há vendas registradas no período consultado.'
