@@ -211,10 +211,16 @@ export function promptFinanceiro(hoje: string): string {
     '- "hoje": de e ate iguais a hoje.\n' +
     '- "ontem": de e ate iguais a ontem.\n' +
     '- "essa semana": de = a segunda-feira da semana de hoje, ate = hoje.\n' +
-    '- "semana passada": de = a segunda-feira anterior, ate = o domingo que passou.\n' +
+    '- "semana passada": de = a segunda-feira anterior, ate = o domingo DAQUELA semana.\n' +
     '- "esse mes": de = dia 1 do mes de hoje, ate = hoje.\n' +
     '- "mes passado": de = dia 1 do mes anterior, ate = o ultimo dia desse mes.\n' +
-    '- "esse ano": de = 1 de janeiro, ate = hoje.'
+    '- "esse ano": de = 1 de janeiro, ate = hoje.\n' +
+    '\n' +
+    'Se o periodo pedido NAO couber em 31 dias (por exemplo "esse ano" ou "os ultimos ' +
+    '6 meses"), devolva mesmo assim as datas REAIS do periodo pedido: eu aviso o ' +
+    'usuario que o periodo e grande demais. **NUNCA encurte o periodo por conta ' +
+    'propria** para caber no teto, e nunca devolva null nesse caso — devolver um ' +
+    'periodo menor do que o pedido faz a resposta sair CERTA para o periodo ERRADO.'
   )
 }
 
