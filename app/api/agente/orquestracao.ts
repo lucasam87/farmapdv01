@@ -180,6 +180,26 @@ function somaDeCustos(custos: (number | null)[]): number | null {
 }
 
 /**
+ * Fecha a reserva quando a chamada SEGUINTE falhou em `pre_envio`.
+ *
+ * ⚠️ ACHADO DA REVISAO INDEPENDENTE (Important 1 de 16/10/2026): aqui **nao se pode
+ * `liberar`**. Com o grafo ligado o coordenador **ja respondeu e ja foi cobrado**;
+ * `liberar` devolveria a reserva INTEIRA e o teto do mes passaria a medir MENOS do
+ * que a farmacia gastou.
+ *
+ *   - custo do coordenador CONHECIDO -> reconcilia com ele: o mes paga o que gastou;
+ *   - custo DESCONHECIDO -> nao se mexe na reserva e ela fica **consumida** (a regra
+ *     conservadora: custo desconhecido nunca vira credito).
+ *
+ * Quem chama so entra aqui quando o coordenador RODOU. Quando nao rodou, nada saiu e
+ * o certo continua sendo `liberarEmSilencio`.
+ */
+async function liquidarEmSilencio(deps: Deps, id: string, custoJaGasto: number | null): Promise<void> {
+  if (custoJaGasto === null) return
+  await reconciliarEmSilencio(deps, id, custoJaGasto)
+}
+
+/**
  * Custo real da chamada em micros, ou `null` quando nao da para confiar no
  * `usage`. ESTA E A FRONTEIRA DO DINHEIRO: `custoMicros` (logica.ts) multiplica o
  * que receber e um `usage` torto (campo ausente, string, negativo, NaN, 1e15)
@@ -394,6 +414,11 @@ export async function processarPergunta(
   // 4. O GRAFO, quando ligado: o COORDENADOR escolhe o especialista (chamada 1).
   let custoDoCoordenador: number | null = null
   let assunto: Assunto | null = null
+  // ⚠️ `custoDoCoordenador === null` tem DOIS significados — "nao rodou, nada foi
+  // gasto" e "rodou com `usage` desconhecido, gastou um valor que nao se sabe". Este
+  // sinal separa os dois: e ele que decide entre `liberar` e `liquidar` quando a
+  // chamada seguinte falha em `pre_envio` (Important 1 da revisao).
+  let coordenadorRodou = false
 
   if (grafo && deps.classificarAssunto !== undefined) {
     let primeira: ResultadoClassificacao
@@ -409,6 +434,7 @@ export async function processarPergunta(
     }
 
     custoDoCoordenador = custoDaChamada(primeira.uso)
+    coordenadorRodou = true
     assunto = validarAssunto(primeira.conteudo)
 
     // `fora_escopo` e um veredito LEGITIMO do coordenador — nao ha especialista
@@ -442,7 +468,9 @@ export async function processarPergunta(
     }
 
     if (!segunda.ok) {
-      if (segunda.fase === 'pre_envio') await liberarEmSilencio(deps, reserva.id)
+      // `pre_envio` prova que ESTA chamada nao saiu — mas o coordenador JA foi
+      // cobrado. Liberar aqui devolveria a reserva inteira. Ver `liquidarEmSilencio`.
+      if (segunda.fase === 'pre_envio') await liquidarEmSilencio(deps, reserva.id, custoDoCoordenador)
       return { status: 502, corpo: erro(MENSAGEM_PROVEDOR) }
     }
 
@@ -485,8 +513,13 @@ export async function processarPergunta(
   }
 
   if (!classificacao.ok) {
-    // Pre-envio: da para provar que nada saiu, entao a reserva volta.
-    if (classificacao.fase === 'pre_envio') await liberarEmSilencio(deps, reserva.id)
+    // Pre-envio prova que nao saiu. Se o grafo rodou, esta e a SEGUNDA chamada da
+    // reserva e o coordenador ja foi cobrado: liquidar o que se gastou, nunca
+    // liberar tudo (Important 1 da revisao). Sem grafo, nada saiu e a reserva volta.
+    if (classificacao.fase === 'pre_envio') {
+      if (coordenadorRodou) await liquidarEmSilencio(deps, reserva.id, custoDoCoordenador)
+      else await liberarEmSilencio(deps, reserva.id)
+    }
     return { status: 502, corpo: erro(MENSAGEM_PROVEDOR) }
   }
 

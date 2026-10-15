@@ -54,6 +54,10 @@ type Opcoes = {
   classificar?: ResultadoClassificacao
   ligarGrafo?: boolean
   fechar?: boolean
+  /** O ESPECIALISTA (2a chamada) falha em `pre_envio`. */
+  fecharFinanceiro?: boolean
+  /** O classificador de hoje (2a chamada, no ramo de assunto nao ligado) falha. */
+  fecharClassificar?: boolean
 }
 
 function montar(opcoes: Opcoes = {}) {
@@ -71,6 +75,7 @@ function montar(opcoes: Opcoes = {}) {
     agora: () => AGORA,
     async classificar() {
       chamadas.classificar += 1
+      if (opcoes.fecharClassificar) return { ok: false, fase: 'pre_envio' }
       return opcoes.classificar ?? classificacao('{"intencao":"vendas_dia"}', USO_B)
     },
     async reservar(_mes: string, micros: number): Promise<ResultadoReserva> {
@@ -101,6 +106,7 @@ function montar(opcoes: Opcoes = {}) {
     }
     deps.classificarFinanceiro = async () => {
       chamadas.classificarFinanceiro += 1
+      if (opcoes.fecharFinanceiro) return { ok: false, fase: 'pre_envio' }
       return opcoes.financeiro ?? classificacao('{"consulta":"faturamento","de":null,"ate":null}', USO_B)
     }
     deps.consultarFinanceiro = async () => {
@@ -243,5 +249,67 @@ describe('com o grafo ligado', () => {
     expect(r.status).toBe(502)
     expect(chamadas.liberar).toEqual(['reserva-1'])
     expect(chamadas.classificar).toBe(0)
+  })
+})
+
+// ============================================================
+// IMPORTANT 1 DA REVISAO INDEPENDENTE (16/10/2026)
+//
+// Com o grafo ligado, o coordenador JA respondeu e JA foi cobrado quando a SEGUNDA
+// chamada falha em `pre_envio`. Liberar a reserva inteira ali faria o teto do mes
+// medir MENOS do que a farmacia gastou. Estes testes existem por causa disso.
+// ============================================================
+
+describe('o coordenador ja cobrado NUNCA e liberado como se nada tivesse saido', () => {
+  it('especialista com falha PRE-ENVIO: liquida o coordenador, NAO libera', async () => {
+    const { deps, chamadas } = montar({
+      assunto: classificacao('{"assunto":"financeiro"}', USO_A),
+      fecharFinanceiro: true,
+    })
+    const r = await processarPergunta(entrada(), deps)
+
+    expect(r.status).toBe(502)
+    // A reserva inteira NAO volta: o que o coordenador gastou e cobrado.
+    expect(chamadas.liberar).toEqual([])
+    expect(chamadas.reconciliar).toHaveLength(1)
+    expect(chamadas.reconciliar[0]?.micros).toBe(custoDaChamada(USO_A))
+  })
+
+  it('assunto NAO ligado + classificador de hoje com falha PRE-ENVIO: idem', async () => {
+    const { deps, chamadas } = montar({
+      assunto: classificacao('{"assunto":"estoque"}', USO_A),
+      fecharClassificar: true,
+    })
+    const r = await processarPergunta(entrada(), deps)
+
+    expect(r.status).toBe(502)
+    expect(chamadas.liberar).toEqual([])
+    expect(chamadas.reconciliar).toHaveLength(1)
+    expect(chamadas.reconciliar[0]?.micros).toBe(custoDaChamada(USO_A))
+  })
+
+  it('coordenador com usage DESCONHECIDO: nao reconcilia com numero inventado e mantem a reserva', async () => {
+    // Sem `usage` o custo do coordenador e desconhecido: nem se libera (pode ter
+    // sido faturado) nem se reconcilia (nao se inventa um valor). A reserva fica
+    // consumida — a regra conservadora do modulo.
+    const { deps, chamadas } = montar({
+      assunto: classificacao('{"assunto":"financeiro"}', null),
+      fecharFinanceiro: true,
+    })
+    const r = await processarPergunta(entrada(), deps)
+
+    expect(r.status).toBe(502)
+    expect(chamadas.liberar).toEqual([])
+    expect(chamadas.reconciliar).toHaveLength(0)
+  })
+
+  it('SEM grafo, a falha PRE-ENVIO da primeira chamada continua liberando', async () => {
+    // O comportamento antigo nao pode ter mudado: sem grafo nada saiu antes dela.
+    const { deps, chamadas } = montar({ ligarGrafo: false, fecharClassificar: true })
+    const r = await processarPergunta(entrada(), deps)
+
+    expect(r.status).toBe(502)
+    expect(chamadas.liberar).toEqual(['reserva-1'])
+    expect(chamadas.reconciliar).toHaveLength(0)
   })
 })
