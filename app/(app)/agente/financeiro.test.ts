@@ -205,6 +205,64 @@ describe('validarConsultaFinanceiro — motivo FORMATO (nao entendi, de verdade)
   })
 })
 
+describe('M2 — o motivo concorda com a validacao, por grade', () => {
+  // ⚠️ Achado M2 da revisao da rodada 2: `soOTamanho` RE-ENUNCIA a cadeia de regras
+  // de `lerPeriodo` (nulo -> invertido -> futuro -> tamanho). Hoje concordam 100%
+  // (a revisao provou com grade 25x25 + 4000 pares aleatorios), mas uma regra NOVA
+  // em `lerPeriodo` faria o motivo sair `'periodo'` — mensagem honesta FALSA.
+  //
+  // Este teste prende a PROPRIEDADE pela API publica: o motivo e `'periodo'` se, e
+  // so se, as duas datas sao dias reais do calendario, estao em ordem, nao sao
+  // futuras e o intervalo passa do teto. Nenhum interno e exportado para testar.
+  const DIAS = (de: string, ate: string): number =>
+    (Date.parse(`${ate}T00:00:00Z`) - Date.parse(`${de}T00:00:00Z`)) / 86_400_000 + 1
+
+  /** Data ISO que existe no calendario de verdade (2026-02-30 nao existe). */
+  const diaReal = (valor: string): boolean => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false
+    const d = new Date(`${valor}T00:00:00Z`)
+    return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === valor
+  }
+
+  it('"periodo" se, e somente se, a falha e SO o tamanho', () => {
+    const valores = [
+      '2026-01-01', '2026-09-14', '2026-09-15', '2026-09-16', '2026-10-09',
+      '2026-10-15', '2026-10-16', '2026-12-31', '2025-12-31', '2026-02-30',
+      '2026-13-01', '0000-01-01', '9999-12-31', '', 'ontem', '2026-10-15T00:00:00Z',
+    ]
+
+    let conferidos = 0
+    let periodos = 0
+
+    for (const de of valores) {
+      for (const ate of valores) {
+        const saida = validarConsultaFinanceiro({ consulta: 'faturamento', de, ate }, HOJE)
+        if (saida.ok) continue
+        conferidos += 1
+
+        // A propriedade, escrita de forma independente do codigo de producao.
+        const soTamanho =
+          diaReal(de) &&
+          diaReal(ate) &&
+          de <= ate &&
+          de <= HOJE &&
+          ate <= HOJE &&
+          DIAS(de, ate) > DIAS_MAXIMOS
+
+        if (soTamanho) periodos += 1
+        expect(
+          saida.motivo,
+          `de=${de} ate=${ate}: esperava ${soTamanho ? "'periodo'" : "'formato'"}`,
+        ).toBe(soTamanho ? 'periodo' : 'formato')
+      }
+    }
+
+    // A grade precisa de fato exercitar os DOIS motivos, senao ela nao prova nada.
+    expect(conferidos).toBeGreaterThan(200)
+    expect(periodos).toBeGreaterThan(0)
+  })
+})
+
 describe('PROMPT_FINANCEIRO', () => {
   it('tem json e um exemplo literal — as duas exigencias do modo JSON', () => {
     expect(PROMPT_FINANCEIRO.toLowerCase()).toContain('json')

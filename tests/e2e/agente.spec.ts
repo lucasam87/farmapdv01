@@ -400,14 +400,18 @@ test.describe('camada B — a rota REAL, so o que nao depende das chaves', () =>
   test('(12) logado: pergunta gerencial normal mostra algum texto em portugues, sem detalhe tecnico', async ({
     page,
   }) => {
-    // TOLERANTE DE PROPOSITO. Hoje este ambiente nao tem `SUPABASE_SERVICE_ROLE_KEY`
-    // nem `DEEPSEEK_API_KEY`, entao a pergunta que passa pelos filtros locais
-    // termina em 502 (a reserva de orcamento falha antes de qualquer envio, sem
-    // gastar token). Quando o Lucas configurar as chaves, a MESMA pergunta passa a
-    // devolver a resposta montada pela view. O teste aceita os dois mundos —
-    // `resposta` OU `erro` — e so exige que ALGUM texto apareca e que ele nao
-    // contenha marcador tecnico. Asserir o 502 seria uma bomba-relogio: ela
-    // comecaria a fazer chamada PAGA so para ficar verde.
+    // ⚠️ ESTE COMENTARIO ENVELHECEU E FOI CORRIGIDO EM 16/10/2026. Ele afirmava que
+    // "este ambiente nao tem `SUPABASE_SERVICE_ROLE_KEY` nem `DEEPSEEK_API_KEY`" —
+    // as DUAS existem hoje, e a prova e o teste (13) fazer chamada real ao provedor
+    // e conferir a janela de periodo. Um teste tolerante por um motivo que deixou de
+    // valer e uma trava frouxa.
+    //
+    // A tolerancia fica, mas com o motivo VERDADEIRO: o provedor pode estar fora, e
+    // ai nao ha resposta para conferir. Nesse caso o teste SAI COMO PULADO
+    // (`test.skip`), e nao como verde — verde sem resposta seria mentira.
+    //
+    // O que ele ainda prende, e prende de verdade: a tela mostra ALGUM texto em
+    // portugues, sem marcador tecnico, seja resposta ou recusa.
     await abrirAgente(page)
 
     await page.getByTestId('pergunta').fill('Como foram as vendas de hoje?')
@@ -446,13 +450,11 @@ test.describe('camada B — a rota REAL, so o que nao depende das chaves', () =>
 
     await expect(page.getByTestId('resultado').or(page.getByTestId('erro'))).toBeVisible()
 
-    // Ambiente sem `DEEPSEEK_API_KEY` responde erro, e isso NAO e falha do teste —
-    // mas fica anotado, para um verde sem chave nao passar por verde com trava.
+    // Ambiente sem `DEEPSEEK_API_KEY` — ou provedor fora — responde erro, e isso NAO
+    // e falha do teste. Mas sai como PULADO, e nao como verde: um verde sem resposta
+    // passaria por verde com a trava funcionando, e nao esta.
     if ((await page.getByTestId('resultado').count()) === 0) {
-      test
-        .info()
-        .annotations.push({ type: 'sem-chave', description: 'ambiente sem DEEPSEEK_API_KEY' })
-      return
+      test.skip(true, 'sem resposta do provedor: ambiente sem chave ou provedor fora')
     }
 
     const texto = await page.getByTestId('resultado').innerText()
