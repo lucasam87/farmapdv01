@@ -37,6 +37,18 @@ describe('parsearCentavos', () => {
     expect(parsearCentavos(null as unknown as string)).toBeNull()
     expect(parsearCentavos(undefined as unknown as string)).toBeNull()
   })
+  it('recusa valor acima do inteiro exato do JavaScript', () => {
+    // Acima de 2^53 o Number() arredonda e a soma em centavos mentiria. O banco so
+    // aceita ate 2147483647 de qualquer forma; recusar aqui e melhor que gravar um
+    // valor arredondado em silencio. `parsearQuantidade` ja recusava; faltava aqui.
+    expect(parsearCentavos('999999999999999999')).toBeNull()
+    expect(parsearCentavos('99999999999999999999')).toBeNull()
+  })
+  it('NAO recusa o que ainda e exato: 2^53 - 92 centavos', () => {
+    // O contrapeso da guarda acima: o maior reais que ainda cabe exato em centavos.
+    // Sem este caso, um limite apertado demais passaria despercebido.
+    expect(parsearCentavos('90071992547409')).toBe(9007199254740900)
+  })
   it('recusa negativo', () => {
     expect(parsearCentavos('-1')).toBeNull()
   })

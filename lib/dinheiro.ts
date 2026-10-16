@@ -54,8 +54,12 @@ export function parsearCentavos(texto: string): number | null {
   const centavos = decimais === '' ? 0 : Number(decimais.padEnd(2, '0'))
 
   // Number() de uma string so de digitos e exato ate 2^53; a soma aqui e de
-  // inteiros, entao nao ha erro de ponto flutuante.
-  return reais * 100 + centavos
+  // inteiros. Mas "ate 2^53" precisa de GUARDA, e nao de comentario: acima disso o
+  // Number() arredonda e `reais * 100` devolve um valor que ninguem digitou.
+  // `parsearQuantidade` ja tinha esta checagem (`:71`); aqui faltava.
+  const total = reais * 100 + centavos
+  if (!Number.isSafeInteger(total)) return null
+  return total
 }
 
 export function parsearQuantidade(texto: string): number | null {
