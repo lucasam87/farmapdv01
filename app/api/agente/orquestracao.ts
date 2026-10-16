@@ -19,7 +19,6 @@ import {
   type DadosResposta,
   type MotivoConsultaInvalida,
   type MotivoRecusa,
-  type ResultadoConsultaFinanceiro,
 } from '@/app/(app)/agente/logica'
 import { bytesDoMaiorPayload, type ResultadoClassificacao } from '@/lib/agente/deepseek'
 import type { Perfil } from '@/lib/auth/perfil'
