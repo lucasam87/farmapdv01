@@ -21,7 +21,7 @@ import {
   type MotivoRecusa,
   type ResultadoConsultaFinanceiro,
 } from '@/app/(app)/agente/logica'
-import { bytesDoPayload, type ResultadoClassificacao } from '@/lib/agente/deepseek'
+import { bytesDoMaiorPayload, type ResultadoClassificacao } from '@/lib/agente/deepseek'
 import type { Perfil } from '@/lib/auth/perfil'
 
 // O contrato do provedor e reexportado daqui de proposito: quem consome a
@@ -382,16 +382,12 @@ export async function processarPergunta(
     return { status: 403, corpo: erro(MENSAGEM_SO_DONO) }
   }
 
-  // O limite de 4.096 bytes vale para o payload REAL (prompt do sistema + pergunta),
-  // nao so para a pergunta — que sozinha nunca chegaria perto do teto.
-  //
   // ⚠️ GUARDA DE FRONTEIRA, INALCANCAVEL COM O LIMITE ATUAL (Minor 8 da revisao
-  // final): o pior caso medido e o prompt (1.016 bytes, mais a linha da data) + 500
-  // code points de 4 bytes, e `validarPergunta` ja recusou acima de 500 code points.
-  // Ou seja, `motivo: 'payload'` nao dispara por uma pergunta valida. A guarda fica
-  // porque ela mede o que REALMENTE sai (`bytesDoPayload`), e o dia em que o prompt
-  // crescer quem tem que segurar o teto e esta linha — o numero esta fixado em
-  // `logica.test.ts` e em `lib/agente/deepseek.test.ts`.
+  // final): o pior caso e o MAIOR prompt possivel + 500 code points de 4 bytes, e
+  // `validarPergunta` ja recusou acima de 500 code points. Ou seja, `motivo:
+  // 'payload'` nao dispara por uma pergunta valida. A guarda fica porque e ela que
+  // segura o teto no dia em que um prompt crescer — e por isso o numero esta preso
+  // em `deepseek.test.ts` (o teto tem de cobrir o pior caso) e em `logica.test.ts`.
   //
   // O relogio e lido UMA vez, e aqui: o mes do orcamento, a data que vai no prompt e
   // a validacao do periodo tem de sair do MESMO instante. Duas leituras poderiam
@@ -399,22 +395,29 @@ export async function processarPergunta(
   const agora = deps.agora()
   const hoje = diaSaoPaulo(agora)
 
-  if (bytesDoPayload(pergunta, hoje) > LIMITE_PAYLOAD_BYTES) {
+  // O grafo so roda com as TRES dependencias ligadas. A reserva DOBRA quando ele
+  // roda, porque a pergunta passa a gastar duas chamadas: o coordenador e (o
+  // especialista OU o classificador de hoje, no ramo de assunto ainda nao ligado).
+  // Sem as dependencias, isto e `false` e nada abaixo muda.
+  //
+  // Ele e lido ANTES do guard de payload, e nao depois: com o grafo ligado saem tres
+  // prompts possiveis (`promptAssunto` na chamada 1; `promptFinanceiro` OU o legado
+  // na chamada 2), e medir so o legado — como era antes — deixava o maior deles
+  // passar do teto sem ninguem conferir.
+  const grafo =
+    deps.classificarAssunto !== undefined &&
+    deps.classificarFinanceiro !== undefined &&
+    deps.consultarFinanceiro !== undefined
+
+  // O limite de 4.096 bytes vale para o payload REAL (prompt do sistema + pergunta),
+  // nao so para a pergunta — que sozinha nunca chegaria perto do teto.
+  if (bytesDoMaiorPayload(pergunta, hoje, grafo) > LIMITE_PAYLOAD_BYTES) {
     return { status: 400, corpo: erro(mensagemRecusa('payload')) }
   }
 
   // 3. Reserva ANTES de falar com o provedor. O mes e o de Sao Paulo e sempre o
   //    primeiro dia: a RPC do banco recusa qualquer outro valor.
   const mes = mesSaoPaulo(agora)
-
-  // O grafo so roda com as TRES dependencias ligadas. A reserva DOBRA quando ele
-  // roda, porque a pergunta passa a gastar duas chamadas: o coordenador e (o
-  // especialista OU o classificador de hoje, no ramo de assunto ainda nao ligado).
-  // Sem as dependencias, isto e `false` e nada abaixo muda.
-  const grafo =
-    deps.classificarAssunto !== undefined &&
-    deps.classificarFinanceiro !== undefined &&
-    deps.consultarFinanceiro !== undefined
 
   let reserva: ResultadoReserva
   try {

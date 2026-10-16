@@ -3,7 +3,11 @@ import {
   classificar,
   mensagensDeClassificacao,
   bytesDoPayload,
+  bytesDoPromptCom,
+  bytesDoMaiorPayload,
   promptClassificacao,
+  promptAssunto,
+  promptFinanceiro,
   PROMPT_CLASSIFICACAO,
 } from './deepseek'
 import { LIMITE_PAYLOAD_BYTES, MAX_TOKENS_SAIDA, MODELO } from '@/app/(app)/agente/logica'
@@ -398,5 +402,43 @@ describe('falhas', () => {
     await classificar(PERGUNTA, HOJE)
 
     for (const log of logs) expect(log).not.toHaveBeenCalled()
+  })
+})
+
+describe('bytesDoMaiorPayload — o teto mede o prompt que REALMENTE sai', () => {
+  // `bytesDoPayload` mede SO o classificador legado. Com o grafo ligado saem tres
+  // prompts possiveis (`promptAssunto` na chamada 1; `promptFinanceiro` OU o legado
+  // na chamada 2), e nenhum deles e necessariamente o menor — medir o legado deixava
+  // a maior das duas chamadas passar do teto de 4.096 bytes sem ninguem conferir.
+
+  it('sem grafo, e exatamente o payload do classificador legado', () => {
+    expect(bytesDoMaiorPayload(PERGUNTA, HOJE, false)).toBe(bytesDoPayload(PERGUNTA, HOJE))
+  })
+
+  it('com grafo, cobre os tres prompts possiveis e e o MAIOR deles', () => {
+    const legado = bytesDoPayload(PERGUNTA, HOJE)
+    const assunto = bytesDoPromptCom(PERGUNTA, promptAssunto(HOJE))
+    const financeiro = bytesDoPromptCom(PERGUNTA, promptFinanceiro(HOJE))
+
+    const maior = bytesDoMaiorPayload(PERGUNTA, HOJE, true)
+    expect(maior).toBe(Math.max(legado, assunto, financeiro))
+  })
+
+  it('o prompt do especialista financeiro e maior que o legado — a razao desta funcao existir', () => {
+    // Enquanto for assim, medir o legado e medir o prompt errado. Se um dia deixar
+    // de ser, esta assercao cai e a pergunta "o guard ainda mede o maior?" volta.
+    expect(bytesDoPromptCom(PERGUNTA, promptFinanceiro(HOJE))).toBeGreaterThan(
+      bytesDoPromptCom(PERGUNTA, promptClassificacao(HOJE)),
+    )
+  })
+
+  it('o teto cobre o PIOR CASO possivel: maior prompt + 500 code points de 4 bytes', () => {
+    // A pergunta e limitada a 500 code points por `validarPergunta`, e 4 bytes por
+    // code point e o teto do UTF-8 (emoji). E este par que o guard de fronteira
+    // compara na orquestracao. Se um prompt crescer alem da folga, ESTE teste fica
+    // vermelho ANTES de o pedido passar do teto em producao — que e exatamente o
+    // trabalho que o guard de fronteira nao conseguia fazer medindo o prompt errado.
+    const piorPergunta = '😀'.repeat(500)
+    expect(bytesDoMaiorPayload(piorPergunta, HOJE, true)).toBeLessThanOrEqual(LIMITE_PAYLOAD_BYTES)
   })
 })

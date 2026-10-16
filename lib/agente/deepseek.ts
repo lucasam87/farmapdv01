@@ -248,6 +248,41 @@ export function bytesDoPayload(pergunta: string, hoje: string): number {
   )
 }
 
+/**
+ * Bytes do payload REAL de um prompt qualquer: o do sistema mais a pergunta.
+ *
+ * Esta e sempre a soma que sai: `enviarClassificacao` monta exatamente
+ * `[system, user]` (ver o corpo em `:312-317`), e e sobre ela que o teto de 4.096
+ * bytes dimensiona o pedido.
+ */
+export function bytesDoPromptCom(pergunta: string, promptDeSistema: string): number {
+  return bytesUtf8(promptDeSistema) + bytesUtf8(pergunta)
+}
+
+/**
+ * O MAIOR payload que esta pergunta pode enviar — o numero que o teto tem de
+ * comparar.
+ *
+ * `bytesDoPayload` mede SO o classificador legado. Com o grafo ligado quem sai e
+ * `promptAssunto` na chamada 1 e `promptFinanceiro` (ou o legado, quando o
+ * coordenador escolhe um especialista ainda nao ligado) na chamada 2 — e nenhum
+ * deles e necessariamente o menor. Medir o errado deixava a maior das chamadas
+ * passar do teto sem ninguem conferir, e um guard que mede outro prompt nao freia
+ * nada: `promptFinanceiro` ja e o maior dos tres.
+ *
+ * O conjunto abaixo e o universo FECHADO das chamadas possiveis; se um prompt novo
+ * entrar no grafo, ele entra aqui tambem.
+ *
+ * Continua sendo UMA leitura, antes de reservar orcamento, para recusar de graca:
+ * conferir dentro de `enviarClassificacao` so cobraria depois de ja ter reservado.
+ */
+export function bytesDoMaiorPayload(pergunta: string, hoje: string, comGrafo: boolean): number {
+  const prompts = comGrafo
+    ? [promptAssunto(hoje), promptFinanceiro(hoje), promptClassificacao(hoje)]
+    : [promptClassificacao(hoje)]
+  return Math.max(...prompts.map((prompt) => bytesDoPromptCom(pergunta, prompt)))
+}
+
 function baseUrl(): string {
   // Em PRODUCAO o destino e cravado. `DEEPSEEK_BASE_URL` existe para o teste
   // apontar a rota para um stub local (ruling R3), e so. Se ela existisse tambem
