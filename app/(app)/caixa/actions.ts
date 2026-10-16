@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { criarClienteServidor } from '@/lib/supabase/server'
 import { perfilAtual } from '@/lib/auth/perfil'
 import { formatarMoeda } from '@/lib/format'
-import { validarValorInicial, validarMovimento, validarFechamento } from './validacao'
+import { validarValorInicial, validarMovimento, validarFechamento, validarPapelFechamento } from './validacao'
 
 // As tres acoes da tela de caixa. Cada uma valida ANTES de chamar a RPC: o banco
 // tambem recusa (030_caixa.sql cobre as 30 assercoes dele), mas o erro que ele
@@ -13,7 +13,8 @@ import { validarValorInicial, validarMovimento, validarFechamento } from './vali
 export type Resultado = { ok: true; mensagem: string } | { ok: false; mensagem: string }
 
 const SEM_PERFIL = 'Usuário sem perfil cadastrado. Fale com o responsável.'
-const SO_O_DONO = 'Só o dono pode fechar o caixa.'
+// Nao ha constante de "so o dono" para o fechamento: desde a migration 018 o
+// atendente tambem fecha, e a checagem de papel vive em validarPapelFechamento.
 
 /** Le o esperado da view `v_caixa_atual` — nunca de um campo do formulario. */
 async function esperadoDaSessaoAberta(): Promise<number | null> {
@@ -76,7 +77,8 @@ export async function movimentarCaixa(
 export async function fecharCaixa(_anterior: Resultado | null, formData: FormData): Promise<Resultado> {
   const perfil = await perfilAtual()
   if (!perfil) return { ok: false, mensagem: SEM_PERFIL }
-  if (perfil.papel !== 'dono') return { ok: false, mensagem: SO_O_DONO }
+  const papel = validarPapelFechamento(perfil.papel)
+  if (!papel.ok) return papel
 
   // O esperado vem da VIEW, e nao de um campo escondido do formulario: um campo
   // escondido o operador consegue mexer pelo navegador, e ai a diferenca do

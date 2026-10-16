@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validarValorInicial, validarMovimento, validarFechamento } from './validacao'
+import { validarValorInicial, validarMovimento, validarFechamento, validarPapelFechamento } from './validacao'
 
 // A tela de caixa depende de tres RPCs que ja existem e estao testadas
 // (030_caixa.sql, 30 assercoes). O que estes testes cobrem e o que a TELA recusa
@@ -93,5 +93,28 @@ describe('validarFechamento', () => {
 
   it('caixa que abriu com zero e fechou com zero passa', () => {
     expect(validarFechamento('0', '', 0)).toEqual({ ok: true, valor: { contado: 0, observacao: null } })
+  })
+})
+
+describe('validarPapelFechamento', () => {
+  it('dono fecha', () => {
+    expect(validarPapelFechamento('dono')).toEqual({ ok: true, valor: true })
+  })
+
+  it('ATENDENTE TAMBEM FECHA — a regressao que travava o dia seguinte', () => {
+    // A migration 018 (14/10/2026) liberou o fechamento para o atendente, e o
+    // `130_fechamento_atendente.sql` prende o lado do banco. A action ficou para
+    // tras exigindo so o dono: o atendente ABRIA o caixa (abrir_caixa nunca
+    // checou papel), preenchia o fechamento e levava 'So o dono pode fechar o
+    // caixa.'. A sessao ficava aberta e o dia seguinte travava em 'Ja existe um
+    // caixa aberto.' (004). Este caso existe para a divergencia nao voltar.
+    expect(validarPapelFechamento('atendente')).toEqual({ ok: true, valor: true })
+  })
+
+  it('papel que nao existe no banco e recusado', () => {
+    // perfis.papel tem check in ('dono','atendente') desde a 001: qualquer outro
+    // valor e dado corrompido, e a recusa aqui evita chamar a RPC para nada.
+    expect(validarPapelFechamento('gerente').ok).toBe(false)
+    expect(validarPapelFechamento('').ok).toBe(false)
   })
 })

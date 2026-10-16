@@ -10,6 +10,7 @@
 //   - FECHAMENTO COM DIFERENCA E SEM OBSERVACAO. A spec 8.3 diz que diferenca
 //     diferente de zero nao bloqueia o fechamento, mas EXIGE observacao. O banco
 //     recusa; aqui a mensagem diz a diferenca e para que lado ela foi.
+//   - FECHAMENTO POR QUEM NAO E DONO NEM ATENDENTE (migration 018).
 
 import { parsearCentavos } from '@/lib/dinheiro'
 import { formatarMoeda } from '@/lib/format'
@@ -88,4 +89,21 @@ export function validarFechamento(
   }
 
   return { ok: true, valor: { contado: centavos, observacao: limpo === '' ? null : limpo } }
+}
+
+/**
+ * Quem pode fechar o caixa. Espelha a checagem da RPC `fechar_caixa`, que a
+ * migration 018 (14/10/2026) mudou para aceitar dono E atendente.
+ *
+ * Esta regra existe escrita duas vezes de proposito — o banco recusa e a tela
+ * explica antes, como todas as outras deste arquivo. Mas ela JA DIVERGIU UMA VEZ:
+ * a action exigia SO o dono, o atendente abria o caixa (abrir_caixa nunca checou
+ * papel) e nao conseguia fechar. Com o dono ausente a sessao ficava aberta e o dia
+ * seguinte travava em 'Ja existe um caixa aberto.'. Se a RPC mudar de novo, este
+ * teste tem de mudar junto: `tests/sql/casos/130_fechamento_atendente.sql` prende
+ * o lado do banco.
+ */
+export function validarPapelFechamento(papel: string): Resultado<true> {
+  if (papel === 'dono' || papel === 'atendente') return { ok: true, valor: true }
+  return { ok: false, mensagem: 'Só o dono ou o atendente podem fechar o caixa.' }
 }
