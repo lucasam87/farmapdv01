@@ -271,6 +271,40 @@ describe('com o grafo ligado', () => {
     expect(chamadas.reconciliar).toHaveLength(0)
   })
 
+  it('assunto ENTENDIDO sem especialista para de dizer "nao entendi a pergunta"', async () => {
+    // ⚠️ Medido em PRODUCAO em 15/10/2026: "Quanto tem na gaveta agora?" devolvia
+    // "Nao entendi a pergunta. Tente reformular com vendas, produtos mais vendidos,
+    // estoque baixo ou produtos parados." — DUAS falsidades: o coordenador ENTENDEU
+    // (disse `caixa`) e a sugestao manda a pessoa perguntar de outra coisa.
+    const { deps } = montar({
+      assunto: classificacao('{"assunto":"caixa"}'),
+      // O classificador de hoje nao tem intencao de caixa: devolve fora_escopo.
+      classificar: classificacao('{"intencao":"fora_escopo"}'),
+    })
+    const r = await processarPergunta(entrada(), deps)
+
+    expect(r.status).toBe(400)
+    const texto = JSON.stringify(r.corpo)
+    expect(texto).toContain('caixa')
+    expect(texto).not.toContain('Não entendi')
+  })
+
+  it('fora_escopo de VERDADE continua dizendo "nao entendi"', async () => {
+    // O contrario tambem tem de valer: quando o coordenador NAO entendeu, a mensagem
+    // generica e a verdadeira.
+    const { deps } = montar({ assunto: classificacao('{"assunto":"fora_escopo"}') })
+    const r = await processarPergunta(entrada(), deps)
+
+    expect(r.status).toBe(400)
+    expect(JSON.stringify(r.corpo)).toContain('Não entendi')
+  })
+
+  it('sem grafo, o assunto nem existe e a mensagem generica permanece', async () => {
+    const { deps } = montar({ ligarGrafo: false })
+    const r = await processarPergunta(entrada(), deps)
+    expect(r.status).toBe(200)
+  })
+
   it('coordenador com falha PRE-ENVIO libera a reserva', async () => {
     const { deps, chamadas } = montar({ fechar: true })
     const r = await processarPergunta(entrada(), deps)
