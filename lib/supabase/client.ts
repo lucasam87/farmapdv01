@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr'
+import { ambienteSupabase } from './ambiente'
 
 /**
  * Cliente Supabase para uso em Client Components ('use client').
@@ -11,8 +12,6 @@ import { createBrowserClient } from '@supabase/ssr'
  * A chave secreta nunca chega aqui.
  */
 export function criarClienteNavegador() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
+  const { url, chavePublica } = ambienteSupabase()
+  return createBrowserClient(url, chavePublica)
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { rotaPublica } from '@/lib/auth/rotas'
+import { ambienteSupabase } from '@/lib/supabase/ambiente'
 
 /**
  * No Next 16 o antigo `middleware.ts` passou a se chamar `proxy.ts`, e a função
@@ -16,31 +17,33 @@ import { rotaPublica } from '@/lib/auth/rotas'
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet, headers) {
-          // Repassa os cookies para a requisição (o Server Component os lê)
-          // e escreve a resposta nova com eles.
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          response = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options)
-          })
-          // Sem estes cabeçalhos, um CDN (a Vercel) pode cachear uma resposta
-          // com token de sessão e servir a um usuário diferente.
-          Object.entries(headers).forEach(([chave, valor]) => {
-            response.headers.set(chave, valor)
-          })
-        },
+  // As duas variáveis são lidas por aqui, e não direto do `process.env`, para a
+  // falta delas virar uma mensagem que diz o que fazer — ver
+  // `lib/supabase/ambiente.ts`. Este é o primeiro código que roda em qualquer
+  // rota, então é aqui que um clone sem `.env.local` quebra.
+  const { url, chavePublica } = ambienteSupabase()
+
+  const supabase = createServerClient(url, chavePublica, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll()
+      },
+      setAll(cookiesToSet, headers) {
+        // Repassa os cookies para a requisição (o Server Component os lê)
+        // e escreve a resposta nova com eles.
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+        response = NextResponse.next({ request })
+        cookiesToSet.forEach(({ name, value, options }) => {
+          response.cookies.set(name, value, options)
+        })
+        // Sem estes cabeçalhos, um CDN (a Vercel) pode cachear uma resposta
+        // com token de sessão e servir a um usuário diferente.
+        Object.entries(headers).forEach(([chave, valor]) => {
+          response.headers.set(chave, valor)
+        })
       },
     },
-  )
+  })
 
   // getUser() valida o token no servidor de Auth.
   // getSession() apenas lê o cookie, sem validar — não serve para decidir acesso.
