@@ -310,6 +310,14 @@ Gatilho: planilha de distribuidora com custo unitário de 3 casas, ou célula de
 Impacto: preço mil vezes maior no balcão, aplicado por importação — e o mesmo parser alimenta o cadastro
 manual, então digitar "26.275" no formulário tem o mesmo destino.
 
+> **⚠️ REVISADO EM 15/10/2026 — este item é P1, não P0.** Ao conferir a evidência antes de corrigir, três
+> fatos reduziram o alcance: (1) a prévia **já** compara a soma lida com o TOTAL impresso no arquivo
+> (`somaConferida`, `formulario.tsx:115`) e lista preços acima do limite do `integer` (`precosZerados`), então
+> o caso sistemático com rodapé já era denunciado; (2) três dígitos depois do separador significam **milhar**
+> na leitura pt-BR — é o parser que está certo, e "1.234" provando isso; (3) centavos é a unidade atômica do
+> schema, então um preço com 3 casas decimais **não existe** no banco. O que sobra — arquivo com ponto
+> decimal, 3 casas e **sem** rodapé TOTAL — foi mitigado com aviso na prévia (commit `4649be9`). Ver seção 11.
+
 **P0-4 · Baixa de crediário sem idempotência: o mesmo pagamento pode ser lançado duas vezes.**
 `014_receber_pagamento.sql:95-97` sempre insere; não há `unique` em `crediario_lancamentos`
 (`001:178-189`) nem em `caixa_movimentos` (`001:142-153`). A única defesa é o botão desabilitado
@@ -590,13 +598,50 @@ o uso em paralelo com o Nex.
 
 | Ordem | Item | Esforço | Por quê primeiro |
 |---|---|---|---|
-| 1 | **P1-1** caixa do atendente | 1 linha (`caixa/actions.ts:79`) | Trava a operação diária e é o cenário de teste mais básico |
-| 2 | **P0-2** autoridade do desconto | Migration pequena + decisão de regra | É dinheiro saindo pelo caminho mais curto |
+| ~~1~~ | ~~**P1-1** caixa do atendente~~ **FEITO** (`8c97363`) | 1 linha | Travava a operação diária |
+| 2 | **P0-2** autoridade do desconto | Migration pequena + **regra sua** | É dinheiro saindo pelo caminho mais curto |
 | 3 | **P0-4** chave de idempotência na baixa | Uma coluna `unique` + parâmetro | Mesmo padrão que a venda já usa (`001:88`) |
-| 4 | **P0-1** escrita direta nas tabelas | Migração de policies, mas **exige decisão**: o sistema é "todo mundo faz tudo" ou o atendente tem escopo? | Fecha o maior buraco, e a decisão tem de vir antes do código |
-| 5 | **P0-3** preço de 3 decimais | Regra no parser + aviso na prévia | Impede preço 1000× no balcão |
+| 4 | **P0-1** escrita direta nas tabelas | Migração **escrita** (`021`), falta aplicar | Fecha o maior buraco; não exige decisão de escopo |
+| 5 | **P0-3 → P1** preço de 3 decimais | **Aviso entregue** (`4649be9`); falta decidir se recusa | A prévia agora avisa; a regra é sua |
 | 6 | **P1-6** data do agente | Comparar a pergunta com o período devolvido, ou fixar o período em código | É a classe de bug que já custou um dia |
 | 7 | **P1-2** caixa por operador/terminal | Reconciliar `004:45-47` com `001:78-79` | Pré-requisito real de multi-loja |
+
+---
+
+## 11. Atualizações depois da auditoria
+
+A auditoria acima é o retrato do commit `c140fa4`. Esta seção registra o que mudou depois dela, para o
+documento não envelhecer mentindo.
+
+### `8c97363` — P1-1 corrigido (atendente fecha o caixa)
+
+A action `caixa/actions.ts` passou a checar o papel por `validarPapelFechamento` (`validacao.ts`), que aceita
+dono **e** atendente, espelhando `018:52-54`. A constante `SO_O_DONO` foi removida do caixa — era a única
+cópia divergente (as de importação continuam, porque nesses o banco concorda: `009:61-63`, `015:251-253`).
+Três testes novos prendem a regressão; a suíte foi de 539 para 542 casos.
+
+### `4649be9` — P0-3 rebaixado para P1 e mitigado
+
+O aviso agora existe onde faltava: `convencaoDecimal` (`lib/tabela.ts`) infere o separador decimal **pelo
+próprio arquivo** e a prévia acusa os preços com 3+ dígitos depois desse mesmo separador, mostrando a
+contagem e até 5 exemplos. **Nada é recusado nem corrigido** — a linha entra como foi lida e o dono decide.
+Sem essa inferência o aviso daria falso positivo em todo arquivo que usa ponto como milhar. Seis testes
+novos; a suíte foi de 542 para 548. O que continua em aberto é a **regra**: recusar a linha, ou só avisar.
+
+### P0-1 — a decisão que eu disse que era necessária, não era
+
+Ao preparar a correção, a varredura do repositório inteiro (`.ts`, `.tsx`, `.mjs`, `.js`) mostrou **zero**
+`.insert(`, `.update(`, `.delete(` e `.upsert(`: toda escrita passa por RPC `security definer`, que roda com
+privilégio do dono e **não depende** do grant de quem chama. Fechar a porta lateral do PostgREST, portanto,
+não quebra nada e não exige decidir se o atendente tem escopo — a pergunta do P0-1 continua aberta para
+outros fins (leitura e multi-loja), mas não bloqueia esta correção.
+
+**Escrito e NÃO aplicado:** `supabase/migrations/021_fechar_escrita_direta.sql` e o caso
+`tests/sql/casos/160_escrita_direta.sql` ficaram **fora do git** de propósito. Aplicar exige o banco de
+produção (`npm run migrar 021_fechar_escrita_direta.sql`) e provar exige
+`npm run test:sql -- 160_escrita_direta.sql` — e commitar antes disso deixaria a migração armada para o
+`npm run migrar` (que aplica todas as pendentes) rodar sem nunca ter passado. Nenhum SQL desta auditoria foi
+executado: não havia `.env.local` em nenhuma das duas máquinas.
 
 ---
 
