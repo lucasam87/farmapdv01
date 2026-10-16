@@ -59,6 +59,11 @@ export type Previa = {
   /* Quantas linhas ficaram de fora por repetirem um codigo de barras. */
   ignoradasPorRepeticao: number
   /*
+   * Linhas validas SEM codigo de barras. A importacao casa pelo codigo, entao elas
+   * criam cadastro novo em TODA reimportacao — a tela avisa antes.
+   */
+  semCodigo: number
+  /*
    * A escolha do checkbox da tela VIAJA no estado: sao dois formularios (o de
    * analise e o de confirmacao) e antes o de confirmacao mandava `sim` fixo, o
    * que tornava o checkbox inerte — desmarcar e confirmar atualizava tudo igual.
@@ -235,6 +240,7 @@ export async function analisarArquivo(
     precosAmbiguos: analise.precosAmbiguos,
     invertidasCorrigidas: analise.invertidasCorrigidas,
     ignoradasPorRepeticao: analise.ignoradasPorRepeticao,
+    semCodigo: analise.semCodigo,
     atualizar,
     existentes,
     faltando: analise.faltando,

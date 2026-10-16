@@ -511,3 +511,53 @@ describe('separador ambiguo (milhar que podia ser decimal)', () => {
     expect(convencaoDecimal([['A', '4,50']], mapa)).toBe('virgula')
   })
 })
+
+describe('semCodigo — a linha que sempre cria cadastro novo', () => {
+  // A importacao casa com o catalogo pelo CODIGO, e a deduplicacao so olha linha
+  // que tem codigo (`lib/tabela.ts:506`). Entao produto sem codigo nao casa e nao
+  // deduplica: reimportar o mesmo arquivo cria outro cadastro. Nada e recusado — o
+  // catalogo real tem produto sem EAN — e a previa avisa.
+
+  it('conta a linha valida sem codigo de barras', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [
+        ['DIPIRONA', '', '4,50'],
+        ['PARACETAMOL', '7891317026370', '6,90'],
+      ],
+    })
+    expect(r.semCodigo).toBe(1)
+    expect(r.validas).toBe(2)
+  })
+
+  it('nao conta a linha COM codigo', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [['DIPIRONA', '7891317026370', '4,50']],
+    })
+    expect(r.semCodigo).toBe(0)
+  })
+
+  it('nao conta a linha que nem vai ser gravada', () => {
+    // Sem nome a linha e invalida e nao chega ao banco: avisar sobre ela seria ruido.
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [['', '', '4,50']],
+    })
+    expect(r.invalidas).toBe(1)
+    expect(r.semCodigo).toBe(0)
+  })
+
+  it('duas linhas sem codigo com o MESMO nome passam as duas — e por isso duplica', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'codigo', 'preco'],
+      linhas: [
+        ['DIPIRONA', '', '4,50'],
+        ['DIPIRONA', '', '4,50'],
+      ],
+    })
+    expect(r.semCodigo).toBe(2)
+    expect(r.validas).toBe(2)
+    expect(r.ignoradasPorRepeticao).toBe(0)
+  })
+})

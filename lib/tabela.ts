@@ -133,6 +133,19 @@ export type ResultadoAnalise = {
    */
   ignoradasPorRepeticao: number
   /**
+   * Linhas VALIDAS que vao ser gravadas SEM codigo de barras.
+   *
+   * O casamento da importacao com o catalogo e pelo CODIGO (`009:137-140`), e a
+   * deduplicacao daqui so olha linha que TEM codigo (`:506`). Entao produto sem
+   * codigo nao casa com nada e nao deduplica: toda reimportacao do mesmo arquivo
+   * cria um cadastro NOVO — preco e estoque divididos entre dois cadastros, busca
+   * com dois resultados, historico de venda partido.
+   *
+   * Nada e recusado (o catalogo real tem produto sem EAN): a previa avisa, e quem
+   * decide preencher o codigo no sistema antigo e o dono.
+   */
+  semCodigo: number
+  /**
    * true SOMENTE quando existe total impresso e ele bate ao centavo. Sem total
    * impresso isto e false de proposito: nao conferido nao e conferido.
    */
@@ -515,6 +528,13 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
 
   const validas = linhasUnicas.filter((l) => l.erros.length === 0).length
 
+  // Linha VALIDA e sem codigo: nao casa com o catalogo e nao participa da
+  // deduplicacao, entao reimportar o mesmo arquivo cria outro cadastro. Contada
+  // aqui (e nao no laco) de proposito: so o que REALMENTE vai ser gravado conta.
+  const semCodigo = linhasUnicas.filter(
+    (l) => l.erros.length === 0 && l.codigo_barras === null,
+  ).length
+
   // A SOMA QUE SERA GRAVADA e a das linhas que a RPC vai receber de verdade:
   // linha com erro nao chega, e repetido so entra o primeiro. Antes esta soma era
   // acumulada no laco e incluia as 92 linhas descartadas por repeticao — a previa
@@ -541,6 +561,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     precosZerados,
     precosAmbiguos,
     ignoradasPorRepeticao,
+    semCodigo,
     validas,
     invalidas: linhasUnicas.length - validas,
     avisos,

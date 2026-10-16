@@ -248,6 +248,21 @@ export function FormularioImportacao() {
             </p>
           ) : null}
 
+          {/* Sem codigo de barras a linha NAO casa com o catalogo e nao deduplica
+              (`lib/tabela.ts:506`): cada reimportacao do mesmo arquivo cria outro
+              cadastro, e preco e estoque ficam divididos entre os dois. Nada e
+              recusado — o catalogo real tem produto sem EAN. */}
+          {previa.semCodigo > 0 ? (
+            <p role="alert" className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
+              <strong>{previa.semCodigo} produto(s) vêm SEM código de barras.</strong> A importação
+              casa com o catálogo <strong>pelo código</strong>, então esses não encontram o produto
+              já cadastrado e criam <strong>cadastro novo</strong> — inclusive numa próxima
+              importação do mesmo arquivo, porque produto sem código não entra na deduplicação.
+              Preço e estoque ficariam divididos entre dois cadastros. Vale preencher o código no
+              sistema antigo quando puder.
+            </p>
+          ) : null}
+
           {previa.primeiras.length > 0 ? (
             <div className="mt-6 overflow-x-auto">
               <p className="mb-2 text-sm text-slate-500">
