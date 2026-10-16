@@ -102,6 +102,28 @@ export type ResultadoAnalise = {
    */
   precosZerados: { nome: string; campo: 'preco_venda' | 'preco_custo'; valorLido: number }[]
   /**
+   * Precos com 3 ou mais digitos depois do separador QUE ESTE ARQUIVO USA como
+   * decimal — o unico caso em que "26.275" fica genuinamente ambiguo.
+   *
+   * Dentro da celula as duas leituras sao possiveis: vinte e seis mil e duzentos e
+   * setenta e cinco (ponto de milhar) ou vinte e seis inteiros e 275 milesimos
+   * (ponto decimal). `parsearCentavos` decide pelo numero de digitos (3+ = milhar),
+   * que e a leitura pt-BR correta — mas se o arquivo INTEIRO usa ponto como decimal
+   * (`analisarTabela` aceita "4.5" como R$ 4,50, provado em `tabela.test.ts`), entao
+   * ".275" tambem e decimal e o preco foi lido MIL VEZES maior.
+   *
+   * Nada e recusado nem corrigido por causa disto: a linha passa como foi lida e a
+   * previa AVISA, porque dado do dono nao se corrige calado e quem mexe na planilha
+   * e ele. Complementa — nao substitui — a conferencia `somaConferida`, que so
+   * existe quando o arquivo traz a linha de TOTAL no rodape.
+   */
+  precosAmbiguos: {
+    nome: string
+    campo: 'preco_venda' | 'preco_custo'
+    texto: string
+    valorLido: number
+  }[]
+  /**
    * Quantas linhas foram DEIXADAS DE FORA por repetirem um codigo de barras.
    *
    * Decisao do Lucas (07/10/2026): o catalogo real do sistema antigo tem EAN
@@ -283,8 +305,57 @@ function temLetra(valor: string): boolean {
   return /[A-Za-zÀ-ÿ]/.test(valor)
 }
 
+/**
+ * Qual separador ESTE ARQUIVO usa como decimal?
+ *
+ * E a pista que falta para ler "26.275": dentro da celula as duas leituras sao
+ * possiveis, no arquivo inteiro nao sao. Se alguma celula de preco tem 1 ou 2
+ * digitos depois do PONTO ("4.50"), o ponto e o separador decimal deste arquivo —
+ * e entao ".275" tambem e decimal. O mesmo vale para a virgula.
+ *
+ * `null` quando os dois aparecem (arquivo misturado) ou quando nenhum aparece
+ * (arquivo sem centavos): nao da para acusar nada sem inventar.
+ */
+export function convencaoDecimal(
+  linhas: string[][],
+  mapa: Record<string, number>,
+): 'ponto' | 'virgula' | null {
+  const colunas = [mapa.preco_venda, mapa.preco_custo].filter(
+    (indice): indice is number => indice !== undefined,
+  )
+  let ponto = false
+  let virgula = false
+
+  for (const linha of linhas) {
+    if (ehRodape(linha)) continue
+    for (const coluna of colunas) {
+      const achado = (linha[coluna] ?? '').trim().match(/[.,]\d{1,2}$/)
+      if (achado === null) continue
+      if (achado[0][0] === '.') ponto = true
+      else virgula = true
+    }
+  }
+
+  if (ponto && !virgula) return 'ponto'
+  if (virgula && !ponto) return 'virgula'
+  return null
+}
+
+/**
+ * A celula termina em 3+ digitos depois do separador E esse separador e o decimal
+ * DESTE arquivo — as duas condicoes juntas. So assim "26.275" e ambiguo: num
+ * arquivo que usa virgula como decimal, "26.275" e inequivocamente vinte e seis mil.
+ */
+function separadorAmbiguo(texto: string, convencao: 'ponto' | 'virgula' | null): boolean {
+  if (convencao === null) return false
+  const marca = convencao === 'ponto' ? '\\.' : ','
+  return new RegExp(marca + '\\d{3,}$').test(texto.trim())
+}
+
 export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   const { mapa, faltando } = indiceDasColunas(tabela.colunas)
+  // Lida UMA vez, e ANTES do laco: a convencao e do arquivo, nao da linha.
+  const convencao = convencaoDecimal(tabela.linhas, mapa)
 
   const linhas: LinhaProduto[] = []
   const avisos: string[] = []
@@ -294,6 +365,12 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
   let semZeros = 0
   let invertidasCorrigidas = 0
   const precosZerados: { nome: string; campo: 'preco_venda' | 'preco_custo'; valorLido: number }[] = []
+  const precosAmbiguos: {
+    nome: string
+    campo: 'preco_venda' | 'preco_custo'
+    texto: string
+    valorLido: number
+  }[] = []
 
   for (const linha of tabela.linhas) {
     if (ehRodape(linha)) {
@@ -350,6 +427,14 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
         precosZerados.push({ nome, campo: 'preco_custo', valorLido: custo })
       } else {
         precoCusto = custo
+        if (separadorAmbiguo(custoTexto ?? '', convencao)) {
+          precosAmbiguos.push({
+            nome,
+            campo: 'preco_custo',
+            texto: (custoTexto ?? '').trim(),
+            valorLido: custo,
+          })
+        }
       }
     }
 
@@ -365,6 +450,14 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
         precosZerados.push({ nome, campo: 'preco_venda', valorLido: venda })
       } else {
         precoVenda = venda
+        if (separadorAmbiguo(vendaTexto ?? '', convencao)) {
+          precosAmbiguos.push({
+            nome,
+            campo: 'preco_venda',
+            texto: (vendaTexto ?? '').trim(),
+            valorLido: venda,
+          })
+        }
         // Soma de TUDO que foi lido, inclusive as linhas que a deduplicacao vai
         // descartar depois: e com esta soma que o TOTAL impresso no arquivo se
         // compara (o sistema antigo somou todas as linhas dele).
@@ -446,6 +539,7 @@ export function analisarTabela(tabela: Tabela): ResultadoAnalise {
     codigosRepetidos,
     invertidasCorrigidas,
     precosZerados,
+    precosAmbiguos,
     ignoradasPorRepeticao,
     validas,
     invalidas: linhasUnicas.length - validas,

@@ -43,6 +43,17 @@ export type Previa = {
   codigosRepetidos: string[]
   /* Precos absurdos que entraram com zero (ou sem a chave, no caso do custo). */
   precosZerados: { nome: string; campo: 'preco_venda' | 'preco_custo'; valorLido: number }[]
+  /*
+   * Precos com 3+ digitos depois do separador que ESTE arquivo usa como decimal:
+   * lidos como milhar, entram mil vezes maiores que o valor da planilha. Nada e
+   * recusado — a tela avisa e o dono decide se corrige o arquivo.
+   */
+  precosAmbiguos: {
+    nome: string
+    campo: 'preco_venda' | 'preco_custo'
+    texto: string
+    valorLido: number
+  }[]
   /* Linhas que tinham nome e codigo trocados no arquivo e foram corrigidas. */
   invertidasCorrigidas: number
   /* Quantas linhas ficaram de fora por repetirem um codigo de barras. */
@@ -221,6 +232,7 @@ export async function analisarArquivo(
     colunasPresentes: analise.colunasPresentes,
     codigosRepetidos: analise.codigosRepetidos,
     precosZerados: analise.precosZerados,
+    precosAmbiguos: analise.precosAmbiguos,
     invertidasCorrigidas: analise.invertidasCorrigidas,
     ignoradasPorRepeticao: analise.ignoradasPorRepeticao,
     atualizar,

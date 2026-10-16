@@ -206,6 +206,32 @@ export function FormularioImportacao() {
             </div>
           ) : null}
 
+          {/* Ambiguidade real de separador: "26.275" tem 3 digitos depois do ponto,
+              e este arquivo usa PONTO como decimal em outras linhas (senao nao
+              apareceria aqui). Lido como milhar, o preco entra MIL VEZES maior.
+              Nada foi recusado nem corrigido: a linha entra como foi lida, e quem
+              sabe se a planilha errou e o dono. Este aviso cobre o caso em que a
+              conferencia do rodape nao ajuda — arquivo sem linha de TOTAL. */}
+          {previa.precosAmbiguos.length > 0 ? (
+            <div role="alert" className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
+              <p>
+                <strong>
+                  {previa.precosAmbiguos.length} preço(s) foram lidos como MILHAR
+                </strong>{' '}
+                porque têm 3 dígitos depois do separador — e este arquivo usa esse mesmo
+                separador como decimal em outras linhas. Se na planilha esses valores eram
+                decimais, eles entraram <strong>mil vezes maiores</strong>. São eles:{' '}
+                {previa.precosAmbiguos
+                  .slice(0, 5)
+                  .map((p) => `"${p.texto}" → ${formatarMoeda(p.valorLido)}`)
+                  .join('; ')}
+                {previa.precosAmbiguos.length > 5
+                  ? ` … e mais ${previa.precosAmbiguos.length - 5}.`
+                  : '.'}
+              </p>
+            </div>
+          ) : null}
+
           {previa.codigosRepetidos.length > 0 ? (
             <p role="alert" className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-base text-amber-800">
               <strong>

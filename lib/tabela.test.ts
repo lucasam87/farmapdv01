@@ -6,6 +6,7 @@ import {
   indiceDasColunas,
   ehRodape,
   analisarTabela,
+  convencaoDecimal,
 } from './tabela'
 import { lerXlsx } from './xlsx'
 
@@ -423,5 +424,90 @@ describe('analisarTabela com o arquivo do exportador', () => {
     const r = analisarTabela(tabelaDe('produtos.xlsx'))
     expect(r.totalImpresso).toBeNull()
     expect(r.somaConferida).toBe(false)
+  })
+})
+
+describe('separador ambiguo (milhar que podia ser decimal)', () => {
+  // "26.275" tem DUAS leituras e a celula sozinha nao decide qual. O ARQUIVO
+  // decide: se ele usa ponto como decimal em outra linha ("4.50" = R$ 4,50, como o
+  // primeiro teste deste arquivo prova), entao ".275" tambem e decimal e o preco foi
+  // lido MIL VEZES maior. Se o arquivo usa virgula como decimal, "26.275" e vinte e
+  // seis mil e esta certo — e nao se acusa nada.
+  //
+  // Nada e recusado nem corrigido: a previa avisa e o dono decide. Este aviso cobre
+  // o arquivo SEM linha de TOTAL, onde a conferencia `somaConferida` nao ajuda.
+
+  it('acusa quando o arquivo usa PONTO como decimal', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco'],
+      linhas: [
+        ['DIPIRONA', '26.275'],
+        ['OUTRO', '4.50'],
+      ],
+    })
+    expect(r.precosAmbiguos).toHaveLength(1)
+    expect(r.precosAmbiguos[0].nome).toBe('DIPIRONA')
+    expect(r.precosAmbiguos[0].texto).toBe('26.275')
+    expect(r.precosAmbiguos[0].valorLido).toBe(2627500)
+    // A LINHA NAO E RECUSADA: o aviso e informacao, nao recusa.
+    expect(r.invalidas).toBe(0)
+  })
+
+  it('nao acusa quando o arquivo usa VIRGULA como decimal (ponto e milhar)', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco'],
+      linhas: [
+        ['DIPIRONA', '26.275'],
+        ['OUTRO', '4,50'],
+      ],
+    })
+    expect(r.precosAmbiguos).toHaveLength(0)
+    expect(r.linhas[0].preco_venda).toBe(2627500)
+  })
+
+  it('acusa a virgula quando a virgula e o decimal do arquivo', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco'],
+      linhas: [
+        ['DIPIRONA', '26,275'],
+        ['OUTRO', '4,50'],
+      ],
+    })
+    expect(r.precosAmbiguos).toHaveLength(1)
+    expect(r.precosAmbiguos[0].texto).toBe('26,275')
+  })
+
+  it('acusa o preco de CUSTO tambem, e nao so o de venda', () => {
+    const r = analisarTabela({
+      colunas: ['nome', 'preco', 'custo'],
+      linhas: [
+        ['DIPIRONA', '4.50', '26.275'],
+        ['OUTRO', '5.50', '1.00'],
+      ],
+    })
+    expect(r.precosAmbiguos).toHaveLength(1)
+    expect(r.precosAmbiguos[0].campo).toBe('preco_custo')
+  })
+
+  it('sem nenhuma celula com centavos, nao acusa (nao da para saber)', () => {
+    // LIMITE DECLARADO: um arquivo que nunca usa decimal nao diz qual separador ele
+    // usaria para decimal. Acusar aqui seria inventar.
+    const r = analisarTabela({ colunas: ['nome', 'preco'], linhas: [['DIPIRONA', '26.275']] })
+    expect(r.precosAmbiguos).toHaveLength(0)
+  })
+
+  it('a convencao e null quando os dois separadores aparecem no arquivo', () => {
+    const { mapa } = indiceDasColunas(['nome', 'preco'])
+    expect(
+      convencaoDecimal(
+        [
+          ['A', '4.50'],
+          ['B', '4,50'],
+        ],
+        mapa,
+      ),
+    ).toBeNull()
+    expect(convencaoDecimal([['A', '4.50']], mapa)).toBe('ponto')
+    expect(convencaoDecimal([['A', '4,50']], mapa)).toBe('virgula')
   })
 })
