@@ -234,6 +234,40 @@ function periodoPadraoDe30Dias(hoje: string): Periodo {
  * teto de `DIAS_MAXIMOS` e um so — senao o app pediria a uma tela um periodo que
  * ele mesmo recusa na outra.
  */
+// ============================================================
+// ASSUNTO que o COORDENADOR entende e o ESPECIALISTA ainda nao existe.
+//
+// ⚠️ Medido em PRODUCAO em 15/10/2026: "Quanto tem na gaveta agora?" e "Quem esta
+// me devendo no crediario?" devolviam **"Nao entendi a pergunta. Tente reformular
+// com vendas, produtos mais vendidos, estoque baixo ou produtos parados."** — DUAS
+// falsidades, as mesmas que o motivo 'periodo' corrigiu: o coordenador ENTENDEU a
+// pergunta, e a sugestao manda a pessoa perguntar de outra coisa.
+//
+// Enquanto os quatro especialistas nao existirem, a resposta honesta e dizer o que
+// se entendeu e o que ainda nao se sabe — nao fingir que nao entendeu.
+// ============================================================
+
+export type AssuntoSemEspecialista = Exclude<Assunto, 'financeiro' | 'fora_escopo'>
+
+const AREA_DO_ASSUNTO: Record<AssuntoSemEspecialista, string> = {
+  estoque: 'estoque',
+  clientes: 'crediário',
+  caixa: 'caixa',
+  compras: 'compras',
+}
+
+/**
+ * O mapa acima e `Record` sobre a uniao DE PROPOSITO: um assunto novo (ou um
+ * especialista novo) **quebra a compilacao** em vez de cair em silencio numa
+ * mensagem que nao lhe corresponde — a licao do achado M1 da revisao.
+ */
+export function mensagemAssuntoSemEspecialista(assunto: AssuntoSemEspecialista): string {
+  return (
+    `Entendi que a pergunta é sobre ${AREA_DO_ASSUNTO[assunto]}, mas ainda não sei ` +
+    'responder isso. Por enquanto eu ajudo com vendas, lucro e margem.'
+  )
+}
+
 /**
  * O periodo pedido e VALIDO e o UNICO problema e o tamanho?
  *

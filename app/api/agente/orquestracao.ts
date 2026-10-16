@@ -4,6 +4,7 @@ import {
   RESERVA_MICROS,
   TOKENS_ENTRADA_RESERVA,
   custoMicros,
+  mensagemAssuntoSemEspecialista,
   mensagemRecusa,
   mesSaoPaulo,
   montarResposta,
@@ -567,6 +568,17 @@ export async function processarPergunta(
   //    invertido ou maior que 31 dias) e recusa, nunca consulta.
   const classificada = validarClassificacao(classificacao.conteudo, hoje)
   if (classificada === null || classificada.intencao === 'fora_escopo') {
+    // O coordenador ENTENDEU o assunto e o especialista ainda nao existe: o caminho
+    // de hoje nao tem intencao para ele, entao devolve `fora_escopo`. Dizer "nao
+    // entendi" ali e FALSO, e a sugestao manda a pessoa perguntar de outra coisa.
+    // Medido em producao em 15/10/2026 ("Quanto tem na gaveta agora?").
+    // O `tsc` prova parte do resto: `fora_escopo` ja retornou acima, entao comparar
+    // com ele seria redundante (e o compilador recusa). `financeiro` PRECISA da
+    // comparacao: aquele ramo e condicional (depende das deps estarem ligadas), e o
+    // tipo nao consegue garantir que ele retornou.
+    if (grafo && assunto !== null && assunto !== 'financeiro') {
+      return { status: 400, corpo: erro(mensagemAssuntoSemEspecialista(assunto)) }
+    }
     return { status: 400, corpo: erro(mensagemRecusa('classificacao')) }
   }
 
