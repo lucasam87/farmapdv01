@@ -268,6 +268,83 @@ export function mensagemAssuntoSemEspecialista(assunto: AssuntoSemEspecialista):
   )
 }
 
+// ============================================================
+// ESPECIALISTA de Clientes e crediario — o segundo do grafo.
+//
+// Ele le `v_clientes_devedores`, que JA EXISTE: nao precisa de banco novo. E, ao
+// contrario do de financeiro, **nao filtra periodo** — "quem me deve" e uma foto do
+// agora, nao um intervalo. Por isso o contrato dele e so `{ "consulta": ... }`.
+// ============================================================
+
+export type ConsultaCliente = 'devedores' | 'total_a_receber'
+
+/** A lista FECHADA do especialista. A ordem e a do prompt. */
+export const CONSULTAS_CLIENTE: readonly ConsultaCliente[] = ['devedores', 'total_a_receber']
+
+const CONSULTA_CLIENTE_ACEITA = new Set<string>(CONSULTAS_CLIENTE)
+
+/** As linhas de `v_clientes_devedores`, em CENTAVOS. */
+export type LinhaDeCliente = { nome: string; saldo: number }
+
+export type DadosCliente =
+  | { consulta: 'devedores'; clientes: LinhaDeCliente[] }
+  | { consulta: 'total_a_receber'; clientes: LinhaDeCliente[] }
+
+/**
+ * Valida a consulta do especialista de clientes. `null` e RECUSA.
+ *
+ * Contrato EXATO `{ "consulta": "..." }` — sem `de`/`ate`, porque nao ha periodo.
+ * Chave a mais e recusa, e o formato do coordenador (`{"assunto": ...}`) tambem.
+ */
+export function validarConsultaCliente(bruto: unknown): ConsultaCliente | null {
+  let objeto: unknown = bruto
+
+  if (typeof bruto === 'string') {
+    try {
+      objeto = JSON.parse(bruto)
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof objeto !== 'object' || objeto === null || Array.isArray(objeto)) return null
+
+  const chaves = Object.keys(objeto)
+  if (chaves.length !== 1 || chaves[0] !== 'consulta') return null
+
+  const valor = (objeto as Record<string, unknown>).consulta
+  if (typeof valor !== 'string') return null
+  return CONSULTA_CLIENTE_ACEITA.has(valor) ? (valor as ConsultaCliente) : null
+}
+
+/**
+ * Monta a resposta do especialista de clientes. **Todo numero escrito em codigo.**
+ *
+ * A lista vai ordenada por saldo DECRESCENTE quando ha mais de um: quem deve mais
+ * e o que o dono precisa cobrar primeiro, e a view nao promete ordem.
+ *
+ * Lista vazia NAO vira "R$ 0,00 a receber": zero e um valor, e "ninguem deve" e
+ * ausencia de divida. Dizer "R$ 0,00" afirmaria que foi medido e deu zero.
+ */
+export function respostaCliente(dados: DadosCliente): string {
+  const ordenados = [...dados.clientes].sort((a, b) => b.saldo - a.saldo)
+  const total = ordenados.reduce((soma, linha) => soma + linha.saldo, 0)
+
+  if (ordenados.length === 0) return VAZIO_CLIENTES
+
+  if (dados.consulta === 'total_a_receber') {
+    return ordenados.length === 1
+      ? `1 cliente com saldo em aberto, num total de ${formatarMoeda(total)}.`
+      : `${ordenados.length} clientes com saldo em aberto, num total de ${formatarMoeda(total)}.`
+  }
+
+  const linhas = ordenados.map((linha, i) => `${i + 1}. ${linha.nome}: ${formatarMoeda(linha.saldo)}`)
+  return [CABECALHO_DEVEDORES, ...linhas, `Total a receber: ${formatarMoeda(total)}.`].join('\n')
+}
+
+const VAZIO_CLIENTES = 'Nenhum cliente com saldo em aberto.'
+const CABECALHO_DEVEDORES = 'Clientes com saldo em aberto'
+
 /**
  * O periodo pedido e VALIDO e o UNICO problema e o tamanho?
  *
